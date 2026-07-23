@@ -1196,7 +1196,7 @@ pub(super) unsafe fn handle_br_transaction(
     if !is_known_keystore_interface(&request_interface) {
         return false;
     }
-    let caller = CallerIdentity::new(tr.sender_euid.max(0) as u32, tr.sender_pid)
+    let mut caller = CallerIdentity::new(tr.sender_euid.max(0) as u32, tr.sender_pid)
         .with_sid(caller_sid.unwrap_or_default());
 
     // Authorization events are emitted by system auth components, not by the
@@ -1268,6 +1268,7 @@ pub(super) unsafe fn handle_br_transaction(
             ParsedMaintenanceRequest::MigrateKeyNamespace { .. }
         ) {
             let decision = evaluate_caller(&caller, &cfg);
+            caller = caller.with_keybox_slot(cfg.keybox_slot_for_packages(&decision.packages));
             (
                 if decision.allowed {
                     RouteTarget::Omk
@@ -1334,6 +1335,7 @@ pub(super) unsafe fn handle_br_transaction(
     }
 
     let decision = evaluate_caller(&caller, &cfg);
+    caller = caller.with_keybox_slot(cfg.keybox_slot_for_packages(&decision.packages));
 
     if request_interface == identify::KEYSTORE_SERVICE_INTERFACE {
         let request =
@@ -2446,8 +2448,9 @@ unsafe fn build_synthetic_br_transaction_reply_inner(
                 .ok_or_else(|| anyhow::anyhow!("missing synthetic operation caller fallback"))?,
         ),
     };
-    let caller = synthetic_transaction_caller(fallback, tr, caller_sid);
+    let mut caller = synthetic_transaction_caller(fallback, tr, caller_sid);
     let decision = evaluate_caller(&caller, &cfg);
+    caller = caller.with_keybox_slot(cfg.keybox_slot_for_packages(&decision.packages));
 
     if kind == SyntheticTargetKind::SecurityLevel {
         let request = match parcel::parse_security_level_request(

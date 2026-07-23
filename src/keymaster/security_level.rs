@@ -185,6 +185,7 @@ impl KeystoreSecurityLevel {
         user: AndroidUserId,
         flags: Option<i32>,
         keybox_attestation_allowed: bool,
+        keybox_uuid: Option<Uuid>,
     ) -> Result<KeyMetadata> {
         let KeyCreationResult {
             keyBlob: key_blob,
@@ -252,7 +253,7 @@ impl KeystoreSecurityLevel {
                         )
                         .context(ks_err!("Failed to handle super encryption."))?;
 
-                    let km_uuid = Uuid::from(self.security_level);
+                    let km_uuid = keybox_uuid.unwrap_or_else(|| Uuid::from(self.security_level));
                     let mut key_metadata = KeyMetaData::new();
                     key_metadata.add(KeyMetaEntry::CreationDate(creation_date));
                     if keybox_attested && km_uuid.is_keybox_bound() {
@@ -805,42 +806,56 @@ impl KeystoreSecurityLevel {
             .context(ks_err!("Trying to get aaid."))?;
 
         let keybox_attestation_allowed = attestation_key_info.is_none();
-        let creation_result = match attestation_key_info {
-            Some(AttestationKeyInfo::UserGenerated {
-                key_id_guard,
-                blob,
-                blob_metadata,
-                issuer_subject,
-            }) => self
-                .upgrade_keyblob_if_required_with(
-                    Some(key_id_guard),
-                    &KeyBlob::Ref(&blob),
-                    blob_metadata.km_uuid().copied(),
-                    &params,
-                    |blob| {
-                        let attest_key = Some(AttestationKey {
-                            keyBlob: blob.to_vec(),
-                            attestKeyParams: vec![],
-                            issuerSubjectName: issuer_subject.clone(),
-                        });
-                        self.generate_key_and_retry_on_att_id_mismatch(&params, attest_key.as_ref())
-                    },
-                )
-                .context(ks_err!(
-                    "While generating with a user-generated \
+        let keybox_slot = ctx
+            .and_then(|caller| u32::try_from(caller.keyboxSlot).ok())
+            .unwrap_or(0);
+        let keybox_uuid = if keybox_attestation_allowed {
+            crate::keybox::identity_digest_for_slot(keybox_slot)
+                .ok()
+                .map(|digest| Uuid::from_keybox_digest(self.security_level, digest))
+        } else {
+            None
+        };
+        let creation_result =
+            crate::keybox::with_active_slot(keybox_slot, || match attestation_key_info {
+                Some(AttestationKeyInfo::UserGenerated {
+                    key_id_guard,
+                    blob,
+                    blob_metadata,
+                    issuer_subject,
+                }) => self
+                    .upgrade_keyblob_if_required_with(
+                        Some(key_id_guard),
+                        &KeyBlob::Ref(&blob),
+                        blob_metadata.km_uuid().copied(),
+                        &params,
+                        |blob| {
+                            let attest_key = Some(AttestationKey {
+                                keyBlob: blob.to_vec(),
+                                attestKeyParams: vec![],
+                                issuerSubjectName: issuer_subject.clone(),
+                            });
+                            self.generate_key_and_retry_on_att_id_mismatch(
+                                &params,
+                                attest_key.as_ref(),
+                            )
+                        },
+                    )
+                    .context(ks_err!(
+                        "While generating with a user-generated \
                       attestation key, params: {:?}.",
-                    log_security_safe_params(&params)
-                ))
-                .map(|(result, _)| result),
-            None => self
-                .generate_key_and_retry_on_att_id_mismatch(&params, None)
-                .context(ks_err!(
-                    "While generating without a provided \
+                        log_security_safe_params(&params)
+                    ))
+                    .map(|(result, _)| result),
+                None => self
+                    .generate_key_and_retry_on_att_id_mismatch(&params, None)
+                    .context(ks_err!(
+                        "While generating without a provided \
                  attestation key and params: {:?}.",
-                    log_security_safe_params(&params)
-                )),
-        }
-        .context(ks_err!())?;
+                        log_security_safe_params(&params)
+                    )),
+            })
+            .context(ks_err!())?;
 
         let user = caller_uid.owning_user();
         self.store_new_key(
@@ -849,6 +864,7 @@ impl KeystoreSecurityLevel {
             user,
             Some(flags),
             keybox_attestation_allowed,
+            keybox_uuid,
         )
         .context(ks_err!())
     }
@@ -913,7 +929,7 @@ impl KeystoreSecurityLevel {
         .context(ks_err!("Trying to call importKey"))?;
 
         let user = caller_uid.owning_user();
-        self.store_new_key(key, creation_result, user, Some(flags), true)
+        self.store_new_key(key, creation_result, user, Some(flags), true, None)
             .context(ks_err!())
     }
 
@@ -1052,7 +1068,7 @@ impl KeystoreSecurityLevel {
             )
             .context(ks_err!())?;
 
-        self.store_new_key(key, creation_result, user, None, true)
+        self.store_new_key(key, creation_result, user, None, true, None)
             .context(ks_err!("Trying to store the new key for {user:?}"))
     }
 
@@ -1580,6 +1596,7 @@ mod tests {
             callingUid: 10123,
             callingSid: "u:r:untrusted_app:s0".to_string(),
             callingPid: 1234,
+            keyboxSlot: 0,
         }
     }
 

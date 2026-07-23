@@ -31,6 +31,12 @@ if [ -f "$TARGET_KEYBOX" ]; then
   chown 1017:1017 "$TARGET_KEYBOX"
 fi
 
+for slot_keybox in "$TARGET_DIR"/keybox-slot-*.xml; do
+  [ -f "$slot_keybox" ] || continue
+  chmod 0600 "$slot_keybox"
+  chown 1017:1017 "$slot_keybox"
+done
+
 if [ -f "$TARGET_INJECTOR_CONFIG" ]; then
   chmod 0600 "$TARGET_INJECTOR_CONFIG"
   chown 1017:1017 "$TARGET_INJECTOR_CONFIG"

@@ -13,6 +13,7 @@ use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Duration;
 
 pub const DEFAULT_CONFIG_PATH: &str = "/data/misc/keystore/omk/injector.toml";
+pub const MAX_KEYBOX_SLOT: u32 = 1024;
 const REPLACE_SAVE_RETRY_INTERVAL: Duration = Duration::from_millis(100);
 const REPLACE_SAVE_RETRY_LIMIT: usize = 10;
 
@@ -316,7 +317,8 @@ fn render_config(config: &InjectorConfig) -> io::Result<String> {
          # Optional per-package settings can be added under [scoop.<package>].\n\
          # Example:\n\
          # [scoop.io.github.vvb2060.keyattestation]\n\
-         # mode = \"strict\"\n\n",
+         # mode = \"strict\"\n\
+         # keybox_slot = 1\n\n",
     );
     let base = toml::to_string_pretty(&WritableConfig {
         scoop: &config.scoop,
@@ -524,6 +526,45 @@ impl InjectorConfig {
         self.scoop_details = normalize_scoop_details(self.scoop_details);
         self
     }
+
+    /// Resolve the keybox slot for a caller's package set.
+    ///
+    /// A UID can own more than one package, so a slot is only selected when
+    /// all configured slot values agree. Conflicting values deliberately fall
+    /// back to the legacy slot 0 rather than choosing one package arbitrarily.
+    pub fn keybox_slot_for_packages(&self, packages: &[String]) -> u32 {
+        let mut selected = None;
+        for package in packages {
+            let Some(table) = self.scoop_details.get(package) else {
+                continue;
+            };
+            let Some(raw_slot) = table.get("keybox_slot").and_then(toml::Value::as_integer) else {
+                continue;
+            };
+            let Ok(slot) = u32::try_from(raw_slot) else {
+                log::warn!("ignoring invalid keybox_slot={raw_slot} for package {package}");
+                continue;
+            };
+            if !(1..=MAX_KEYBOX_SLOT).contains(&slot) {
+                log::warn!(
+                    "ignoring out-of-range keybox_slot={slot} for package {package} (valid range 1..={MAX_KEYBOX_SLOT})"
+                );
+                continue;
+            }
+            match selected {
+                None => selected = Some(slot),
+                Some(existing) if existing == slot => {}
+                Some(existing) => {
+                    log::warn!(
+                        "packages {:?} requested conflicting keybox slots {existing} and {slot}; using legacy slot 0",
+                        packages
+                    );
+                    return 0;
+                }
+            }
+        }
+        selected.unwrap_or(0)
+    }
 }
 
 #[cfg(test)]
@@ -573,6 +614,7 @@ scoop = ["com.example.app", "com.other.app", "com.example.app"]
 
 [scoop."com.example.app"]
 mode = "strict"
+keybox_slot = 2
 
 [main]
 enabled = false
@@ -612,6 +654,14 @@ get_supplementary_attestation_info = true
                 .and_then(|table| table.get("mode"))
                 .and_then(toml::Value::as_str),
             Some("strict")
+        );
+        assert_eq!(
+            parsed.keybox_slot_for_packages(&["com.example.app".to_string()]),
+            2
+        );
+        assert_eq!(
+            parsed.keybox_slot_for_packages(&["com.other.app".to_string()]),
+            0
         );
         assert!(!parsed.intercept.get_security_level);
         assert!(parsed.intercept.get_key_entry);

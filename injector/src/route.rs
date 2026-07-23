@@ -15,6 +15,7 @@ pub struct CallerIdentity {
     pub uid: u32,
     pub pid: i32,
     pub sid: String,
+    pub keybox_slot: u32,
 }
 
 impl CallerIdentity {
@@ -23,6 +24,7 @@ impl CallerIdentity {
             uid,
             pid,
             sid: String::new(),
+            keybox_slot: 0,
         }
     }
 
@@ -31,11 +33,17 @@ impl CallerIdentity {
         self
     }
 
+    pub fn with_keybox_slot(mut self, keybox_slot: u32) -> Self {
+        self.keybox_slot = keybox_slot;
+        self
+    }
+
     pub fn to_caller_info(&self) -> CallerInfo {
         CallerInfo {
             callingUid: self.uid as i64,
             callingSid: self.sid.clone(),
             callingPid: self.pid as i64,
+            keyboxSlot: self.keybox_slot as i64,
         }
     }
 }

@@ -138,7 +138,12 @@ export class CustomKeyboxProvider {
 
       const cmd = script || 'cat'
       const result = await this.#keybox.setKeybox(data, cmd)
-      this.#snackbar.show(i18n.t(result ? 'prompt_custom_key_set' : 'prompt_custom_key_set_error'), result)
+      if (result !== 'cancelled') {
+        this.#snackbar.show(
+          i18n.t(result === 'saved' ? 'prompt_custom_key_set' : 'prompt_custom_key_set_error'),
+          result === 'saved',
+        )
+      }
     } catch (error) {
       console.error(error)
       this.#snackbar.show(i18n.t('prompt_custom_fetch_error'), false)

@@ -98,6 +98,11 @@ const mainMenu = new MainMenu()
 const keybox = new Keybox(cli, config, fileSelector, snackbar)
 const keyboxRepo = new KeyboxRepo(keybox, history, snackbar)
 const dialogController = new DialogController(cli, config, appList)
+appList.setLongPressHandler(async (packageName) => {
+  if (await keybox.showAppKeyboxMenu(packageName)) {
+    await appList.refresh(false)
+  }
+})
 
 const mainMenuContainer = document.querySelector<HTMLElement>('.main-menu')!
 mainMenu.appendTo(mainMenuContainer)

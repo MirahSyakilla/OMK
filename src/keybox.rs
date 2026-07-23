@@ -1,4 +1,5 @@
 use std::{
+    cell::Cell,
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
@@ -26,6 +27,8 @@ use x509_cert::der as x509_der;
 use x509_cert::Certificate;
 
 pub const KEYBOX_PATH: &str = "/data/misc/keystore/omk/keybox.xml";
+pub const KEYBOX_DIRECTORY: &str = "/data/misc/keystore/omk";
+pub const MAX_KEYBOX_SLOT: u32 = 1024;
 
 const BUNDLED_KEYBOX_XML: &str = include_str!("../template/keybox.xml");
 
@@ -45,6 +48,10 @@ lazy_static::lazy_static! {
 static KEYBOX_WATCHER: OnceLock<()> = OnceLock::new();
 static KEYBOX_DB_RETIRE_ALLOWED: AtomicBool = AtomicBool::new(false);
 static KEYBOX_RUNTIME_LOADED: AtomicBool = AtomicBool::new(false);
+
+thread_local! {
+    static ACTIVE_KEYBOX_SLOT: Cell<u32> = const { Cell::new(0) };
+}
 
 #[derive(Clone)]
 pub struct CertSignAlgoInfo {
@@ -281,6 +288,28 @@ impl KeyBox {
             certificates = certificates,
         )
     }
+}
+
+pub fn keybox_slot_path(slot: u32) -> PathBuf {
+    Path::new(KEYBOX_DIRECTORY).join(format!("keybox-slot-{slot}.xml"))
+}
+
+pub fn with_active_slot<T>(slot: u32, f: impl FnOnce() -> T) -> T {
+    let slot = if (1..=MAX_KEYBOX_SLOT).contains(&slot) {
+        slot
+    } else {
+        0
+    };
+    ACTIVE_KEYBOX_SLOT.with(|active| {
+        let previous = active.replace(slot);
+        let result = f();
+        active.set(previous);
+        result
+    })
+}
+
+fn active_slot() -> u32 {
+    ACTIVE_KEYBOX_SLOT.with(Cell::get)
 }
 
 impl Default for KeyBox {
@@ -665,6 +694,26 @@ pub fn current_identity_digest() -> [u8; 32] {
     KEYBOX.read().unwrap().identity_digest()
 }
 
+/// Return the identity digest for a keybox slot without changing the process-wide
+/// default keybox. Slot zero is the legacy keybox loaded in `KEYBOX`.
+pub fn identity_digest_for_slot(slot: u32) -> Result<[u8; 32]> {
+    let slot = if (1..=MAX_KEYBOX_SLOT).contains(&slot) {
+        slot
+    } else {
+        0
+    };
+    if slot == 0 {
+        return Ok(current_identity_digest());
+    }
+
+    let path = keybox_slot_path(slot);
+    let contents = fs::read_to_string(&path)
+        .with_context(|| format!("failed to read keybox slot {slot} from {}", path.display()))?;
+    let keybox = KeyBox::from_xml_str(&contents)
+        .with_context(|| format!("failed to parse keybox slot {slot} from {}", path.display()))?;
+    Ok(keybox.identity_digest())
+}
+
 pub(crate) fn signing_certificate_ders_from_disk() -> Result<[Vec<u8>; 2]> {
     let _io_guard = KEYBOX_IO_LOCK.lock().unwrap();
     let (keybox, _) = load_keybox_with_fallback(KEYBOX_PATH)?;
@@ -678,9 +727,29 @@ pub struct KeyboxManager;
 
 impl RetrieveCertSigningInfo for KeyboxManager {
     fn signing_info(&self, key_type: SigningKeyType) -> Result<SigningInfoSnapshot, Error> {
-        let keybox = KEYBOX
-            .read()
-            .map_err(|_| kmr_common::km_err!(UnknownError, "failed to lock KEYBOX"))?;
+        let slot = active_slot();
+        if slot == 0 {
+            let keybox = KEYBOX
+                .read()
+                .map_err(|_| kmr_common::km_err!(UnknownError, "failed to lock KEYBOX"))?;
+            return keybox.signing_info(key_type);
+        }
+
+        let path = keybox_slot_path(slot);
+        let contents = fs::read_to_string(&path).map_err(|error| {
+            kmr_common::km_err!(
+                UnknownError,
+                "failed to read keybox slot {slot} from {}: {error}",
+                path.display()
+            )
+        })?;
+        let keybox = KeyBox::from_xml_str(&contents).map_err(|error| {
+            kmr_common::km_err!(
+                UnknownError,
+                "failed to parse keybox slot {slot} from {}: {error:#}",
+                path.display()
+            )
+        })?;
         keybox.signing_info(key_type)
     }
 }
@@ -815,5 +884,25 @@ mod tests {
             true,
             keybox.identity_digest(),
         ));
+    }
+
+    #[test]
+    fn slot_paths_are_numeric_and_separate_from_legacy_keybox() {
+        assert_eq!(
+            keybox_slot_path(2),
+            Path::new(KEYBOX_DIRECTORY).join("keybox-slot-2.xml")
+        );
+        assert_ne!(keybox_slot_path(2), PathBuf::from(KEYBOX_PATH));
+    }
+
+    #[test]
+    fn active_slot_scope_restores_previous_value() {
+        assert_eq!(active_slot(), 0);
+        with_active_slot(2, || {
+            assert_eq!(active_slot(), 2);
+            with_active_slot(3, || assert_eq!(active_slot(), 3));
+            assert_eq!(active_slot(), 2);
+        });
+        assert_eq!(active_slot(), 0);
     }
 }

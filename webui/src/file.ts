@@ -24,6 +24,14 @@ FileEOF`)
     if (result.errno !== 0) throw new Error(`File.write failed (${result.errno}): ${result.stderr}`)
   }
 
+  /** Restrict a sensitive file to the KeyMint service account. */
+  static async secure(path: string): Promise<void> {
+    const result = await exec(`chmod 0600 "${path}" && chown 1017:1017 "${path}"`)
+    if (result.errno !== 0) {
+      throw new Error(`File.secure failed (${result.errno}): ${result.stderr}`)
+    }
+  }
+
   static async move(src: string, dst: string): Promise<void> {
     const result = await exec(`mv -f "${src}" "${dst}"`)
     if (result.errno !== 0) throw new Error(`File.move failed (${result.errno}): ${result.stderr}`)

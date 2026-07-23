@@ -21,6 +21,7 @@
     background-color: var(--md-sys-color-surface-container);
     position: relative;
     overflow: hidden;
+    touch-action: manipulation;
     transition: border-radius 0.2s ease, background-color 0.1s ease;
 
     &:active {
@@ -90,6 +91,11 @@
   .package-name {
     color: var(--md-sys-color-outline);
     font-size: 0.9em;
+  }
+
+  .keybox-slot {
+    color: var(--md-sys-color-primary);
+    font-size: 0.8em;
   }
 
   .loader {

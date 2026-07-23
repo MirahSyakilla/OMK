@@ -44,6 +44,24 @@ export class Cli {
     return File.read(`${basePath}/keybox.xml`)
   }
 
+  async getKeyboxSlots(configPath: string): Promise<number[]> {
+    if (import.meta.env.DEV) return [1, 2]
+
+    const result = await exec(
+      'find "' + configPath + '" -maxdepth 1 -type f -name \'keybox-slot-*.xml\' -print',
+    )
+    if (result.errno !== 0) return []
+
+    const slots = result.stdout
+      .split(/\r?\n/)
+      .map((path) => path.match(/\/keybox-slot-(\d+)\.xml$/)?.[1])
+      .filter((slot): slot is string => slot !== undefined)
+      .map(Number)
+      .filter((slot) => Number.isInteger(slot) && slot > 0 && slot <= 1024)
+
+    return [...new Set(slots)].sort((a, b) => a - b)
+  }
+
   getRepositoryUrl(): string {
     return `https://github.com/${GITHUB_REPO}`
   }

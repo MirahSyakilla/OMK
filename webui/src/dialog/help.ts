@@ -28,7 +28,7 @@ export class HelpDialog {
           </div>
           <div class="instruction">
             <h3>Keybox</h3>
-            <p>AOSP resets to the module’s bundled keybox. Repo opens the KOWX712 keybox picker flow inside the WebUI. Unknown generates a self-signed fallback.</p>
+            <p>AOSP resets to the module’s bundled keybox. Repo opens the KOWX712 keybox picker flow inside the WebUI. Unknown generates a self-signed fallback. Long-press an app and choose <b>Select Keybox</b> to assign a numbered slot.</p>
           </div>
         </div>
         <div slot="actions">

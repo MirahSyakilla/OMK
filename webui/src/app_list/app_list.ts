@@ -1,6 +1,7 @@
 import { exec, listPackages, getPackagesInfo } from 'kernelsu-alt'
 import type { PackagesInfo } from 'kernelsu-alt'
 import { Config } from '../config'
+import { i18n } from '../i18n'
 import './app_list.scss'
 
 const SYSTEM_APPS_KEY = 'OhMyKeymintWebUIAdditionalApps'
@@ -25,10 +26,16 @@ export class AppList {
   #iconObserver: IntersectionObserver | null = null
   #systemAppIconObserver: IntersectionObserver | null = null
   #container: HTMLElement | null = null
+  #onLongPress: ((packageName: string) => void | Promise<void>) | null = null
+  #longPressedCards = new WeakSet<HTMLElement>()
   menuOpen = false
 
   constructor(config: Config) {
     this.#config = config
+  }
+
+  setLongPressHandler(handler: (packageName: string) => void | Promise<void>): void {
+    this.#onLongPress = handler
   }
 
   async fetch(): Promise<void> {
@@ -221,6 +228,10 @@ export class AppList {
   #createCard(entry: AppEntry, targeted: boolean): HTMLElement {
     const selectedClass = targeted ? ' selected' : ''
     const checkedAttr = targeted ? 'checked' : ''
+    const keyboxSlot = this.#config.getKeyboxSlot(entry.packageName)
+    const keyboxSlotLabel = keyboxSlot > 0
+      ? `<div class="keybox-slot">${i18n.t('keybox_slot_label', keyboxSlot)}</div>`
+      : ''
 
     const wrapper = document.createElement('div')
     wrapper.innerHTML = /* html */ `
@@ -238,6 +249,7 @@ export class AppList {
             <div class="app-info">
               <div class="app-name">${entry.appName}</div>
               <div class="package-name">${entry.packageName}</div>
+              ${keyboxSlotLabel}
             </div>
           </label>
           <md-checkbox class="checkbox" id="checkbox-${entry.packageName}" touch-target="wrapper" ${checkedAttr}></md-checkbox>
@@ -248,8 +260,43 @@ export class AppList {
 
   #setupCardListeners(container: HTMLElement): void {
     container.querySelectorAll<HTMLElement>('.card').forEach((card) => {
+      let longPressTimer: ReturnType<typeof setTimeout> | null = null
+      let pointerStartX = 0
+      let pointerStartY = 0
+
+      const clearLongPress = (): void => {
+        if (longPressTimer !== null) {
+          clearTimeout(longPressTimer)
+          longPressTimer = null
+        }
+      }
+
+      card.addEventListener('pointerdown', (event: PointerEvent) => {
+        if (event.button !== 0 || this.menuOpen) return
+        pointerStartX = event.clientX
+        pointerStartY = event.clientY
+        clearLongPress()
+        longPressTimer = setTimeout(() => {
+          longPressTimer = null
+          this.#longPressedCards.add(card)
+          const packageName = card.dataset.package
+          if (packageName) void this.#onLongPress?.(packageName)
+        }, 550)
+      })
+      card.addEventListener('pointermove', (event: PointerEvent) => {
+        if (Math.hypot(event.clientX - pointerStartX, event.clientY - pointerStartY) > 10) {
+          clearLongPress()
+        }
+      })
+      card.addEventListener('pointerup', clearLongPress)
+      card.addEventListener('pointercancel', clearLongPress)
+
       card.onclick = () => {
         if (this.menuOpen) return
+        if (this.#longPressedCards.has(card)) {
+          this.#longPressedCards.delete(card)
+          return
+        }
         const pkg = card.dataset.package!
         const checkbox = card.querySelector('md-checkbox')!
         const target = (this.#config.get('target') as string[]) || []

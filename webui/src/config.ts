@@ -95,6 +95,7 @@ export class PolicySchema {
 }
 
 const PACKAGE_LIST_HINT = 'one package per line or comma separated'
+const MAX_KEYBOX_SLOT = 1024
 const HEX_64 = /^[0-9a-f]{64}$/i
 const LOG_LEVELS = ['off', 'error', 'warn', 'warning', 'info', 'debug', 'trace']
 
@@ -420,9 +421,14 @@ export class Config {
   #data: ConfigData = {}
   #injector: Record<string, unknown> | null = null
   #omkConfig: Record<string, unknown> | null = null
+  #keyboxSlots: Record<string, number> = {}
 
   async read(): Promise<void> {
     if (import.meta.env.DEV) {
+      this.#keyboxSlots = {
+        'io.github.vvb2060.keyattestation': 1,
+        'com.google.android.gms': 2,
+      }
       this.#data = {
         target: [
           'io.github.vvb2060.keyattestation',
@@ -514,6 +520,15 @@ export class Config {
     const injectorMain = recordValue(injector.main)
     const injectorFilter = recordValue(injector.filter)
     const injectorIntercept = recordValue(injector.intercept)
+    const scoopDetails = recordValue(injector.scoop_details)
+
+    this.#keyboxSlots = {}
+    for (const [packageName, rawDetails] of Object.entries(scoopDetails)) {
+      const slot = recordValue(rawDetails).keybox_slot
+      if (typeof slot === 'number' && Number.isInteger(slot) && slot > 0 && slot <= MAX_KEYBOX_SLOT) {
+        this.#keyboxSlots[packageName] = slot
+      }
+    }
 
     data.target = Array.isArray(injector.scoop)
       ? injector.scoop.map((entry) => String(entry).trim()).filter((entry) => entry.length > 0)
@@ -632,6 +647,21 @@ export class Config {
     injector.main = injectorMain
     injector.filter = filter
     injector.intercept = intercept
+    const scoopDetails = recordValue(injector.scoop_details)
+    for (const [packageName, slot] of Object.entries(this.#keyboxSlots)) {
+      const details = recordValue(scoopDetails[packageName])
+      if (slot > 0) {
+        details.keybox_slot = slot
+      } else {
+        delete details.keybox_slot
+      }
+      if (Object.keys(details).length === 0) {
+        delete scoopDetails[packageName]
+      } else {
+        scoopDetails[packageName] = details
+      }
+    }
+    injector.scoop_details = scoopDetails
     this.#injector = injector
     await File.write(this.INJECTOR_FILE, prettyPrintToml(stringify(injector)))
 
@@ -731,6 +761,15 @@ export class Config {
       this.#data[section] = []
     }
     (this.#data[section] as string[]).push(value)
+  }
+
+  getKeyboxSlot(packageName: string): number {
+    return this.#keyboxSlots[packageName] ?? 0
+  }
+
+  setKeyboxSlot(packageName: string, slot: number): void {
+    if (!Number.isInteger(slot) || slot < 0 || slot > MAX_KEYBOX_SLOT) return
+    this.#keyboxSlots[packageName] = slot
   }
 
   get configPath(): string {

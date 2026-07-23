@@ -4,4 +4,5 @@ parcelable CallerInfo {
      long callingUid;
      String callingSid;
      long callingPid;
+     long keyboxSlot;
 }

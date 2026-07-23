@@ -103,6 +103,20 @@
     <string name="prompt_keybox_repo_set">Keybox set from repo successfully</string>
     <string name="prompt_keybox_repo_set_error">Failed to set keybox from repo</string>
     <string name="prompt_keybox_repo_download_error">Download failed for %s</string>
+    <string name="prompt_keybox_slot_assigned">%s will use %s</string>
+    <string name="prompt_keybox_slot_assign_error">Failed to assign keybox slot</string>
+    <string name="keybox_select_title">Select Keybox</string>
+    <string name="keybox_app_actions_title">App Keybox</string>
+    <string name="keybox_select_action">Select Keybox</string>
+    <string name="keybox_save_title">Save Keybox</string>
+    <string name="keybox_slot_default">Default keybox</string>
+    <string name="keybox_slot_label">Keybox slot %d</string>
+    <string name="keybox_slot_new">New slot…</string>
+    <string name="keybox_slot_number">Slot number (1-1024)</string>
+    <string name="keybox_slot_create">Create slot</string>
+    <string name="keybox_slot_invalid">Invalid keybox slot</string>
+    <string name="keybox_overwrite_title">Overwrite Keybox?</string>
+    <string name="keybox_overwrite_confirm">Overwrite %s? The existing keybox will be backed up.</string>
     <!-- Security Patch -->
     <string name="default_policy_title">Default Policy</string>
     <string name="security_patch_invalid_all">Invalid format</string>

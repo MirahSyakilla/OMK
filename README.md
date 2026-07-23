@@ -91,6 +91,24 @@ are still accepted, and OMK will generate those fields when it rewrites the conf
 If `config.toml` becomes invalid, OMK rewrites a canonical default config, renames the broken
 file to `config.toml.bak`, and appends the parse error to the backup.
 
+### Per-app keybox slots
+
+OMK keeps the legacy keybox at `/data/misc/keystore/omk/keybox.xml` (slot `0`).
+Additional keyboxes can be stored as `keybox-slot-N.xml`, where `N` is `1` through `1024`.
+The WebUI can create these files, assign a slot to an app with a long press and **Select Keybox**,
+and choose a destination slot whenever a keybox is fetched or imported. Existing files are backed
+up before an overwrite and are secured for the KeyMint service (`0600`, owner `1017:1017`).
+
+Assignments are stored in `injector.toml` using the per-package table:
+
+```toml
+[scoop.com.example.app]
+keybox_slot = 1
+```
+
+If multiple packages share a UID, the slot is used only when all configured packages agree;
+conflicting assignments intentionally fall back to slot `0`.
+
 ### /data/misc/keystore/omk/injector.toml
 
 ```toml

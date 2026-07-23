@@ -5,6 +5,7 @@
 # Example:
 # [scoop.io.github.vvb2060.keyattestation]
 # mode = "strict"
+# keybox_slot = 1
 
 scoop = [
   "io.github.vvb2060.keyattestation",
