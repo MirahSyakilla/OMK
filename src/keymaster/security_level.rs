@@ -253,7 +253,16 @@ impl KeystoreSecurityLevel {
                         )
                         .context(ks_err!("Failed to handle super encryption."))?;
 
-                    let km_uuid = keybox_uuid.unwrap_or_else(|| Uuid::from(self.security_level));
+                    let km_uuid = if keybox_attested {
+                        keybox_uuid.unwrap_or_else(|| {
+                            Uuid::from_keybox_digest(
+                                self.security_level,
+                                crate::keybox::current_identity_digest(),
+                            )
+                        })
+                    } else {
+                        Uuid::from(self.security_level)
+                    };
                     let mut key_metadata = KeyMetaData::new();
                     key_metadata.add(KeyMetaEntry::CreationDate(creation_date));
                     if keybox_attested && km_uuid.is_keybox_bound() {

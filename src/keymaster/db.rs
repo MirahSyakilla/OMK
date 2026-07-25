@@ -335,13 +335,19 @@ impl Deref for Uuid {
     }
 }
 
-impl From<SecurityLevel> for Uuid {
-    fn from(sec_level: SecurityLevel) -> Self {
-        Self::from_keybox_digest(sec_level, crate::keybox::current_identity_digest())
-    }
-}
-
 impl Uuid {
+    fn from_stable_security_level(sec_level: SecurityLevel) -> Self {
+        if sec_level == SecurityLevel::KEYSTORE {
+            return KEYSTORE_UUID;
+        }
+
+        let mut uuid_bytes = [0u8; 16];
+        uuid_bytes[..KEYBOX_UUID_DIGEST_BYTES].copy_from_slice(b"omksec-level");
+        uuid_bytes[KEYBOX_UUID_DIGEST_BYTES..]
+            .copy_from_slice(&((sec_level.0 as u32) | 0x8000_0000).to_be_bytes());
+        Self(uuid_bytes)
+    }
+
     pub(crate) fn from_keybox_digest(sec_level: SecurityLevel, digest: [u8; 32]) -> Self {
         let mut uuid_bytes = [0u8; 16];
         uuid_bytes[..KEYBOX_UUID_DIGEST_BYTES].copy_from_slice(&digest[..KEYBOX_UUID_DIGEST_BYTES]);
@@ -368,6 +374,12 @@ impl Uuid {
 
     pub(crate) fn is_keybox_bound(&self) -> bool {
         *self != KEYSTORE_UUID && self.to_security_level().is_some()
+    }
+}
+
+impl From<SecurityLevel> for Uuid {
+    fn from(sec_level: SecurityLevel) -> Self {
+        Self::from_stable_security_level(sec_level)
     }
 }
 
@@ -3883,6 +3895,21 @@ mod tests {
     }
 
     #[test]
+    fn uuid_from_security_level_is_stable_not_keybox_bound() {
+        let digest = [0x5a; 32];
+        let stable_tee = Uuid::from(SecurityLevel::TRUSTED_ENVIRONMENT);
+        let stable_strongbox = Uuid::from(SecurityLevel::STRONGBOX);
+        let keybox_tee = Uuid::from_keybox_digest(SecurityLevel::TRUSTED_ENVIRONMENT, digest);
+
+        assert_eq!(stable_tee, Uuid::from(SecurityLevel::TRUSTED_ENVIRONMENT));
+        assert_ne!(stable_tee, keybox_tee);
+        assert_ne!(stable_tee, stable_strongbox);
+        assert!(!stable_tee.is_keybox_bound());
+        assert!(!stable_strongbox.is_keybox_bound());
+        assert_eq!(Uuid::from(SecurityLevel::KEYSTORE), KEYSTORE_UUID);
+    }
+
+    #[test]
     fn retire_stale_keybox_bound_entries_keeps_current_and_keystore_entries() {
         let current_digest = [0x11; 32];
         let stale_digest = [0x22; 32];
@@ -3891,6 +3918,7 @@ mod tests {
         let stale_tee_uuid =
             Uuid::from_keybox_digest(SecurityLevel::TRUSTED_ENVIRONMENT, stale_digest);
         let stale_strongbox_uuid = Uuid::from_keybox_digest(SecurityLevel::STRONGBOX, stale_digest);
+        let stable_tee_uuid = Uuid::from(SecurityLevel::TRUSTED_ENVIRONMENT);
         let mut db = make_test_db();
 
         {
@@ -3900,6 +3928,7 @@ mod tests {
             insert_live_client_key(&tx, 3, current_uuid, "current-keybox");
             insert_live_client_key(&tx, 4, KEYSTORE_UUID, "keystore");
             insert_live_client_key(&tx, 5, stale_tee_uuid, "stale-without-metadata");
+            insert_live_client_key(&tx, 6, stable_tee_uuid, "stable-tee");
             add_keybox_attestation_metadata(&tx, 1, stale_tee_uuid);
             add_keybox_attestation_metadata(&tx, 2, stale_strongbox_uuid);
             add_keybox_attestation_metadata(&tx, 3, current_uuid);
@@ -3917,11 +3946,13 @@ mod tests {
         assert_eq!(1, key_entry_count(&db, 3));
         assert_eq!(1, key_entry_count(&db, 4));
         assert_eq!(1, key_entry_count(&db, 5));
+        assert_eq!(1, key_entry_count(&db, 6));
         assert_eq!(BlobState::Orphaned, blob_state(&db, 1));
         assert_eq!(BlobState::Orphaned, blob_state(&db, 2));
         assert_eq!(BlobState::Current, blob_state(&db, 3));
         assert_eq!(BlobState::Current, blob_state(&db, 4));
         assert_eq!(BlobState::Current, blob_state(&db, 5));
+        assert_eq!(BlobState::Current, blob_state(&db, 6));
     }
 
     #[test]
