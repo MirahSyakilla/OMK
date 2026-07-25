@@ -261,25 +261,36 @@ impl KeyMintDevice {
                 });
 
             if let Some(key_blob_vec) = key_blob {
-                let (key_characteristics, key_blob) = self
-                    .upgrade_keyblob_if_required_with(
-                        db,
-                        &key_id_guard,
-                        KeyBlob::NonSensitive(key_blob_vec),
-                        |key_blob| {
-                            map_km_error({
-                                let _wp = wd::watch(concat!(
-                                    "KeyMintDevice::lookup_or_generate_key: ",
-                                    "calling IKeyMintDevice::getKeyCharacteristics."
-                                ));
-                                self.km_dev.getKeyCharacteristics(key_blob, &[], &[])
-                            })
-                        },
-                    )
-                    .context(err!("calling getKeyCharacteristics"))?;
+                let lookup_result = self.upgrade_keyblob_if_required_with(
+                    db,
+                    &key_id_guard,
+                    KeyBlob::NonSensitive(key_blob_vec),
+                    |key_blob| {
+                        map_km_error({
+                            let _wp = wd::watch(concat!(
+                                "KeyMintDevice::lookup_or_generate_key: ",
+                                "calling IKeyMintDevice::getKeyCharacteristics."
+                            ));
+                            self.km_dev.getKeyCharacteristics(key_blob, &[], &[])
+                        })
+                    },
+                );
 
-                if validate_characteristics(&key_characteristics) {
-                    return Ok((key_id_guard, key_blob));
+                match lookup_result {
+                    Ok((key_characteristics, key_blob)) => {
+                        if validate_characteristics(&key_characteristics) {
+                            return Ok((key_id_guard, key_blob));
+                        }
+                    }
+                    Err(error) if is_replaceable_cached_key_error(&error) => {
+                        warn!(
+                            "discarding stale cached key {:?}: {error:#}",
+                            key_desc.alias
+                        );
+                    }
+                    Err(error) => {
+                        return Err(error).context(err!("calling getKeyCharacteristics"));
+                    }
                 }
 
                 // If this point is reached the existing key is considered outdated or corrupted
@@ -1001,6 +1012,19 @@ impl KeyMintWrapper {
             key_blob: key_blob.to_vec(),
         }))
     }
+}
+
+fn is_replaceable_cached_key_error(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause.downcast_ref::<Error>().is_some_and(|error| {
+            matches!(
+                error,
+                Error::Km(code)
+                    if *code == ErrorCode::INVALID_KEY_BLOB
+                        || *code == ErrorCode::KEY_REQUIRES_UPGRADE
+            )
+        })
+    })
 }
 
 fn timestamp_token_to_wire(
