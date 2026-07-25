@@ -326,6 +326,8 @@ impl FromSql for KeyType {
 pub struct Uuid([u8; 16]);
 
 const KEYBOX_UUID_DIGEST_BYTES: usize = 12;
+const STABLE_SECURITY_LEVEL_UUID_PREFIX: &[u8; KEYBOX_UUID_DIGEST_BYTES] = b"omksec-level";
+const STABLE_SECURITY_LEVEL_FLAG: u32 = 0x8000_0000;
 
 impl Deref for Uuid {
     type Target = [u8; 16];
@@ -336,15 +338,22 @@ impl Deref for Uuid {
 }
 
 impl Uuid {
+    fn decode_security_level(raw: u32) -> Option<SecurityLevel> {
+        match raw {
+            0 | 1 | 2 | 100 => Some(SecurityLevel(raw as i32)),
+            _ => None,
+        }
+    }
+
     fn from_stable_security_level(sec_level: SecurityLevel) -> Self {
         if sec_level == SecurityLevel::KEYSTORE {
             return KEYSTORE_UUID;
         }
 
         let mut uuid_bytes = [0u8; 16];
-        uuid_bytes[..KEYBOX_UUID_DIGEST_BYTES].copy_from_slice(b"omksec-level");
+        uuid_bytes[..KEYBOX_UUID_DIGEST_BYTES].copy_from_slice(STABLE_SECURITY_LEVEL_UUID_PREFIX);
         uuid_bytes[KEYBOX_UUID_DIGEST_BYTES..]
-            .copy_from_slice(&((sec_level.0 as u32) | 0x8000_0000).to_be_bytes());
+            .copy_from_slice(&((sec_level.0 as u32) | STABLE_SECURITY_LEVEL_FLAG).to_be_bytes());
         Self(uuid_bytes)
     }
 
@@ -358,10 +367,11 @@ impl Uuid {
     pub fn to_security_level(&self) -> Option<SecurityLevel> {
         let mut sec_level_bytes = [0u8; 4];
         sec_level_bytes.copy_from_slice(&self.0[KEYBOX_UUID_DIGEST_BYTES..]);
-        match u32::from_be_bytes(sec_level_bytes) {
-            0 | 1 | 2 | 100 => Some(SecurityLevel(u32::from_be_bytes(sec_level_bytes) as i32)),
-            _ => None,
+        let raw = u32::from_be_bytes(sec_level_bytes);
+        if self.0[..KEYBOX_UUID_DIGEST_BYTES] == *STABLE_SECURITY_LEVEL_UUID_PREFIX {
+            return Self::decode_security_level(raw & !STABLE_SECURITY_LEVEL_FLAG);
         }
+        Self::decode_security_level(raw)
     }
 
     pub fn get_digest(&self) -> &[u8] {
@@ -373,7 +383,9 @@ impl Uuid {
     }
 
     pub(crate) fn is_keybox_bound(&self) -> bool {
-        *self != KEYSTORE_UUID && self.to_security_level().is_some()
+        *self != KEYSTORE_UUID
+            && self.0[..KEYBOX_UUID_DIGEST_BYTES] != *STABLE_SECURITY_LEVEL_UUID_PREFIX
+            && self.to_security_level().is_some()
     }
 }
 
@@ -3904,6 +3916,14 @@ mod tests {
         assert_eq!(stable_tee, Uuid::from(SecurityLevel::TRUSTED_ENVIRONMENT));
         assert_ne!(stable_tee, keybox_tee);
         assert_ne!(stable_tee, stable_strongbox);
+        assert_eq!(
+            stable_tee.to_security_level(),
+            Some(SecurityLevel::TRUSTED_ENVIRONMENT)
+        );
+        assert_eq!(
+            stable_strongbox.to_security_level(),
+            Some(SecurityLevel::STRONGBOX)
+        );
         assert!(!stable_tee.is_keybox_bound());
         assert!(!stable_strongbox.is_keybox_bound());
         assert_eq!(Uuid::from(SecurityLevel::KEYSTORE), KEYSTORE_UUID);

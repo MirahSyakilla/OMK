@@ -40,7 +40,10 @@ static GC: LazyLock<Arc<Gc>> = LazyLock::new(|| {
     Arc::new(Gc::new_init_with(ASYNC_TASK.clone(), || {
         (
             Box::new(|uuid, blob| {
-                let security_level = uuid.to_security_level().unwrap();
+                let Some(security_level) = uuid.to_security_level() else {
+                    log::warn!("Skipping deleteKey for blob with unknown KeyMint UUID {uuid:?}");
+                    return Ok(());
+                };
 
                 if security_level == KmSecurityLevel::STRONGBOX
                     && !crate::plat::keymint_profile::strongbox_keymint_present()
