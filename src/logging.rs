@@ -10,14 +10,19 @@ static LOGGER_INIT: OnceLock<()> = OnceLock::new();
 
 pub fn init_logger() {
     let _ = LOGGER_INIT.get_or_init(|| {
-        if let Err(error) = init_logger_inner() {
+        if let Err(error) = init_logger_inner(
+            std::fs::read_to_string(crate::config::config_path())
+                .ok()
+                .and_then(|contents| toml::from_str::<crate::config::ConfigFile>(&contents).ok())
+                .and_then(|config| config.main.log_level.trim().parse().ok())
+                .unwrap_or(LevelFilter::Debug),
+        ) {
             eprintln!("keymint logging failed to initialize: {error:#}");
         }
     });
 }
 
-fn init_logger_inner() -> Result<()> {
-    let level = LevelFilter::Debug;
+fn init_logger_inner(level: LevelFilter) -> Result<()> {
     let config = android_logger::Config::default()
         .with_max_level(level)
         .with_tag("OhMyKeymint");
@@ -34,8 +39,9 @@ fn init_logger_inner() -> Result<()> {
 
     multi_log::MultiLogger::init(
         vec![Box::new(android_logger), Box::new(log4rs)],
-        log::Level::Debug,
+        level.to_level().unwrap_or(log::Level::Error),
     )?;
+    log::set_max_level(level);
 
     if file_logging_ready {
         log::info!(

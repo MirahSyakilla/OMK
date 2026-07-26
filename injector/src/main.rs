@@ -1,6 +1,5 @@
 use std::ffi::c_void;
 
-use log::LevelFilter;
 use log::{error, info, warn};
 use nix::unistd::Pid;
 
@@ -33,7 +32,7 @@ fn log_runtime_identity(role: &str) {
 }
 
 fn main() {
-    logging::init_logger_fallback(LevelFilter::Debug);
+    logging::init_logger_fallback(config::get().main.log_level_filter());
     log_runtime_identity("Launcher");
     match utils::current_exe_identity() {
         Ok(identity) => {
@@ -83,15 +82,15 @@ fn main() {
 pub extern "C" fn entry(handle: *const c_void) -> bool {
     // This runs inside the target process, so we must initialize logging again
     // for that process. On Android this enables both logcat and stdout logging.
-    logging::init_logger_fallback(LevelFilter::Debug);
     let config = config::get();
+    logging::init_logger_fallback(config.main.log_level_filter());
     if config::parse_level_filter(&config.main.log_level).is_none() {
         warn!(
             "injector logging unknown log level '{}', keeping debug fallback",
             config.main.log_level
         );
     }
-    logging::update_runtime_level(config.main.log_level_filter());
+    log::set_max_level(config.main.log_level_filter());
     log_runtime_identity("Payload");
     log::info!(
         "Injected library entry called! Handle: {:?}, build_id={}, build_target={}, runtime_arch={}, current_exe={}",

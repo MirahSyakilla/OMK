@@ -466,9 +466,11 @@ impl std::str::FromStr for Backend {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
 pub struct MainConfig {
     /// Only the injector backend is currently enabled.
     pub backend: Backend,
+    pub log_level: String,
     /// Insecure fallback for devices whose system TEE cannot verify HATs.
     /// When enabled, OMK accepts shape-valid HATs without system KeyMint MAC verification.
     #[serde(default)]
@@ -479,6 +481,7 @@ impl Default for MainConfig {
     fn default() -> Self {
         Self {
             backend: Backend::Injector,
+            log_level: "debug".to_string(),
             force_skip_system_biometric_hat_verification: false,
         }
     }
@@ -832,6 +835,7 @@ mod tests {
 
         let serialized = toml::to_string(&MainConfig::default()).unwrap();
         assert!(serialized.contains(r#"backend = "injector""#));
+        assert!(serialized.contains(r#"log_level = "debug""#));
     }
 
     #[test]

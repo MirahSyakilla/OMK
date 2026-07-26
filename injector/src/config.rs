@@ -451,7 +451,7 @@ fn reload_runtime_config(path: &Path, trigger: WatchTrigger) {
             Ok(mut guard) => {
                 let level = config.main.log_level_filter();
                 *guard = Arc::new(config);
-                crate::logging::update_runtime_level(level);
+                log::set_max_level(level);
                 log::info!(
                     "reloaded config from {} via {}",
                     path.display(),
