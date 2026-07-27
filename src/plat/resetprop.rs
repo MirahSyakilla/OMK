@@ -81,7 +81,7 @@ pub(crate) struct BinderServiceUnavailable(pub(crate) String);
 fn require_binder_service<T>(name: &str, lookup: rsbinder::Result<Option<T>>) -> Result<T> {
     match lookup {
         Ok(Some(service)) => Ok(service),
-        Ok(None) | Err(StatusCode::DeadObject) => {
+        Ok(None) | Err(StatusCode::DeadObject) | Err(StatusCode::NotEnoughData) => {
             Err(BinderServiceUnavailable(name.to_string()).into())
         }
         // FailedTransaction is deliberately excluded: rsbinder also uses it for AIDL exceptions.
@@ -641,8 +641,11 @@ mod tests {
             7
         );
 
-        let unavailable: [rsbinder::Result<Option<()>>; 2] =
-            [Ok(None), Err(StatusCode::DeadObject)];
+        let unavailable: [rsbinder::Result<Option<()>>; 3] = [
+            Ok(None),
+            Err(StatusCode::DeadObject),
+            Err(StatusCode::NotEnoughData),
+        ];
         for lookup in unavailable {
             let error = require_binder_service(PHONE_SERVICE, lookup).unwrap_err();
             assert!(is_binder_service_unavailable(&error));
@@ -653,7 +656,6 @@ mod tests {
             StatusCode::NameNotFound,
             StatusCode::PermissionDenied,
             StatusCode::FailedTransaction,
-            StatusCode::NotEnoughData,
             StatusCode::WouldBlock,
             StatusCode::TimedOut,
             StatusCode::RpcError,
