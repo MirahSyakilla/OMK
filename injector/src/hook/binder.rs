@@ -1,10 +1,9 @@
-use std::collections::VecDeque;
 use std::ffi::{c_char, c_void, CStr};
 use std::mem::size_of;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    LazyLock, Mutex, OnceLock,
+    OnceLock,
 };
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -16,9 +15,7 @@ const B_TYPE_LARGE: u32 = 0x85;
 pub(crate) const BINDER_WRITE_READ: u32 = 0xc0306201;
 pub(crate) const BC_TRANSACTION_NR: u32 = 0;
 pub(crate) const BC_REPLY_NR: u32 = 1;
-pub(crate) const BC_ACQUIRE_RESULT_NR: u32 = 2;
 pub(crate) const BC_FREE_BUFFER_NR: u32 = 3;
-pub(crate) const BC_INCREFS_DONE_NR: u32 = 8;
 pub(crate) const BC_ACQUIRE_DONE_NR: u32 = 9;
 pub(crate) const BC_TRANSACTION_SG_NR: u32 = 17;
 pub(crate) const BC_REPLY_SG_NR: u32 = 18;
@@ -26,11 +23,8 @@ pub(crate) const BR_TRANSACTION_NR: u32 = 2;
 pub(crate) const BR_REPLY_NR: u32 = 3;
 pub(crate) const BR_DEAD_REPLY_NR: u32 = 5;
 pub(crate) const BR_TRANSACTION_COMPLETE_NR: u32 = 6;
-pub(crate) const BR_INCREFS_NR: u32 = 7;
 pub(crate) const BR_ACQUIRE_NR: u32 = 8;
-pub(crate) const BR_RELEASE_NR: u32 = 9;
-pub(crate) const BR_DECREFS_NR: u32 = 10;
-pub(crate) const BR_ATTEMPT_ACQUIRE_NR: u32 = 11;
+#[cfg(test)]
 pub(crate) const BR_NOOP_NR: u32 = 12;
 pub(crate) const BR_FAILED_REPLY_NR: u32 = 17;
 pub(crate) const BR_FROZEN_REPLY_NR: u32 = 18;
@@ -110,14 +104,6 @@ pub(crate) struct binder_ptr_cookie {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy)]
-pub(crate) struct binder_pri_ptr_cookie {
-    pub priority: i32,
-    pub ptr: libc::c_ulong,
-    pub cookie: libc::c_ulong,
-}
-
-#[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub(crate) struct binder_node_debug_info {
     pub ptr: libc::c_ulong,
@@ -126,6 +112,18 @@ pub(crate) struct binder_node_debug_info {
     pub has_weak_ref: u32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub(crate) struct binder_version {
+    pub protocol_version: i32,
+}
+
+pub(crate) const BINDER_VERSION: u32 = ioc(
+    IOC_READ | IOC_WRITE,
+    b'b' as u32,
+    9,
+    size_of::<binder_version>(),
+);
 pub(crate) const BINDER_GET_NODE_DEBUG_INFO: u32 = ioc(
     IOC_READ | IOC_WRITE,
     b'b' as u32,
@@ -133,6 +131,7 @@ pub(crate) const BINDER_GET_NODE_DEBUG_INFO: u32 = ioc(
     size_of::<binder_node_debug_info>(),
 );
 
+#[cfg(test)]
 pub(crate) const BR_NOOP_CMD: u32 = ioc(IOC_NONE, b'r' as u32, BR_NOOP_NR, 0);
 pub(crate) const BR_TRANSACTION_COMPLETE_CMD: u32 =
     ioc(IOC_NONE, b'r' as u32, BR_TRANSACTION_COMPLETE_NR, 0);
@@ -143,29 +142,19 @@ pub(crate) const BR_TRANSACTION_CMD: u32 = ioc(
     BR_TRANSACTION_NR,
     size_of::<binder_transaction_data>(),
 );
-pub(crate) const BC_ACQUIRE_RESULT_CMD: u32 = ioc(
-    IOC_WRITE,
-    b'c' as u32,
-    BC_ACQUIRE_RESULT_NR,
-    size_of::<i32>(),
-);
+#[cfg(test)]
 pub(crate) const BC_FREE_BUFFER_CMD: u32 = ioc(
     IOC_WRITE,
     b'c' as u32,
     BC_FREE_BUFFER_NR,
     size_of::<libc::c_ulong>(),
 );
+#[cfg(test)]
 pub(crate) const BC_REPLY_CMD: u32 = ioc(
     IOC_WRITE,
     b'c' as u32,
     BC_REPLY_NR,
     size_of::<binder_transaction_data>(),
-);
-pub(crate) const BC_INCREFS_DONE_CMD: u32 = ioc(
-    IOC_WRITE,
-    b'c' as u32,
-    BC_INCREFS_DONE_NR,
-    size_of::<binder_ptr_cookie>(),
 );
 pub(crate) const BC_ACQUIRE_DONE_CMD: u32 = ioc(
     IOC_WRITE,
@@ -305,6 +294,14 @@ impl NativeBinder {
         }
     }
 
+    pub(crate) fn retirement_generation(&self) -> u64 {
+        unsafe {
+            (*(self.user_data as *const NativeBinderUserData))
+                .retirement_generation
+                .load(Ordering::Relaxed)
+        }
+    }
+
     pub(crate) fn disarm_retirement(&self) {
         unsafe {
             (*(self.user_data as *const NativeBinderUserData))
@@ -389,9 +386,6 @@ impl Drop for RawParcel {
 }
 
 static NATIVE_BINDER_API: OnceLock<std::result::Result<NativeBinderApi, String>> = OnceLock::new();
-static NATIVE_BINDER_RETIREMENTS: LazyLock<Mutex<VecDeque<NativeBinderRetirement>>> =
-    LazyLock::new(|| Mutex::new(VecDeque::new()));
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct NativeBinderRetirement {
     pub target: LocalBinderTarget,
@@ -400,6 +394,16 @@ pub(crate) struct NativeBinderRetirement {
 
 const SECURITY_LEVEL_DESCRIPTOR: &[u8] = b"android.system.keystore2.IKeystoreSecurityLevel\0";
 const OPERATION_DESCRIPTOR: &[u8] = b"android.system.keystore2.IKeystoreOperation\0";
+const DUMP_OBJECT_OFFSETS: [usize; 1] = [0];
+
+fn native_request_offsets(code: u32, object_count: usize) -> Option<&'static [usize]> {
+    match (code, object_count) {
+        (_, 0) => Some(&[]),
+        (rsbinder::SHELL_COMMAND_TRANSACTION, _) => Some(&[]),
+        (rsbinder::DUMP_TRANSACTION, 1) => Some(&DUMP_OBJECT_OFFSETS),
+        _ => None,
+    }
+}
 
 unsafe extern "C" fn native_binder_on_create(args: *mut c_void) -> *mut c_void {
     args
@@ -413,10 +417,17 @@ unsafe extern "C" fn native_binder_on_destroy(user_data: *mut c_void) {
     if user_data.retire_on_destroy.load(Ordering::Acquire) {
         if let Some(target) = user_data.target.get().copied() {
             let generation = user_data.retirement_generation.load(Ordering::Relaxed);
-            NATIVE_BINDER_RETIREMENTS
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .push_back(NativeBinderRetirement { target, generation });
+            let retirement = NativeBinderRetirement { target, generation };
+            if catch_unwind(AssertUnwindSafe(|| {
+                super::rewrite::retire_native_operation_target(retirement)
+            }))
+            .is_err()
+            {
+                error!(
+                    "native synthetic operation retirement panicked ptr=0x{:x} cookie=0x{:x} generation={}",
+                    target.ptr, target.cookie, generation
+                );
+            }
         }
     }
 }
@@ -467,37 +478,14 @@ unsafe fn native_binder_on_transact_inner(
     if input_platform.is_null() {
         return rsbinder::StatusCode::BadValue.into();
     }
-    if (api.platform_parcel_objects_count)(input_platform) != 0 {
+    let object_count = (api.platform_parcel_objects_count)(input_platform);
+    let Some(input_offsets) = native_request_offsets(code, object_count) else {
         warn!(
-            "native synthetic Binder target ptr=0x{:x} cookie=0x{:x} received an object-bearing request; returning BAD_TYPE",
-            target.ptr, target.cookie
+            "native synthetic Binder target ptr=0x{:x} cookie=0x{:x} received unsupported objects code=0x{:x} count={}; returning BAD_TYPE",
+            target.ptr, target.cookie, code, object_count
         );
         return rsbinder::StatusCode::BadType.into();
-    }
-
-    let output_platform = if output.is_null() {
-        std::ptr::null_mut()
-    } else {
-        api.view_platform_mut(output, binder, false)
     };
-    if output_platform.is_null() || std::ptr::eq(input_platform, output_platform) {
-        return rsbinder::StatusCode::BadValue.into();
-    }
-    let input_size = (api.platform_parcel_data_size)(input_platform);
-    let aparcel_input_size = (api.parcel_get_data_size)(input);
-    if aparcel_input_size < 0 || aparcel_input_size as usize != input_size {
-        return rsbinder::StatusCode::BadValue.into();
-    }
-    if (api.parcel_get_data_size)(output) != 0
-        || (api.platform_parcel_data_size)(output_platform) != 0
-        || (api.platform_parcel_objects_count)(output_platform) != 0
-    {
-        return rsbinder::StatusCode::BadValue.into();
-    }
-    let input_data = (api.platform_parcel_data)(input_platform);
-    if input_size != 0 && input_data.is_null() {
-        return rsbinder::StatusCode::BadValue.into();
-    }
 
     let state = (api.ipc_thread_state_self)();
     let (calling_sid, one_way) = if state.is_null() {
@@ -511,6 +499,32 @@ unsafe fn native_binder_on_transact_inner(
             != 0;
         (calling_sid, one_way)
     };
+
+    let output_platform = if one_way || output.is_null() {
+        std::ptr::null_mut()
+    } else {
+        api.view_platform_mut(output, binder, false)
+    };
+    if !one_way && (output_platform.is_null() || std::ptr::eq(input_platform, output_platform)) {
+        return rsbinder::StatusCode::BadValue.into();
+    }
+    let input_size = (api.platform_parcel_data_size)(input_platform);
+    let aparcel_input_size = (api.parcel_get_data_size)(input);
+    if aparcel_input_size < 0 || aparcel_input_size as usize != input_size {
+        return rsbinder::StatusCode::BadValue.into();
+    }
+    if !one_way
+        && ((api.parcel_get_data_size)(output) != 0
+            || (api.platform_parcel_data_size)(output_platform) != 0
+            || (api.platform_parcel_objects_count)(output_platform) != 0)
+    {
+        return rsbinder::StatusCode::BadValue.into();
+    }
+    let input_data = (api.platform_parcel_data)(input_platform);
+    if input_size != 0 && input_data.is_null() {
+        return rsbinder::StatusCode::BadValue.into();
+    }
+
     let tr = binder_transaction_data {
         target: binder_transaction_data_target { ptr: target.ptr },
         cookie: target.cookie,
@@ -519,11 +533,15 @@ unsafe fn native_binder_on_transact_inner(
         sender_pid: (api.binder_get_calling_pid)(),
         sender_euid: (api.binder_get_calling_uid)() as i32,
         data_size: input_size,
-        offsets_size: 0,
+        offsets_size: std::mem::size_of_val(input_offsets),
         data: binder_transaction_data_data {
             ptr: binder_transaction_data_data_ptr {
                 buffer: input_data as libc::c_ulong,
-                offsets: 0,
+                offsets: if input_offsets.is_empty() {
+                    0
+                } else {
+                    input_offsets.as_ptr() as libc::c_ulong
+                },
             },
         },
     };
@@ -569,7 +587,14 @@ unsafe fn write_native_binder_reply(
                 else {
                     return rsbinder::StatusCode::BadType.into();
                 };
-                let Some(native) = super::rewrite::lookup_native_binder(target) else {
+                let native = match reply.native_operation {
+                    Some(retirement) if retirement.target == target => {
+                        super::rewrite::lookup_native_binder_for(retirement)
+                    }
+                    Some(_) => None,
+                    None => super::rewrite::lookup_native_binder(target),
+                };
+                let Some(native) = native else {
                     return rsbinder::StatusCode::DeadObject.into();
                 };
                 let carrier_len = native.carrier().len();
@@ -602,27 +627,12 @@ unsafe fn write_native_binder_reply(
                 return rsbinder::StatusCode::BadValue.into();
             }
 
-            if let Some(target) = reply.native_operation_target.take() {
-                super::rewrite::finish_local_operation_publication(target);
+            if let Some(retirement) = reply.native_operation.take() {
+                super::rewrite::finish_local_operation_publication(retirement);
             }
             0
         }
     }
-}
-
-pub(crate) fn take_native_binder_retirement() -> Option<NativeBinderRetirement> {
-    NATIVE_BINDER_RETIREMENTS
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .pop_front()
-}
-
-#[cfg(test)]
-pub(crate) fn clear_native_binder_retirements_for_test() {
-    NATIVE_BINDER_RETIREMENTS
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .clear();
 }
 
 fn dl_error() -> String {
@@ -913,6 +923,7 @@ pub(crate) fn create_native_operation_binder() -> Result<NativeBinder> {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub(crate) struct binder_write_read {
     pub write_size: libc::size_t,
     pub write_consumed: libc::size_t,
@@ -981,19 +992,6 @@ pub(crate) fn _ioc_nr(cmd: u32) -> u32 {
 
 pub(crate) fn _ioc_size(cmd: u32) -> usize {
     ((cmd >> 16) & 0x3FFF) as usize
-}
-
-pub(crate) unsafe fn parse_secctx_sid(secctx: libc::c_ulong) -> Option<String> {
-    if secctx == 0 {
-        return None;
-    }
-
-    let ptr = secctx as *const c_char;
-    if ptr.is_null() {
-        return None;
-    }
-
-    Some(CStr::from_ptr(ptr).to_string_lossy().into_owned())
 }
 
 pub(crate) unsafe fn log_write_transaction(command_name: &str, tr: &binder_transaction_data) {
@@ -1172,6 +1170,21 @@ pub(crate) unsafe fn parse_local_binder_target_from_parcel_bytes(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_request_offsets_admit_base_transactions_only() {
+        assert_eq!(native_request_offsets(1, 0), Some([].as_slice()));
+        assert_eq!(
+            native_request_offsets(rsbinder::SHELL_COMMAND_TRANSACTION, 3),
+            Some([].as_slice())
+        );
+        assert_eq!(
+            native_request_offsets(rsbinder::DUMP_TRANSACTION, 1),
+            Some(DUMP_OBJECT_OFFSETS.as_slice())
+        );
+        assert!(native_request_offsets(1, 1).is_none());
+        assert!(native_request_offsets(rsbinder::DUMP_TRANSACTION, 2).is_none());
+    }
 
     #[test]
     fn legacy_aparcel_matches_android_12_13_aarch64_layout() {

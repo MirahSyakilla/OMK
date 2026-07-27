@@ -22,9 +22,9 @@ use crate::android::system::keystore2::KeyEntryResponse::KeyEntryResponse;
 use crate::android::system::keystore2::KeyParameters::KeyParameters;
 use crate::android::system::keystore2::OperationChallenge::OperationChallenge;
 use crate::hook::binder::{
-    binder_object_header, flat_binder_object, flat_binder_object_handle_or_ptr, LocalBinderTarget,
-    BINDER_TYPE_BINDER, BINDER_TYPE_FD, BINDER_TYPE_HANDLE, BINDER_TYPE_WEAK_BINDER,
-    BINDER_TYPE_WEAK_HANDLE,
+    binder_object_header, flat_binder_object, flat_binder_object_handle_or_ptr,
+    NativeBinderRetirement, BINDER_TYPE_BINDER, BINDER_TYPE_FD, BINDER_TYPE_HANDLE,
+    BINDER_TYPE_WEAK_BINDER, BINDER_TYPE_WEAK_HANDLE,
 };
 use crate::identify::{
     authorization_method_from_code, maintenance_method_from_code, operation_method_from_code,
@@ -38,7 +38,7 @@ use crate::identify::{
 pub struct OwnedReply {
     parcel: Parcel,
     pub offsets: Box<[usize]>,
-    pub(crate) native_operation_target: Option<LocalBinderTarget>,
+    pub(crate) native_operation: Option<NativeBinderRetirement>,
 }
 
 impl OwnedReply {
@@ -61,8 +61,8 @@ impl OwnedReply {
 
 impl Drop for OwnedReply {
     fn drop(&mut self) {
-        if let Some(target) = self.native_operation_target.take() {
-            crate::hook::rewrite::drop_synthetic_operation_target(target);
+        if let Some(retirement) = self.native_operation.take() {
+            crate::hook::rewrite::drop_synthetic_operation_retirement(retirement);
         }
     }
 }
@@ -368,7 +368,7 @@ unsafe fn parse_authorization_request_with_resolver(
         method_from_code,
     )?;
 
-    let parsed = match method {
+    Ok(match method {
         AuthorizationMethod::AddAuthToken => ParsedAuthorizationRequest::AddAuthToken {
             auth_token: parcel.read()?,
         },
@@ -422,9 +422,7 @@ unsafe fn parse_authorization_request_with_resolver(
             secure_user_id: parcel.read()?,
             auth_types: parcel.read()?,
         },
-    };
-
-    Ok(parsed)
+    })
 }
 
 /// # Safety
@@ -566,7 +564,7 @@ unsafe fn parse_maintenance_request_with_resolver(
         method_from_code,
     )?;
 
-    let parsed = match method {
+    Ok(match method {
         MaintenanceMethod::OnUserAdded => ParsedMaintenanceRequest::OnUserAdded {
             user_id: parcel.read()?,
         },
@@ -607,9 +605,7 @@ unsafe fn parse_maintenance_request_with_resolver(
                 sid: parcel.read()?,
             }
         }
-    };
-
-    Ok(parsed)
+    })
 }
 
 /// # Safety
@@ -636,7 +632,7 @@ pub unsafe fn parse_service_request(
         service_method_from_code,
     )?;
 
-    let parsed = match method {
+    Ok(match method {
         ServiceMethod::GetSecurityLevel => ParsedServiceRequest::GetSecurityLevel {
             security_level: parcel.read()?,
         },
@@ -678,9 +674,7 @@ pub unsafe fn parse_service_request(
                 tag: parcel.read()?,
             }
         }
-    };
-
-    Ok(parsed)
+    })
 }
 
 /// # Safety
@@ -707,7 +701,7 @@ pub unsafe fn parse_security_level_request(
         security_level_method_from_code,
     )?;
 
-    let parsed = match method {
+    Ok(match method {
         SecurityLevelMethod::CreateOperation => ParsedSecurityLevelRequest::CreateOperation {
             key: parcel.read()?,
             operation_parameters: parcel.read()?,
@@ -742,9 +736,7 @@ pub unsafe fn parse_security_level_request(
         SecurityLevelMethod::DeleteKey => ParsedSecurityLevelRequest::DeleteKey {
             key: parcel.read()?,
         },
-    };
-
-    Ok(parsed)
+    })
 }
 
 /// # Safety
@@ -771,7 +763,7 @@ pub unsafe fn parse_operation_request(
         operation_method_from_code,
     )?;
 
-    let parsed = match method {
+    Ok(match method {
         OperationMethod::UpdateAad => ParsedOperationRequest::UpdateAad {
             aad_input: parcel.read()?,
         },
@@ -783,9 +775,7 @@ pub unsafe fn parse_operation_request(
             signature: parcel.read()?,
         },
         OperationMethod::Abort => ParsedOperationRequest::Abort,
-    };
-
-    Ok(parsed)
+    })
 }
 
 /// # Safety
@@ -851,39 +841,24 @@ pub unsafe fn extract_direct_binder_reply_carrier(
 ///
 /// `data`/`data_size` and `offsets`/`offsets_size` must describe a readable
 /// Binder reply parcel for the duration of this call.
-pub unsafe fn extract_key_entry_reply_carrier(
+pub unsafe fn parse_key_entry_reply(
     data: *mut u8,
     data_size: usize,
     offsets: *mut usize,
     offsets_size: usize,
-) -> Result<ReplyBinderCarrier> {
+) -> Result<(
+    ReplyBinderCarrier,
+    crate::android::system::keystore2::KeyMetadata::KeyMetadata,
+)> {
     let mut parcel = parcel_from_ipc_parts(data, data_size, offsets, offsets_size);
     read_ok_status(&mut parcel)?;
     read_non_null_parcelable_flag(&mut parcel, "key-entry")?;
-    read_sized_reply_payload(&mut parcel, "key-entry binder carrier", |sub_parcel| {
-        read_reply_binder_carrier(sub_parcel, data)
-    })
-}
-
-/// # Safety
-///
-/// `data`/`data_size` and `offsets`/`offsets_size` must describe a readable
-/// Binder reply parcel for the duration of this call.
-pub unsafe fn parse_key_entry_reply_metadata(
-    data: *mut u8,
-    data_size: usize,
-    offsets: *mut usize,
-    offsets_size: usize,
-) -> Result<crate::android::system::keystore2::KeyMetadata::KeyMetadata> {
-    let mut parcel = parcel_from_ipc_parts(data, data_size, offsets, offsets_size);
-    read_ok_status(&mut parcel)?;
-    read_non_null_parcelable_flag(&mut parcel, "key-entry")?;
-    read_sized_reply_payload(&mut parcel, "key-entry metadata payload", |sub_parcel| {
-        read_reply_binder_carrier(sub_parcel, data).and_then(|_| {
-            sub_parcel
-                .read()
-                .context("failed to decode key-entry metadata payload")
-        })
+    read_sized_reply_payload(&mut parcel, "key-entry payload", |sub_parcel| {
+        let carrier = read_reply_binder_carrier(sub_parcel, data)?;
+        let metadata = sub_parcel
+            .read()
+            .context("failed to decode key-entry metadata payload")?;
+        Ok((carrier, metadata))
     })
 }
 
@@ -1120,18 +1095,16 @@ pub fn contains_keystore_operation_interface(parcel: &[u8]) -> bool {
 }
 
 pub fn contains_known_keystore_interface(parcel: &[u8]) -> bool {
-    contains_utf16_token(parcel, KEYSTORE_AUTHORIZATION_INTERFACE)
-        || contains_utf16_token(parcel, KEYSTORE_MAINTENANCE_INTERFACE)
-        || contains_utf16_token(parcel, KEYSTORE_SERVICE_INTERFACE)
-        || contains_utf16_token(parcel, KEYSTORE_SECURITY_LEVEL_INTERFACE)
-        || contains_utf16_token(parcel, KEYSTORE_OPERATION_INTERFACE)
+    crate::identify::KNOWN_KEYSTORE_INTERFACES
+        .iter()
+        .any(|interface| contains_utf16_token(parcel, interface))
 }
 
 fn owned_reply_from_parcel(parcel: Parcel, offsets: impl IntoIterator<Item = usize>) -> OwnedReply {
     OwnedReply {
         parcel,
         offsets: offsets.into_iter().collect(),
-        native_operation_target: None,
+        native_operation: None,
     }
 }
 

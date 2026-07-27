@@ -1,54 +1,61 @@
 use std::cell::RefCell;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::ffi::c_void;
 use std::mem::size_of;
+use std::ops::{Deref, DerefMut};
 use std::os::raw::c_int;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Condvar, LazyLock, Mutex, MutexGuard, OnceLock};
 use std::time::Instant;
 
-#[cfg(test)]
-use std::sync::Mutex;
-
 use log::{debug, warn};
+use nix::unistd::Pid;
 
-#[cfg(test)]
-use super::binder::BR_TRANSACTION_CMD;
 use super::binder::{
-    _ioc_dir, _ioc_nr, _ioc_size, binder_node_debug_info, binder_pri_ptr_cookie, binder_ptr_cookie,
+    _ioc_dir, _ioc_nr, _ioc_size, binder_node_debug_info, binder_ptr_cookie,
     binder_transaction_data, binder_transaction_data_secctx, binder_transaction_data_sg,
-    binder_write_read, format_target, log_write_transaction, parse_secctx_sid,
-    preview_transaction_parcel, take_native_binder_retirement, BC_ACQUIRE_DONE_CMD,
-    BC_ACQUIRE_RESULT_CMD, BC_INCREFS_DONE_CMD, BC_REPLY_CMD, BC_REPLY_NR, BC_REPLY_SG_NR,
-    BC_TRANSACTION_NR, BC_TRANSACTION_SG_NR, BINDER_GET_NODE_DEBUG_INFO, BINDER_WRITE_READ,
-    BR_ACQUIRE_NR, BR_ATTEMPT_ACQUIRE_NR, BR_DEAD_REPLY_NR, BR_DECREFS_NR, BR_FAILED_REPLY_NR,
-    BR_FROZEN_REPLY_NR, BR_INCREFS_NR, BR_NOOP_CMD, BR_ONEWAY_SPAM_SUSPECT_NR, BR_RELEASE_NR,
-    BR_REPLY_NR, BR_TRANSACTION_COMPLETE_CMD, BR_TRANSACTION_NR, BR_TRANSACTION_PENDING_FROZEN_NR,
-    TF_ONE_WAY, TF_STATUS_CODE,
+    binder_version, binder_write_read, format_target, log_write_transaction,
+    preview_transaction_parcel, BC_ACQUIRE_DONE_CMD, BC_FREE_BUFFER_NR, BC_REPLY_NR,
+    BC_REPLY_SG_NR, BC_TRANSACTION_NR, BC_TRANSACTION_SG_NR, BINDER_GET_NODE_DEBUG_INFO,
+    BINDER_VERSION, BINDER_WRITE_READ, BR_ACQUIRE_NR, BR_DEAD_REPLY_NR, BR_FAILED_REPLY_NR,
+    BR_FROZEN_REPLY_NR, BR_ONEWAY_SPAM_SUSPECT_NR, BR_REPLY_NR, BR_TRANSACTION_COMPLETE_CMD,
+    BR_TRANSACTION_NR, BR_TRANSACTION_PENDING_FROZEN_NR, TF_ONE_WAY,
 };
+#[cfg(test)]
+use super::binder::{BC_FREE_BUFFER_CMD, BC_REPLY_CMD, BR_NOOP_CMD, BR_TRANSACTION_CMD};
 use super::rewrite::{
-    abort_bc_reply, cancel_operation_publication_acquire_pending, clear_outbound_reply_buffers,
-    commit_bc_reply, drop_synthetic_operation_target, finish_operation_publication_probe,
-    handle_bc_reply, handle_br_transaction, handle_synthetic_br_transaction,
-    is_raw_synthetic_target, lookup_raw_synthetic_target,
+    abort_bc_reply, cancel_operation_publication_acquire_pending, clear_binder_fd_thread_state,
+    clear_outbound_reply_buffers, commit_bc_reply, finish_operation_publication_probe,
+    handle_bc_reply, handle_br_transaction, lookup_synthetic_target,
     mark_operation_publication_acquire_committed, mark_operation_publication_acquire_pending,
-    mark_operation_publication_completed, retire_native_operation_target,
-    take_operation_publication_probe, OperationPublicationProbe, SyntheticReply,
-    SyntheticTargetKind,
+    mark_operation_publication_completed, next_operation_publication_probe_deadline,
+    operation_publication_acquire_is_pending, operation_publication_pending_acquire,
+    push_pending_frame, retire_binder_connection_publications,
+    retire_synthetic_operation_retirement, take_operation_publication_probe,
+    OperationPublicationProbe,
 };
-use super::OLD_IOCTL;
-use crate::hook::binder::{LocalBinderTarget, BC_FREE_BUFFER_CMD};
+#[cfg(test)]
+use super::rewrite::{
+    bind_operation_publication_connection, finish_local_operation_publication,
+    register_operation_publication_for_test,
+};
+use super::{
+    BinderFdToken, BinderStateKey, OLD_CLOSE, OLD_DUP, OLD_DUP2, OLD_DUP3, OLD_FCNTL,
+    OLD_FDSAN_CLOSE, OLD_IOCTL,
+};
+use crate::hook::binder::{LocalBinderTarget, NativeBinderRetirement};
 
 struct PendingTransactionCompletion {
     is_reply: bool,
     expects_reply: bool,
-    hide_from_host: bool,
-    operation_target: Option<LocalBinderTarget>,
+    operation_target: Option<NativeBinderRetirement>,
 }
 
 #[derive(Clone, Copy)]
 struct PreparedBcReply {
     frame_id: Option<u64>,
     data_ptr: usize,
+    transaction: binder_transaction_data,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,125 +64,1026 @@ enum SyncTransactionState {
     AwaitingReply,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SyntheticWriteStatus {
-    Complete,
-    Retry,
-    NeedsRead,
-    Failed(c_int),
+thread_local! {
+    static PENDING_TRANSACTION_COMPLETIONS: RefCell<HashMap<BinderStateKey, VecDeque<PendingTransactionCompletion>>> = RefCell::default();
+    static SYNC_TRANSACTIONS: RefCell<HashMap<BinderStateKey, Vec<SyncTransactionState>>> = RefCell::default();
+    static PREPARED_BC_REPLIES: RefCell<HashMap<BinderStateKey, VecDeque<PreparedBcReply>>> = RefCell::default();
+    static OBSERVED_BINDER_FD_TOKENS: RefCell<HashMap<c_int, BinderFdToken>> = RefCell::default();
+    static PENDING_IOCTL_COPYBACKS: RefCell<HashMap<BinderStateKey, PendingIoctlCopyback>> = RefCell::default();
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PendingSyntheticFlush {
-    Drained,
-    Retry,
-    NeedsRead,
+struct PendingIoctlCopyback {
+    arg: usize,
+    write_buffer: libc::c_ulong,
+    read_buffer: libc::c_ulong,
+    write_size: usize,
+    read_size: usize,
+    read: PendingReadCopyback,
+    output: binder_write_read,
+    read_effects: PendingReadEffects,
+    freed_inbound_shadows: Vec<(usize, usize)>,
+    ret: c_int,
+    errno: c_int,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SyntheticWriteRecovery {
+enum PendingReadCopyback {
     None,
-    ReplyRetried,
-    StatusFallback,
+    Unread { address: usize, len: usize },
+    Processed { address: usize, data: Vec<u8> },
 }
 
-struct PendingSyntheticWrite {
-    write: Vec<u8>,
-    consumed: usize,
-    reply: Option<Box<SyntheticReply>>,
-    acquire_target: Option<LocalBinderTarget>,
-    needs_read: bool,
-    recovery: SyntheticWriteRecovery,
-    label: &'static str,
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum InboundTransactionShadowState {
+    Staged,
+    Live,
+    KernelFreedPendingAck,
 }
 
-impl PendingSyntheticWrite {
-    fn prepare_original_reply_retry(&mut self, error: c_int) -> bool {
-        let free_size = size_of::<u32>() + size_of::<libc::c_ulong>();
-        if self.recovery != SyntheticWriteRecovery::None
-            || matches!(error, libc::EBADF | libc::EPROTO)
-            || self.consumed != 0 && self.consumed != free_size
-            || !match self.reply.as_deref() {
-                Some(SyntheticReply::Parcel(reply)) => {
-                    reply.offsets.is_empty() && reply.native_operation_target.is_none()
-                }
-                Some(SyntheticReply::Status(_) | SyntheticReply::NoReply) => true,
-                None => false,
-            }
-        {
-            return false;
-        }
+struct InboundTransactionShadow {
+    payload: TransactionPayloadShadow,
+    state: InboundTransactionShadowState,
+}
 
-        self.needs_read = false;
-        self.recovery = SyntheticWriteRecovery::ReplyRetried;
-        true
+struct PendingReadEffects {
+    connection: BinderStateKey,
+    staged_inbound_shadows: Vec<usize>,
+    operation_acquires: Vec<NativeBinderRetirement>,
+}
+
+static INBOUND_TRANSACTION_SHADOWS: LazyLock<
+    Mutex<HashMap<(BinderStateKey, usize), InboundTransactionShadow>>,
+> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn copy_from_process(address: usize, destination: &mut [u8]) -> bool {
+    crate::sys::read_process_exact(Pid::this(), address, destination).is_ok()
+}
+
+fn copy_to_process(address: usize, source: &[u8]) -> bool {
+    crate::sys::write_process_exact(Pid::this(), address, source).is_ok()
+}
+
+fn zeroed_buffer(size: usize) -> Result<Vec<u8>, c_int> {
+    let mut buffer = Vec::new();
+    buffer.try_reserve_exact(size).map_err(|_| libc::ENOMEM)?;
+    buffer.resize(size, 0);
+    Ok(buffer)
+}
+
+fn copy_process_buffer(address: usize, size: usize) -> Result<Vec<u8>, c_int> {
+    let mut buffer = zeroed_buffer(size)?;
+    copy_from_process(address, &mut buffer)
+        .then_some(buffer)
+        .ok_or(libc::EFAULT)
+}
+
+fn copy_process_c_string(address: usize) -> Option<String> {
+    if address == 0 {
+        return None;
     }
-
-    unsafe fn install_status_fallback(&mut self, error: c_int) -> Option<Vec<u8>> {
-        let free_size = size_of::<u32>() + size_of::<libc::c_ulong>();
-        let reply_offset = free_size + size_of::<u32>();
-        if self.recovery == SyntheticWriteRecovery::StatusFallback
-            || matches!(error, libc::EBADF | libc::EPROTO)
-            || self.consumed != 0 && self.consumed != free_size
-            || self.write.len() < reply_offset + size_of::<binder_transaction_data>()
-            || self
-                .reply
-                .as_deref()
-                .is_none_or(|reply| matches!(reply, SyntheticReply::NoReply))
-        {
+    let mut bytes = Vec::new();
+    while bytes.len() < 4096 {
+        let current = address.checked_add(bytes.len())?;
+        let chunk_len = (4096 - bytes.len()).min(256).min(4096 - (current & 4095));
+        let mut chunk = [0; 256];
+        if !copy_from_process(current, &mut chunk[..chunk_len]) {
             return None;
         }
+        if let Some(end) = chunk[..chunk_len].iter().position(|byte| *byte == 0) {
+            bytes.extend_from_slice(&chunk[..end]);
+            return Some(String::from_utf8_lossy(&bytes).into_owned());
+        }
+        bytes.extend_from_slice(&chunk[..chunk_len]);
+    }
+    None
+}
 
-        let free_pending = self.consumed == 0;
-        let free_buffer = std::ptr::read_unaligned(
-            self.write.as_ptr().add(size_of::<u32>()) as *const libc::c_ulong
-        );
-        let mut reply_tr = std::ptr::read_unaligned(
-            self.write.as_ptr().add(reply_offset) as *const binder_transaction_data
-        );
-        self.reply = Some(Box::new(SyntheticReply::Status(i32::from(
-            rsbinder::StatusCode::FailedTransaction,
-        ))));
-        let Some(SyntheticReply::Status(status)) = self.reply.as_deref() else {
-            unreachable!("synthetic fallback reply should be a status")
+fn copy_process_value(value: *const binder_write_read) -> Option<binder_write_read> {
+    if value.is_null() {
+        return None;
+    }
+    let mut copy: binder_write_read = unsafe { std::mem::zeroed() };
+    let bytes = unsafe {
+        std::slice::from_raw_parts_mut(
+            (&mut copy as *mut binder_write_read).cast::<u8>(),
+            size_of::<binder_write_read>(),
+        )
+    };
+    copy_from_process(value as usize, bytes).then_some(copy)
+}
+
+fn write_process_value<T: Copy>(destination: *mut T, value: &T) -> bool {
+    let bytes =
+        unsafe { std::slice::from_raw_parts((value as *const T).cast::<u8>(), size_of::<T>()) };
+    copy_to_process(destination as usize, bytes)
+}
+
+fn retry_pending_ioctl_copyback(
+    fd: c_int,
+    connection: BinderStateKey,
+    arg: *mut c_void,
+) -> Option<c_int> {
+    let mut pending = PENDING_IOCTL_COPYBACKS.with(|slot| slot.borrow_mut().remove(&connection))?;
+    if pending.arg != arg as usize {
+        PENDING_IOCTL_COPYBACKS.with(|slot| {
+            slot.borrow_mut().insert(connection, pending);
+        });
+        unsafe { *libc::__errno() = libc::EBUSY };
+        return Some(-1);
+    }
+
+    let current = copy_process_value(arg.cast::<binder_write_read>());
+    let identity_matches = current.is_some_and(|current| {
+        current.write_buffer == pending.write_buffer
+            && current.read_buffer == pending.read_buffer
+            && current.write_size == pending.write_size
+            && current.read_size == pending.read_size
+    });
+    if !identity_matches {
+        PENDING_IOCTL_COPYBACKS.with(|slot| {
+            slot.borrow_mut().insert(connection, pending);
+        });
+        unsafe { *libc::__errno() = libc::EFAULT };
+        return Some(-1);
+    }
+
+    let (read, read_ok, effects) =
+        match std::mem::replace(&mut pending.read, PendingReadCopyback::None) {
+            PendingReadCopyback::None => (PendingReadCopyback::None, true, None),
+            PendingReadCopyback::Processed { address, data } => {
+                let copied = copy_to_process(address, &data);
+                (
+                    PendingReadCopyback::Processed { address, data },
+                    copied,
+                    None,
+                )
+            }
+            PendingReadCopyback::Unread { address, len } => match copy_process_buffer(address, len)
+            {
+                Ok(mut data) => {
+                    let effects = unsafe { parse_read_buffer(fd, &mut data) };
+                    let copied = copy_to_process(address, &data);
+                    (
+                        PendingReadCopyback::Processed { address, data },
+                        copied,
+                        Some(effects),
+                    )
+                }
+                Err(_) => (PendingReadCopyback::Unread { address, len }, false, None),
+            },
         };
-        reply_tr.flags = TF_STATUS_CODE;
-        reply_tr.data_size = size_of::<i32>();
-        reply_tr.offsets_size = 0;
-        reply_tr.data.ptr.buffer = status as *const i32 as libc::c_ulong;
-        reply_tr.data.ptr.offsets = 0;
+    pending.read = read;
+    if let Some(effects) = effects {
+        pending.read_effects = effects;
+    }
+    let counters_ok =
+        read_ok && write_process_value(arg.cast::<binder_write_read>(), &pending.output);
+    if !counters_ok {
+        PENDING_IOCTL_COPYBACKS.with(|slot| {
+            slot.borrow_mut().insert(connection, pending);
+        });
+        unsafe { *libc::__errno() = libc::EFAULT };
+        return Some(-1);
+    }
 
-        let mut reply_write = Vec::new();
-        push_unaligned(&mut reply_write, &BC_REPLY_CMD);
-        push_unaligned(&mut reply_write, &reply_tr);
-        self.write = reply_write;
-        self.consumed = 0;
-        self.needs_read = false;
-        self.recovery = SyntheticWriteRecovery::StatusFallback;
-        self.label = "synthetic fallback BC_REPLY";
+    pending.read_effects.commit();
+    unsafe { *libc::__errno() = pending.errno };
+    Some(pending.ret)
+}
 
-        let mut cleanup = Vec::new();
-        if free_pending {
-            push_unaligned(&mut cleanup, &BC_FREE_BUFFER_CMD);
-            push_unaligned(&mut cleanup, &free_buffer);
+struct TransactionPayloadShadow {
+    data: Vec<u8>,
+    offsets: Vec<usize>,
+    original_buffer: libc::c_ulong,
+    original_offsets: libc::c_ulong,
+}
+
+impl TransactionPayloadShadow {
+    unsafe fn read(tr: &binder_transaction_data) -> Option<Self> {
+        let original_buffer = tr.data.ptr.buffer;
+        let original_offsets = tr.data.ptr.offsets;
+        let data = copy_process_buffer(original_buffer as usize, tr.data_size).ok()?;
+        if !tr.offsets_size.is_multiple_of(size_of::<usize>()) {
+            return None;
         }
-        Some(cleanup)
+        let mut offsets = Vec::new();
+        let count = tr.offsets_size / size_of::<usize>();
+        offsets.try_reserve_exact(count).ok()?;
+        offsets.resize(count, 0);
+        let offset_bytes =
+            std::slice::from_raw_parts_mut(offsets.as_mut_ptr().cast::<u8>(), tr.offsets_size);
+        if !copy_from_process(original_offsets as usize, offset_bytes) {
+            return None;
+        }
+        Some(Self {
+            data,
+            offsets,
+            original_buffer,
+            original_offsets,
+        })
+    }
+
+    unsafe fn install(&mut self, tr: &mut binder_transaction_data) {
+        if tr.data_size != 0 {
+            tr.data.ptr.buffer = self.data.as_mut_ptr() as libc::c_ulong;
+        }
+        if tr.offsets_size != 0 {
+            tr.data.ptr.offsets = self.offsets.as_mut_ptr() as libc::c_ulong;
+        }
+    }
+
+    unsafe fn restore(&self, tr: &mut binder_transaction_data) {
+        if tr.data_size != 0 && tr.data.ptr.buffer == self.data.as_ptr() as libc::c_ulong {
+            tr.data.ptr.buffer = self.original_buffer;
+        }
+        if tr.offsets_size != 0 && tr.data.ptr.offsets == self.offsets.as_ptr() as libc::c_ulong {
+            tr.data.ptr.offsets = self.original_offsets;
+        }
+    }
+
+    fn data_ptr(&self) -> usize {
+        self.data.as_ptr() as usize
     }
 }
 
-impl Drop for PendingSyntheticWrite {
+fn retain_inbound_transaction_shadow(
+    connection: BinderStateKey,
+    shadow: TransactionPayloadShadow,
+) -> usize {
+    debug_assert!(!shadow.data.is_empty());
+    let shadow_buffer = shadow.data_ptr();
+    let key = (connection, shadow_buffer);
+    let previous = INBOUND_TRANSACTION_SHADOWS
+        .lock()
+        .expect("inbound transaction shadow map poisoned")
+        .insert(
+            key,
+            InboundTransactionShadow {
+                payload: shadow,
+                state: InboundTransactionShadowState::Staged,
+            },
+        );
+    debug_assert!(previous.is_none());
+    shadow_buffer
+}
+
+fn publish_inbound_transaction_shadows(connection: BinderStateKey, shadows: &[usize]) {
+    let mut entries = INBOUND_TRANSACTION_SHADOWS
+        .lock()
+        .expect("inbound transaction shadow map poisoned");
+    for shadow_buffer in shadows {
+        if let Some(shadow) = entries.get_mut(&(connection, *shadow_buffer)) {
+            if shadow.state == InboundTransactionShadowState::Staged {
+                shadow.state = InboundTransactionShadowState::Live;
+            }
+        }
+    }
+}
+
+fn inbound_transaction_original_buffer(
+    connection: BinderStateKey,
+    shadow_buffer: usize,
+) -> Option<libc::c_ulong> {
+    INBOUND_TRANSACTION_SHADOWS
+        .lock()
+        .expect("inbound transaction shadow map poisoned")
+        .get(&(connection, shadow_buffer))
+        .filter(|shadow| shadow.state == InboundTransactionShadowState::Live)
+        .map(|shadow| shadow.payload.original_buffer)
+}
+
+#[cfg(test)]
+fn clear_inbound_transaction_shadows(connection: BinderStateKey) {
+    INBOUND_TRANSACTION_SHADOWS
+        .lock()
+        .expect("inbound transaction shadow map poisoned")
+        .retain(|(shadow_connection, _), _| *shadow_connection != connection);
+}
+
+impl PendingReadEffects {
+    fn new(connection: BinderStateKey) -> Self {
+        Self {
+            connection,
+            staged_inbound_shadows: Vec::new(),
+            operation_acquires: Vec::new(),
+        }
+    }
+
+    fn commit(&mut self) {
+        publish_inbound_transaction_shadows(self.connection, &self.staged_inbound_shadows);
+        self.staged_inbound_shadows.clear();
+        self.operation_acquires.clear();
+    }
+}
+
+impl Drop for PendingReadEffects {
     fn drop(&mut self) {
-        if let Some(target) = self.acquire_target.take() {
-            cancel_operation_publication_acquire_pending(target);
+        {
+            let mut entries = INBOUND_TRANSACTION_SHADOWS
+                .lock()
+                .expect("inbound transaction shadow map poisoned");
+            for shadow_buffer in self.staged_inbound_shadows.drain(..) {
+                let key = (self.connection, shadow_buffer);
+                if entries
+                    .get(&key)
+                    .is_some_and(|shadow| shadow.state == InboundTransactionShadowState::Staged)
+                {
+                    entries.remove(&key);
+                }
+            }
+        }
+
+        let canceled_acquire = !self.operation_acquires.is_empty();
+        for retirement in self.operation_acquires.drain(..) {
+            cancel_operation_publication_acquire_pending(retirement);
+        }
+        if canceled_acquire && binder_connection_cleanup_ready(self.connection) {
+            retire_binder_connection_publications(self.connection);
         }
     }
 }
 
-thread_local! {
-    static PENDING_TRANSACTION_COMPLETIONS: RefCell<HashMap<c_int, VecDeque<PendingTransactionCompletion>>> = RefCell::default();
-    static SYNC_TRANSACTIONS: RefCell<HashMap<c_int, Vec<SyncTransactionState>>> = RefCell::default();
-    static PENDING_SYNTHETIC_WRITES: RefCell<HashMap<c_int, VecDeque<PendingSyntheticWrite>>> = RefCell::default();
-    static PREPARED_BC_REPLIES: RefCell<HashMap<c_int, VecDeque<PreparedBcReply>>> = RefCell::default();
+impl Drop for PendingIoctlCopyback {
+    fn drop(&mut self) {
+        complete_inbound_free_buffers(
+            self.read_effects.connection,
+            &self.freed_inbound_shadows,
+            self.output.write_consumed,
+        );
+    }
+}
+
+#[derive(Default)]
+struct BinderFdLifecycleState {
+    generation: u64,
+    in_flight: usize,
+    retired: bool,
+    protocol_error: bool,
+}
+
+struct BinderFdLifecycle {
+    connection: BinderStateKey,
+    state: Mutex<BinderFdLifecycleState>,
+    // Closing a Binder dup flushes and wakes every looper, so keep one pin per connection.
+    pinned_fd: OnceLock<c_int>,
+}
+
+impl Drop for BinderFdLifecycle {
+    fn drop(&mut self) {
+        let error = unsafe { *libc::__errno() };
+        if let Some(&fd) = self.pinned_fd.get() {
+            unsafe {
+                libc::syscall(libc::SYS_close, fd);
+            }
+        }
+        unsafe {
+            *libc::__errno() = error;
+        }
+    }
+}
+
+#[derive(Default)]
+struct BinderFdRegistry {
+    by_fd: HashMap<c_int, Arc<BinderFdLifecycle>>,
+    by_connection: HashMap<BinderStateKey, Arc<BinderFdLifecycle>>,
+}
+
+static NEXT_BINDER_CONNECTION: AtomicU64 = AtomicU64::new(1);
+static BINDER_FD_REGISTRY: LazyLock<Mutex<BinderFdRegistry>> =
+    LazyLock::new(|| Mutex::new(BinderFdRegistry::default()));
+static OPERATION_PUBLICATION_WAKE: LazyLock<(Mutex<()>, Condvar)> =
+    LazyLock::new(|| (Mutex::new(()), Condvar::new()));
+static OPERATION_PUBLICATION_WORKER: OnceLock<Result<(), String>> = OnceLock::new();
+
+pub(super) fn wake_operation_publication_worker() {
+    let (lock, wake) = &*OPERATION_PUBLICATION_WAKE;
+    let _guard = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    wake.notify_one();
+}
+
+pub(super) fn start_operation_publication_worker() -> Result<(), String> {
+    match OPERATION_PUBLICATION_WORKER.get_or_init(|| {
+        std::thread::Builder::new()
+            .name("omk-binder-publication".to_string())
+            .spawn(operation_publication_worker)
+            .map(|_| ())
+            .map_err(|error| format!("failed to start operation publication worker: {error}"))
+    }) {
+        Ok(()) => Ok(()),
+        Err(error) => Err(error.clone()),
+    }
+}
+
+fn operation_publication_worker() {
+    loop {
+        wait_for_operation_publication_deadline();
+
+        let old_ioctl = OLD_IOCTL.load(Ordering::Acquire);
+        if old_ioctl.is_null() {
+            warn!("event=synthetic operation publication worker stopped because original ioctl is unavailable");
+            return;
+        }
+        let old_ioctl_fn: unsafe extern "C" fn(c_int, c_int, *mut c_void) -> c_int =
+            unsafe { std::mem::transmute(old_ioctl) };
+        unsafe { flush_native_binder_lifecycle(old_ioctl_fn) };
+    }
+}
+
+pub(super) fn wait_for_operation_publication_deadline() {
+    let (lock, wake) = &*OPERATION_PUBLICATION_WAKE;
+    let mut guard = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    loop {
+        match next_operation_publication_probe_deadline() {
+            None => {
+                guard = wake
+                    .wait(guard)
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+            }
+            Some(deadline) => {
+                let now = Instant::now();
+                if deadline <= now {
+                    return;
+                }
+                let (next_guard, _) = wake
+                    .wait_timeout(guard, deadline.saturating_duration_since(now))
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                guard = next_guard;
+            }
+        }
+    }
+}
+
+struct SignalMaskGuard {
+    previous: libc::sigset_t,
+    active: bool,
+}
+
+impl SignalMaskGuard {
+    fn block() -> Self {
+        unsafe {
+            let mut blocked = std::mem::zeroed();
+            let mut previous = std::mem::zeroed();
+            let active = libc::sigfillset(&mut blocked) == 0
+                && libc::sigdelset(&mut blocked, libc::SIGKILL) == 0
+                && libc::sigdelset(&mut blocked, libc::SIGSTOP) == 0
+                && libc::pthread_sigmask(libc::SIG_BLOCK, &blocked, &mut previous) == 0;
+            Self { previous, active }
+        }
+    }
+}
+
+impl Drop for SignalMaskGuard {
+    fn drop(&mut self) {
+        if self.active {
+            unsafe {
+                libc::pthread_sigmask(libc::SIG_SETMASK, &self.previous, std::ptr::null_mut());
+            }
+        }
+    }
+}
+
+struct BinderFdRegistryGuard {
+    registry: MutexGuard<'static, BinderFdRegistry>,
+    _signals: SignalMaskGuard,
+}
+
+impl BinderFdRegistryGuard {
+    fn unlock(self) -> SignalMaskGuard {
+        let Self { registry, _signals } = self;
+        drop(registry);
+        _signals
+    }
+}
+
+impl Deref for BinderFdRegistryGuard {
+    type Target = BinderFdRegistry;
+
+    fn deref(&self) -> &Self::Target {
+        &self.registry
+    }
+}
+
+impl DerefMut for BinderFdRegistryGuard {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.registry
+    }
+}
+
+fn binder_fd_registry() -> BinderFdRegistryGuard {
+    let signals = SignalMaskGuard::block();
+    let registry = BINDER_FD_REGISTRY
+        .lock()
+        .expect("binder fd registry poisoned");
+    BinderFdRegistryGuard {
+        registry,
+        _signals: signals,
+    }
+}
+
+fn ensure_binder_fd_lifecycle(
+    registry: &mut BinderFdRegistry,
+    fd: c_int,
+) -> Arc<BinderFdLifecycle> {
+    if let Some(lifecycle) = registry.by_fd.get(&fd) {
+        return lifecycle.clone();
+    }
+    let lifecycle = Arc::new(BinderFdLifecycle {
+        connection: NEXT_BINDER_CONNECTION.fetch_add(1, Ordering::Relaxed),
+        state: Mutex::new(BinderFdLifecycleState::default()),
+        pinned_fd: OnceLock::new(),
+    });
+    registry
+        .by_connection
+        .insert(lifecycle.connection, lifecycle.clone());
+    registry.by_fd.insert(fd, lifecycle.clone());
+    lifecycle
+}
+
+#[cfg(test)]
+fn binder_fd_lifecycle(fd: c_int) -> Arc<BinderFdLifecycle> {
+    let mut registry = binder_fd_registry();
+    ensure_binder_fd_lifecycle(&mut registry, fd)
+}
+
+#[cfg(test)]
+fn existing_binder_fd_lifecycle(fd: c_int) -> Option<Arc<BinderFdLifecycle>> {
+    binder_fd_registry().by_fd.get(&fd).cloned()
+}
+
+fn binder_fd_token(fd: c_int) -> BinderFdToken {
+    let mut registry = binder_fd_registry();
+    let lifecycle = ensure_binder_fd_lifecycle(&mut registry, fd);
+    let generation = lifecycle
+        .state
+        .lock()
+        .expect("binder fd lifecycle poisoned")
+        .generation;
+    BinderFdToken {
+        fd,
+        generation,
+        connection: lifecycle.connection,
+    }
+}
+
+#[cfg(test)]
+fn binder_fd_token_is_current(token: BinderFdToken) -> bool {
+    existing_binder_fd_lifecycle(token.fd).is_some_and(|lifecycle| {
+        lifecycle.connection == token.connection
+            && lifecycle
+                .state
+                .lock()
+                .expect("binder fd lifecycle poisoned")
+                .generation
+                == token.generation
+    })
+}
+
+fn observed_binder_fd_token(fd: c_int) -> BinderFdToken {
+    OBSERVED_BINDER_FD_TOKENS
+        .with(|observed| observed.borrow().get(&fd).copied())
+        .unwrap_or_else(|| binder_fd_token(fd))
+}
+
+fn binder_state_key(fd: c_int) -> BinderStateKey {
+    observed_binder_fd_token(fd).connection
+}
+
+fn reset_current_thread_binder_state(connection: BinderStateKey) {
+    abort_prepared_bc_replies_for_connection(connection);
+    clear_binder_fd_thread_state(connection);
+    PENDING_IOCTL_COPYBACKS.with(|pending| {
+        pending.borrow_mut().remove(&connection);
+    });
+    SYNC_TRANSACTIONS.with(|transactions| {
+        transactions.borrow_mut().remove(&connection);
+    });
+    let completions = PENDING_TRANSACTION_COMPLETIONS
+        .with(|pending| pending.borrow_mut().remove(&connection))
+        .unwrap_or_default();
+    for target in completions
+        .into_iter()
+        .filter_map(|completion| completion.operation_target)
+    {
+        retire_synthetic_operation_retirement(target);
+    }
+    debug!("event=binder cleared stale thread state for connection={connection}");
+}
+
+fn forget_current_thread_binder_fd(fd: c_int, retired: Option<BinderStateKey>) {
+    if let Some(connection) = retired {
+        reset_current_thread_binder_state(connection);
+        if binder_connection_cleanup_ready(connection) {
+            retire_binder_connection_publications(connection);
+        }
+    }
+    OBSERVED_BINDER_FD_TOKENS.with(|observed| {
+        observed.borrow_mut().remove(&fd);
+    });
+}
+
+fn binder_connection_cleanup_ready(connection: BinderStateKey) -> bool {
+    let registry = binder_fd_registry();
+    let Some(lifecycle) = registry.by_connection.get(&connection) else {
+        return true;
+    };
+    let state = lifecycle
+        .state
+        .lock()
+        .expect("binder fd lifecycle poisoned");
+    state.retired && state.in_flight == 0
+}
+
+fn cleanup_retired_current_thread_connections() {
+    let mut connections = HashSet::new();
+    PENDING_TRANSACTION_COMPLETIONS.with(|state| {
+        connections.extend(state.borrow().keys().copied());
+    });
+    SYNC_TRANSACTIONS.with(|state| {
+        connections.extend(state.borrow().keys().copied());
+    });
+    PREPARED_BC_REPLIES.with(|state| {
+        connections.extend(state.borrow().keys().copied());
+    });
+    PENDING_IOCTL_COPYBACKS.with(|state| {
+        connections.extend(state.borrow().keys().copied());
+    });
+    OBSERVED_BINDER_FD_TOKENS.with(|state| {
+        connections.extend(state.borrow().values().map(|token| token.connection));
+    });
+
+    for connection in connections
+        .into_iter()
+        .filter(|connection| binder_connection_cleanup_ready(*connection))
+    {
+        reset_current_thread_binder_state(connection);
+        OBSERVED_BINDER_FD_TOKENS.with(|observed| {
+            observed
+                .borrow_mut()
+                .retain(|_, token| token.connection != connection);
+        });
+    }
+}
+
+fn synchronize_binder_fd_generation(fd: c_int) -> Result<BinderFdToken, BinderFdToken> {
+    let token = binder_fd_token(fd);
+    let previous = OBSERVED_BINDER_FD_TOKENS.with(|observed| observed.borrow().get(&fd).copied());
+    if let Some(previous) = previous.filter(|previous| *previous != token) {
+        if binder_connection_is_retired(previous) {
+            reset_current_thread_binder_state(previous.connection);
+        }
+        OBSERVED_BINDER_FD_TOKENS.with(|observed| {
+            observed.borrow_mut().insert(fd, token);
+        });
+        return Err(previous);
+    }
+    if previous.is_none() {
+        OBSERVED_BINDER_FD_TOKENS.with(|observed| {
+            observed.borrow_mut().insert(fd, token);
+        });
+    }
+    Ok(token)
+}
+
+fn binder_connection_is_retired(token: BinderFdToken) -> bool {
+    let registry = binder_fd_registry();
+    let Some(lifecycle) = registry.by_connection.get(&token.connection) else {
+        return true;
+    };
+    let state = lifecycle
+        .state
+        .lock()
+        .expect("binder fd lifecycle poisoned");
+    state.generation != token.generation || state.retired && state.in_flight == 0
+}
+
+fn retire_unaliased_lifecycle(
+    registry: &mut BinderFdRegistry,
+    lifecycle: &Arc<BinderFdLifecycle>,
+) -> bool {
+    if registry
+        .by_fd
+        .values()
+        .any(|candidate| Arc::ptr_eq(candidate, lifecycle))
+    {
+        return false;
+    }
+    let mut state = lifecycle
+        .state
+        .lock()
+        .expect("binder fd lifecycle poisoned");
+    state.retired = true;
+    state.generation = state.generation.wrapping_add(1);
+    if state.in_flight == 0 {
+        registry.by_connection.remove(&lifecycle.connection);
+    }
+    true
+}
+
+fn invalidate_binder_fd_token(token: BinderFdToken) -> Option<BinderStateKey> {
+    let mut registry = binder_fd_registry();
+    let lifecycle = registry.by_fd.get(&token.fd).cloned()?;
+    let generation = lifecycle
+        .state
+        .lock()
+        .expect("binder fd lifecycle poisoned")
+        .generation;
+    if lifecycle.connection != token.connection || generation != token.generation {
+        return None;
+    }
+    registry.by_fd.remove(&token.fd);
+    retire_unaliased_lifecycle(&mut registry, &lifecycle).then_some(lifecycle.connection)
+}
+
+#[cfg(test)]
+fn invalidate_binder_fd(fd: c_int) {
+    let _ = invalidate_binder_fd_token(binder_fd_token(fd));
+}
+
+unsafe fn close_with_binder_fd_lifecycle<F>(fd: c_int, close: F) -> c_int
+where
+    F: FnOnce() -> c_int,
+{
+    if fd < 0 {
+        return close();
+    }
+    let mut registry = binder_fd_registry();
+    let lifecycle = registry.by_fd.get(&fd).cloned();
+    let result = close();
+    let error = *libc::__errno();
+    let retired = lifecycle.and_then(|lifecycle| {
+        registry.by_fd.remove(&fd);
+        retire_unaliased_lifecycle(&mut registry, &lifecycle).then_some(lifecycle.connection)
+    });
+    let signals = registry.unlock();
+    forget_current_thread_binder_fd(fd, retired);
+    drop(signals);
+    *libc::__errno() = error;
+    result
+}
+
+unsafe fn duplicate_binder_fd_with_lifecycle<F>(
+    old_fd: c_int,
+    new_fd: Option<c_int>,
+    duplicate: F,
+) -> c_int
+where
+    F: FnOnce() -> c_int,
+{
+    unsafe fn is_binder_driver_fd(fd: c_int) -> bool {
+        let saved_errno = *libc::__errno();
+        let mut stat: libc::stat = std::mem::zeroed();
+        let is_character_device =
+            libc::fstat(fd, &mut stat) == 0 && stat.st_mode & libc::S_IFMT == libc::S_IFCHR;
+        let mut version = binder_version::default();
+        let is_binder = is_character_device
+            && libc::syscall(
+                libc::SYS_ioctl,
+                fd,
+                BINDER_VERSION as libc::c_ulong,
+                &mut version,
+            ) == 0;
+        *libc::__errno() = saved_errno;
+        is_binder
+    }
+
+    if new_fd == Some(old_fd) {
+        return duplicate();
+    }
+    let mut registry = binder_fd_registry();
+    let source = registry.by_fd.get(&old_fd).cloned().or_else(|| {
+        is_binder_driver_fd(old_fd).then(|| ensure_binder_fd_lifecycle(&mut registry, old_fd))
+    });
+    let result = duplicate();
+    let error = *libc::__errno();
+    let destination = new_fd.unwrap_or(result);
+    let retired = (result >= 0)
+        .then(|| {
+            let previous = registry.by_fd.remove(&destination);
+            if let Some(source) = source {
+                registry.by_fd.insert(destination, source);
+            }
+            previous.and_then(|previous| {
+                retire_unaliased_lifecycle(&mut registry, &previous).then_some(previous.connection)
+            })
+        })
+        .flatten();
+    let signals = registry.unlock();
+    if result >= 0 {
+        forget_current_thread_binder_fd(destination, retired);
+    }
+    drop(signals);
+    *libc::__errno() = error;
+    result
+}
+
+struct BinderIoctlGuard {
+    lifecycle: Arc<BinderFdLifecycle>,
+    pinned_fd: c_int,
+}
+
+impl BinderIoctlGuard {
+    fn begin(token: BinderFdToken) -> Result<Self, c_int> {
+        let registry = binder_fd_registry();
+        let lifecycle = registry.by_fd.get(&token.fd).ok_or(libc::EBADF)?.clone();
+        if lifecycle.connection != token.connection {
+            return Err(libc::ESTALE);
+        }
+        let mut state = lifecycle
+            .state
+            .lock()
+            .expect("binder fd lifecycle poisoned");
+        if state.retired || state.generation != token.generation {
+            return Err(libc::ESTALE);
+        }
+        if state.protocol_error {
+            return Err(libc::EPROTO);
+        }
+        let pinned_fd = if let Some(&pinned_fd) = lifecycle.pinned_fd.get() {
+            pinned_fd
+        } else {
+            let raw_pin = unsafe {
+                libc::syscall(libc::SYS_fcntl, token.fd, libc::F_DUPFD_CLOEXEC, 0) as c_int
+            };
+            #[cfg(not(test))]
+            if raw_pin < 0 {
+                return Err(unsafe { *libc::__errno() });
+            }
+            // Mock-ioctl tests use synthetic fd numbers; real-fd tests still exercise the pin.
+            if raw_pin < 0 {
+                token.fd
+            } else {
+                lifecycle
+                    .pinned_fd
+                    .set(raw_pin)
+                    .expect("binder fd pin initialized once under registry lock");
+                raw_pin
+            }
+        };
+        state.in_flight += 1;
+        drop(state);
+        drop(registry);
+        Ok(Self {
+            lifecycle,
+            pinned_fd,
+        })
+    }
+
+    fn fd(&self) -> c_int {
+        self.pinned_fd
+    }
+}
+
+impl Drop for BinderIoctlGuard {
+    fn drop(&mut self) {
+        let error = unsafe { *libc::__errno() };
+        let mut registry = binder_fd_registry();
+        let mut state = self
+            .lifecycle
+            .state
+            .lock()
+            .expect("binder fd lifecycle poisoned");
+        state.in_flight = state.in_flight.saturating_sub(1);
+        let retired = (state.retired && state.in_flight == 0).then_some(self.lifecycle.connection);
+        if retired.is_some() {
+            registry.by_connection.remove(&self.lifecycle.connection);
+        }
+        drop(state);
+        drop(registry);
+        if let Some(connection) = retired {
+            retire_binder_connection_publications(connection);
+        }
+        unsafe {
+            *libc::__errno() = error;
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BinderIoctlCall {
+    Called(c_int),
+    Stale,
+    Retired,
+}
+
+unsafe fn call_binder_ioctl(
+    token: BinderFdToken,
+    old_ioctl_fn: unsafe extern "C" fn(c_int, c_int, *mut c_void) -> c_int,
+    request: c_int,
+    arg: *mut c_void,
+) -> BinderIoctlCall {
+    let Ok(guard) = BinderIoctlGuard::begin(token) else {
+        return BinderIoctlCall::Stale;
+    };
+    BinderIoctlCall::Called(old_ioctl_fn(guard.fd(), request, arg))
+}
+
+unsafe fn call_binder_connection_ioctl(
+    token: BinderFdToken,
+    old_ioctl_fn: unsafe extern "C" fn(c_int, c_int, *mut c_void) -> c_int,
+    request: c_int,
+    arg: *mut c_void,
+) -> BinderIoctlCall {
+    let (fd, lifecycle, generation) = {
+        let registry = binder_fd_registry();
+        let Some(lifecycle) = registry.by_connection.get(&token.connection).cloned() else {
+            return BinderIoctlCall::Retired;
+        };
+        let fd = registry
+            .by_fd
+            .iter()
+            .find_map(|(fd, candidate)| Arc::ptr_eq(candidate, &lifecycle).then_some(*fd));
+        let Some(fd) = fd else {
+            return BinderIoctlCall::Stale;
+        };
+        let generation = lifecycle
+            .state
+            .lock()
+            .expect("binder fd lifecycle poisoned")
+            .generation;
+        (fd, lifecycle, generation)
+    };
+    let current = BinderFdToken {
+        fd,
+        generation,
+        connection: lifecycle.connection,
+    };
+    if generation != token.generation {
+        return BinderIoctlCall::Retired;
+    }
+    call_binder_ioctl(current, old_ioctl_fn, request, arg)
+}
+
+pub(super) unsafe fn new_close(fd: c_int) -> c_int {
+    let mut old_close = OLD_CLOSE.load(Ordering::Relaxed);
+    if old_close.is_null() {
+        extern "C" {
+            fn close(fd: c_int) -> c_int;
+        }
+        old_close = close as *mut c_void;
+    }
+    let close: unsafe extern "C" fn(c_int) -> c_int = std::mem::transmute(old_close);
+    close_with_binder_fd_lifecycle(fd, || close(fd))
+}
+
+pub(super) unsafe fn new_fdsan_close(fd: c_int, tag: u64) -> c_int {
+    let old_close = OLD_FDSAN_CLOSE.load(Ordering::Relaxed);
+    if old_close.is_null() {
+        return new_close(fd);
+    }
+    let close: unsafe extern "C" fn(c_int, u64) -> c_int = std::mem::transmute(old_close);
+    close_with_binder_fd_lifecycle(fd, || close(fd, tag))
+}
+
+pub(super) unsafe fn new_dup(fd: c_int) -> c_int {
+    let mut old_dup = OLD_DUP.load(Ordering::Relaxed);
+    if old_dup.is_null() {
+        extern "C" {
+            fn dup(fd: c_int) -> c_int;
+        }
+        old_dup = dup as *mut c_void;
+    }
+    let dup: unsafe extern "C" fn(c_int) -> c_int = std::mem::transmute(old_dup);
+    duplicate_binder_fd_with_lifecycle(fd, None, || dup(fd))
+}
+
+pub(super) unsafe fn new_dup2(old_fd: c_int, new_fd: c_int) -> c_int {
+    let mut old_dup2 = OLD_DUP2.load(Ordering::Relaxed);
+    if old_dup2.is_null() {
+        extern "C" {
+            fn dup2(old_fd: c_int, new_fd: c_int) -> c_int;
+        }
+        old_dup2 = dup2 as *mut c_void;
+    }
+    let dup2: unsafe extern "C" fn(c_int, c_int) -> c_int = std::mem::transmute(old_dup2);
+    duplicate_binder_fd_with_lifecycle(old_fd, Some(new_fd), || dup2(old_fd, new_fd))
+}
+
+pub(super) unsafe fn new_dup3(old_fd: c_int, new_fd: c_int, flags: c_int) -> c_int {
+    let mut old_dup3 = OLD_DUP3.load(Ordering::Relaxed);
+    if old_dup3.is_null() {
+        extern "C" {
+            fn dup3(old_fd: c_int, new_fd: c_int, flags: c_int) -> c_int;
+        }
+        old_dup3 = dup3 as *mut c_void;
+    }
+    let dup3: unsafe extern "C" fn(c_int, c_int, c_int) -> c_int = std::mem::transmute(old_dup3);
+    duplicate_binder_fd_with_lifecycle(old_fd, Some(new_fd), || dup3(old_fd, new_fd, flags))
+}
+
+pub(super) unsafe fn new_fcntl(fd: c_int, command: c_int, arg: libc::c_ulong) -> c_int {
+    let mut old_fcntl = OLD_FCNTL.load(Ordering::Relaxed);
+    if old_fcntl.is_null() {
+        extern "C" {
+            fn fcntl(fd: c_int, command: c_int, arg: libc::c_ulong) -> c_int;
+        }
+        old_fcntl = fcntl as *mut c_void;
+    }
+    let fcntl: unsafe extern "C" fn(c_int, c_int, libc::c_ulong) -> c_int =
+        std::mem::transmute(old_fcntl);
+    if matches!(command, libc::F_DUPFD | libc::F_DUPFD_CLOEXEC) {
+        duplicate_binder_fd_with_lifecycle(fd, None, || fcntl(fd, command, arg))
+    } else {
+        fcntl(fd, command, arg)
+    }
 }
 
 pub(super) unsafe fn new_ioctl(fd: c_int, request: c_int, arg: *mut c_void) -> c_int {
@@ -190,150 +1098,302 @@ pub(super) unsafe fn new_ioctl(fd: c_int, request: c_int, arg: *mut c_void) -> c
     let old_ioctl_fn: unsafe extern "C" fn(c_int, c_int, *mut c_void) -> c_int =
         std::mem::transmute(old_ioctl_ptr);
 
-    let is_binder_write_read = request as u32 == BINDER_WRITE_READ;
-
-    let mut suppressed_host_write = None;
-    if is_binder_write_read {
-        flush_native_binder_lifecycle(old_ioctl_fn);
-        match flush_pending_synthetic_writes(fd, old_ioctl_fn) {
-            PendingSyntheticFlush::Drained => {}
-            PendingSyntheticFlush::Retry => {
-                *libc::__errno() = libc::EINTR;
-                return -1;
-            }
-            PendingSyntheticFlush::NeedsRead => {
-                if !arg.is_null() {
-                    let bwr = &mut *(arg as *mut binder_write_read);
-                    if bwr.read_size == 0 {
-                        return 0;
-                    }
-                    suppressed_host_write = Some((bwr.write_size, bwr.write_consumed));
-                    bwr.write_size = 0;
-                    bwr.write_consumed = 0;
-                }
-            }
-        }
+    if request as u32 != BINDER_WRITE_READ {
+        return old_ioctl_fn(fd, request, arg);
     }
+
+    let binder_token = match synchronize_binder_fd_generation(fd) {
+        Ok(token) => token,
+        Err(_) => {
+            cleanup_retired_current_thread_connections();
+            *libc::__errno() = libc::EBADF;
+            return -1;
+        }
+    };
+    cleanup_retired_current_thread_connections();
+    let binder_ioctl_guard = match BinderIoctlGuard::begin(binder_token) {
+        Ok(guard) => guard,
+        Err(error) => {
+            forget_current_thread_binder_fd(fd, None);
+            *libc::__errno() = error;
+            return -1;
+        }
+    };
+    let connection = binder_state_key(fd);
+    if let Some(result) = retry_pending_ioctl_copyback(fd, connection, arg) {
+        return result;
+    }
+
+    let Some(mut bwr) = copy_process_value(arg.cast::<binder_write_read>()) else {
+        return old_ioctl_fn(binder_ioctl_guard.fd(), request, arg);
+    };
+    let fail_before_ioctl = |error| {
+        *libc::__errno() = error;
+        -1
+    };
+    let original_write_buffer = bwr.write_buffer;
+    let original_read_buffer = bwr.read_buffer;
+    let original_write_size = bwr.write_size;
+    let original_read_size = bwr.read_size;
+    let input_write_consumed = bwr.write_consumed;
+    let input_read_consumed = bwr.read_consumed;
+    let Some(write_remaining) = original_write_size.checked_sub(input_write_consumed) else {
+        return fail_before_ioctl(libc::EINVAL);
+    };
+    let Some(read_remaining) = original_read_size.checked_sub(input_read_consumed) else {
+        return fail_before_ioctl(libc::EINVAL);
+    };
+    let mut host_write = Vec::new();
+    if write_remaining > 0 {
+        let Some(write_address) =
+            (original_write_buffer as usize).checked_add(input_write_consumed)
+        else {
+            return fail_before_ioctl(libc::EFAULT);
+        };
+        let Some(_) = (original_write_buffer as usize).checked_add(original_write_size) else {
+            return fail_before_ioctl(libc::EFAULT);
+        };
+        host_write = match copy_process_buffer(write_address, write_remaining) {
+            Ok(write) => write,
+            Err(error) => return fail_before_ioctl(error),
+        };
+    }
+    if read_remaining > 0 {
+        let Some(_) = (original_read_buffer as usize).checked_add(input_read_consumed) else {
+            return fail_before_ioctl(libc::EFAULT);
+        };
+        let Some(_) = (original_read_buffer as usize).checked_add(original_read_size) else {
+            return fail_before_ioctl(libc::EFAULT);
+        };
+    }
+    if !write_process_value(arg.cast::<binder_write_read>(), &bwr) {
+        return fail_before_ioctl(libc::EFAULT);
+    }
+
+    flush_native_binder_lifecycle(old_ioctl_fn);
 
     let mut completion_commands = Vec::new();
-    if is_binder_write_read && !arg.is_null() && suppressed_host_write.is_none() {
-        let bwr = &*(arg as *const binder_write_read);
-        if bwr.write_size > 0 {
-            completion_commands =
-                parse_write_buffer(fd, bwr.write_buffer as *mut c_void, bwr.write_size as u64);
+    let mut freed_inbound_shadows = Vec::new();
+    if write_remaining > 0 {
+        freed_inbound_shadows = rewrite_inbound_free_buffers(connection, &mut host_write);
+        for (end, _) in &mut freed_inbound_shadows {
+            *end += input_write_consumed;
         }
+        if write_buffer_is_safe_to_intercept(&host_write) {
+            completion_commands = parse_write_buffer(fd, &mut host_write);
+            for (end, _, _, _) in &mut completion_commands {
+                *end += input_write_consumed;
+            }
+        } else {
+            warn!(
+                "event=binder skipped unsafe write command stream fd={} remaining={} consumed={}",
+                fd, write_remaining, input_write_consumed
+            );
+        }
+        bwr.write_buffer = host_write.as_mut_ptr() as libc::c_ulong;
     }
+    bwr.write_size = write_remaining;
+    bwr.write_consumed = 0;
 
-    let ret = old_ioctl_fn(fd, request, arg);
-    let ioctl_error = (ret < 0).then(|| {
-        std::io::Error::last_os_error()
-            .raw_os_error()
-            .unwrap_or(libc::EIO)
-    });
-
-    if let Some((write_size, write_consumed)) = suppressed_host_write {
-        let bwr = &mut *(arg as *mut binder_write_read);
-        bwr.write_size = write_size;
-        bwr.write_consumed = write_consumed;
-        if ret >= 0 {
-            complete_pending_synthetic_read(fd);
-            if write_consumed > 0 {
-                completion_commands =
-                    parse_write_buffer(fd, bwr.write_buffer as *mut c_void, write_consumed as u64);
-            }
-        } else if let Some(error) = ioctl_error {
-            if !matches!(error, libc::EINTR | libc::EAGAIN) {
-                drop_pending_synthetic_writes(fd);
-            }
+    let ret = old_ioctl_fn(
+        binder_ioctl_guard.fd(),
+        request,
+        (&mut bwr as *mut binder_write_read).cast(),
+    );
+    let ioctl_errno = *libc::__errno();
+    let ioctl_error = (ret < 0).then_some(ioctl_errno);
+    let driver_write_consumed = bwr.write_consumed;
+    let driver_read_consumed = bwr.read_consumed;
+    let write_consumption_valid = driver_write_consumed <= write_remaining;
+    // binder_ioctl_write_read() resets read_consumed when the write phase fails,
+    // even when userspace supplied an accumulated non-zero value.
+    let read_consumption_reset =
+        ioctl_error.is_some() && write_remaining > 0 && driver_read_consumed == 0;
+    let read_consumption_valid = read_consumption_reset
+        || (input_read_consumed..=original_read_size).contains(&driver_read_consumed);
+    if !write_consumption_valid || !read_consumption_valid {
+        if !write_consumption_valid {
+            warn!(
+                "event=binder driver reported invalid write consumption fd={} consumed={} remaining={}",
+                fd, driver_write_consumed, write_remaining
+            );
         }
+        if !read_consumption_valid {
+            warn!(
+                "event=binder driver reported invalid read consumption fd={} previous={} consumed={} size={}",
+                fd, input_read_consumed, driver_read_consumed, original_read_size
+            );
+        }
+        binder_ioctl_guard
+            .lifecycle
+            .state
+            .lock()
+            .expect("binder fd lifecycle poisoned")
+            .protocol_error = true;
+        *libc::__errno() = libc::EPROTO;
+        return -1;
     }
+    bwr.write_size = original_write_size;
+    bwr.read_size = original_read_size;
+    bwr.write_consumed = input_write_consumed + driver_write_consumed;
+    bwr.read_consumed = driver_read_consumed;
+    bwr.write_buffer = original_write_buffer;
+    bwr.read_buffer = original_read_buffer;
 
-    if is_binder_write_read && !arg.is_null() {
-        let bwr = &*(arg as *const binder_write_read);
-        for &(_, reply_data, expects_reply, acquire_target) in completion_commands
-            .iter()
-            .take_while(|(end, _, _, _)| *end <= bwr.write_consumed)
-        {
-            if let Some(target) = acquire_target {
-                complete_operation_acquire(target);
-                continue;
-            }
-            let is_reply = reply_data.is_some();
-            let operation_target =
-                reply_data.and_then(|data_ptr| complete_prepared_bc_reply(fd, data_ptr));
-            if let Some(target) = operation_target {
-                complete_operation_publication(target, fd);
-            }
-            record_transaction_completion(fd, is_reply, expects_reply, false, operation_target);
+    for &(_, reply_data, expects_reply, acquire_target) in completion_commands
+        .iter()
+        .take_while(|(end, _, _, _)| *end <= bwr.write_consumed)
+    {
+        if let Some(target) = acquire_target {
+            complete_operation_acquire(target);
+            continue;
         }
-        if bwr.write_size > 0 && bwr.write_consumed == bwr.write_size {
-            abort_prepared_bc_replies(fd);
-            clear_outbound_reply_buffers(fd);
+        let is_reply = reply_data.is_some();
+        let operation_target =
+            reply_data.and_then(|data_ptr| complete_prepared_bc_reply(fd, data_ptr));
+        if let Some(target) = operation_target {
+            complete_operation_publication(target, fd);
         }
+        record_transaction_completion(fd, is_reply, expects_reply, operation_target);
+    }
+    if bwr.write_size > 0 && bwr.write_consumed == bwr.write_size {
+        abort_prepared_bc_replies(fd);
+        clear_outbound_reply_buffers(binder_state_key(fd));
     }
 
     if let Some(error) = ioctl_error {
-        if !matches!(error, libc::EINTR | libc::EAGAIN) && is_binder_write_read && !arg.is_null() {
+        if !matches!(error, libc::EINTR | libc::EAGAIN) {
             abort_prepared_bc_replies(fd);
-            clear_outbound_reply_buffers(fd);
+            clear_outbound_reply_buffers(binder_state_key(fd));
         }
-        *libc::__errno() = error;
-        return ret;
+        if error == libc::EBADF {
+            let retired = invalidate_binder_fd_token(binder_token);
+            forget_current_thread_binder_fd(fd, retired);
+        }
     }
 
-    if is_binder_write_read && !arg.is_null() {
-        let bwr = &mut *(arg as *mut binder_write_read);
-        if bwr.read_consumed > 0 {
-            parse_read_buffer(
-                fd,
-                old_ioctl_fn,
-                bwr.read_buffer as *mut c_void,
-                bwr.read_consumed as u64,
+    mark_inbound_free_buffers_consumed(connection, &freed_inbound_shadows, bwr.write_consumed);
+
+    let mut pending_read = PendingReadCopyback::None;
+    let mut read_effects = PendingReadEffects::new(connection);
+    let mut read_copy_back_ok = true;
+    if driver_read_consumed > input_read_consumed {
+        let read_len = driver_read_consumed - input_read_consumed;
+        let read_address = (original_read_buffer as usize)
+            .checked_add(input_read_consumed)
+            .expect("read address was validated before ioctl");
+        match copy_process_buffer(read_address, read_len) {
+            Ok(mut read) => {
+                read_effects = parse_read_buffer(fd, &mut read);
+                if !copy_to_process(read_address, &read) {
+                    warn!(
+                        "event=binder failed to copy processed read buffer after ioctl fd={} previous={} consumed={}",
+                        fd, input_read_consumed, bwr.read_consumed
+                    );
+                    read_copy_back_ok = false;
+                }
+                pending_read = PendingReadCopyback::Processed {
+                    address: read_address,
+                    data: read,
+                };
+            }
+            Err(_) => {
+                warn!(
+                    "event=binder failed to read driver output after ioctl fd={} previous={} consumed={}",
+                    fd, input_read_consumed, bwr.read_consumed
+                );
+                pending_read = PendingReadCopyback::Unread {
+                    address: read_address,
+                    len: read_len,
+                };
+                read_copy_back_ok = false;
+            }
+        }
+    }
+    if ret >= 0 && bwr.read_size > 0 {
+        flush_native_binder_lifecycle(old_ioctl_fn);
+    }
+    let mut visible_bwr = bwr;
+    if !read_copy_back_ok {
+        visible_bwr.read_consumed = input_read_consumed;
+    }
+    let counters_copy_back_ok = write_process_value(arg.cast::<binder_write_read>(), &visible_bwr);
+    if !counters_copy_back_ok {
+        warn!(
+            "event=binder failed to copy consumed counters after ioctl fd={}",
+            fd
+        );
+    }
+    if !read_copy_back_ok || !counters_copy_back_ok {
+        PENDING_IOCTL_COPYBACKS.with(|slot| {
+            slot.borrow_mut().insert(
+                connection,
+                PendingIoctlCopyback {
+                    arg: arg as usize,
+                    write_buffer: original_write_buffer,
+                    read_buffer: original_read_buffer,
+                    write_size: original_write_size,
+                    read_size: original_read_size,
+                    read: pending_read,
+                    output: bwr,
+                    read_effects,
+                    freed_inbound_shadows,
+                    ret,
+                    errno: ioctl_errno,
+                },
             );
-        }
-        if bwr.read_size > 0 {
-            flush_native_binder_lifecycle(old_ioctl_fn);
-        }
+        });
+        *libc::__errno() = libc::EFAULT;
+        return -1;
     }
-
+    read_effects.commit();
+    complete_inbound_free_buffers(connection, &freed_inbound_shadows, bwr.write_consumed);
+    *libc::__errno() = ioctl_errno;
     ret
 }
 
 fn prepared_bc_reply(fd: c_int, reply_index: usize) -> Option<PreparedBcReply> {
+    let connection = binder_state_key(fd);
     PREPARED_BC_REPLIES.with(|prepared| {
         prepared
             .borrow()
-            .get(&fd)
+            .get(&connection)
             .and_then(|replies| replies.get(reply_index))
             .copied()
     })
 }
 
 fn remember_prepared_bc_reply(fd: c_int, prepared_reply: PreparedBcReply) {
+    let connection = binder_state_key(fd);
     PREPARED_BC_REPLIES.with(|prepared| {
         prepared
             .borrow_mut()
-            .entry(fd)
+            .entry(connection)
             .or_default()
             .push_back(prepared_reply);
     });
 }
 
 fn take_prepared_bc_reply(fd: c_int) -> Option<PreparedBcReply> {
+    let connection = binder_state_key(fd);
     PREPARED_BC_REPLIES.with(|prepared| {
         let mut prepared = prepared.borrow_mut();
-        let replies = prepared.get_mut(&fd)?;
+        let replies = prepared.get_mut(&connection)?;
         let reply = replies.pop_front();
         if replies.is_empty() {
-            prepared.remove(&fd);
+            prepared.remove(&connection);
         }
         reply
     })
 }
 
-fn complete_prepared_bc_reply(fd: c_int, observed_data_ptr: usize) -> Option<LocalBinderTarget> {
+fn complete_prepared_bc_reply(
+    fd: c_int,
+    observed_data_ptr: usize,
+) -> Option<NativeBinderRetirement> {
+    let connection = binder_state_key(fd);
     let Some(prepared) = take_prepared_bc_reply(fd) else {
-        return commit_bc_reply(fd, None, observed_data_ptr);
+        return commit_bc_reply(connection, None, observed_data_ptr);
     };
     let data_ptr = prepared.data_ptr;
     if data_ptr != observed_data_ptr {
@@ -342,25 +1402,138 @@ fn complete_prepared_bc_reply(fd: c_int, observed_data_ptr: usize) -> Option<Loc
             fd, data_ptr, observed_data_ptr
         );
     }
-    commit_bc_reply(fd, prepared.frame_id, data_ptr)
+    commit_bc_reply(connection, prepared.frame_id, data_ptr)
 }
 
 fn abort_prepared_bc_replies(fd: c_int) {
-    let prepared = PREPARED_BC_REPLIES.with(|prepared| prepared.borrow_mut().remove(&fd));
+    abort_prepared_bc_replies_for_connection(binder_state_key(fd));
+}
+
+fn abort_prepared_bc_replies_for_connection(connection: BinderStateKey) {
+    let prepared = PREPARED_BC_REPLIES.with(|prepared| prepared.borrow_mut().remove(&connection));
     if let Some(prepared) = prepared {
         for reply in prepared {
-            abort_bc_reply(fd, reply.frame_id, reply.data_ptr);
+            abort_bc_reply(connection, reply.frame_id, reply.data_ptr);
+        }
+    }
+}
+
+unsafe fn write_buffer_is_safe_to_intercept(write: &[u8]) -> bool {
+    let mut offset = 0usize;
+    while offset < write.len() {
+        if write.len() - offset < size_of::<u32>() {
+            return false;
+        }
+        let cmd = std::ptr::read_unaligned(write.as_ptr().add(offset) as *const u32);
+        offset += size_of::<u32>();
+        let cmd_size = _ioc_size(cmd);
+        if cmd_size > write.len() - offset {
+            return false;
+        }
+        let command_end = offset + cmd_size;
+        let cmd_nr = _ioc_nr(cmd);
+        if _ioc_dir(cmd) == 1 && matches!(cmd_nr, BC_REPLY_NR | BC_REPLY_SG_NR) {
+            let expected_size = if cmd_nr == BC_REPLY_SG_NR {
+                size_of::<binder_transaction_data_sg>()
+            } else {
+                size_of::<binder_transaction_data>()
+            };
+            if cmd_size != expected_size {
+                return false;
+            }
+            let tr = std::ptr::read_unaligned(
+                write.as_ptr().add(offset) as *const binder_transaction_data
+            );
+            if TransactionPayloadShadow::read(&tr).is_none() {
+                return false;
+            }
+        }
+        offset = command_end;
+    }
+    true
+}
+
+unsafe fn rewrite_inbound_free_buffers(
+    connection: BinderStateKey,
+    write: &mut [u8],
+) -> Vec<(usize, usize)> {
+    let mut offset = 0usize;
+    let mut rewritten = Vec::new();
+    while write.len().saturating_sub(offset) >= size_of::<u32>() {
+        let cmd = std::ptr::read_unaligned(write.as_ptr().add(offset) as *const u32);
+        offset += size_of::<u32>();
+        let cmd_size = _ioc_size(cmd);
+        if cmd_size > write.len().saturating_sub(offset) {
+            break;
+        }
+        let command_end = offset + cmd_size;
+        if _ioc_dir(cmd) == 1
+            && _ioc_nr(cmd) == BC_FREE_BUFFER_NR
+            && cmd_size == size_of::<libc::c_ulong>()
+        {
+            let payload = write.as_mut_ptr().add(offset) as *mut libc::c_ulong;
+            let shadow_buffer = std::ptr::read_unaligned(payload) as usize;
+            if let Some(original_buffer) =
+                inbound_transaction_original_buffer(connection, shadow_buffer)
+            {
+                std::ptr::write_unaligned(payload, original_buffer);
+                rewritten.push((command_end, shadow_buffer));
+            }
+        }
+        offset = command_end;
+    }
+    rewritten
+}
+
+fn mark_inbound_free_buffers_consumed(
+    connection: BinderStateKey,
+    rewritten: &[(usize, usize)],
+    write_consumed: usize,
+) {
+    let mut entries = INBOUND_TRANSACTION_SHADOWS
+        .lock()
+        .expect("inbound transaction shadow map poisoned");
+    for &(_, shadow_buffer) in rewritten
+        .iter()
+        .take_while(|(end, _)| *end <= write_consumed)
+    {
+        if let Some(shadow) = entries.get_mut(&(connection, shadow_buffer)) {
+            if shadow.state == InboundTransactionShadowState::Live {
+                shadow.state = InboundTransactionShadowState::KernelFreedPendingAck;
+            }
+        }
+    }
+}
+
+fn complete_inbound_free_buffers(
+    connection: BinderStateKey,
+    rewritten: &[(usize, usize)],
+    write_consumed: usize,
+) {
+    let mut entries = INBOUND_TRANSACTION_SHADOWS
+        .lock()
+        .expect("inbound transaction shadow map poisoned");
+    for &(_, shadow_buffer) in rewritten
+        .iter()
+        .take_while(|(end, _)| *end <= write_consumed)
+    {
+        if entries
+            .get(&(connection, shadow_buffer))
+            .is_some_and(|shadow| {
+                shadow.state == InboundTransactionShadowState::KernelFreedPendingAck
+            })
+        {
+            entries.remove(&(connection, shadow_buffer));
         }
     }
 }
 
 unsafe fn parse_write_buffer(
     fd: c_int,
-    ptr: *mut c_void,
-    size: u64,
-) -> Vec<(usize, Option<usize>, bool, Option<LocalBinderTarget>)> {
-    let base = ptr as *mut u8;
-    let total_size = size as usize;
+    write: &mut [u8],
+) -> Vec<(usize, Option<usize>, bool, Option<NativeBinderRetirement>)> {
+    let base = write.as_mut_ptr();
+    let total_size = write.len();
     let mut offset = 0usize;
     let mut completion_commands = Vec::new();
     let mut reply_count = 0;
@@ -405,17 +1578,29 @@ unsafe fn parse_write_buffer(
                     if cmd_size == expected_size {
                         let tr_ptr = payload as *mut binder_transaction_data;
                         let mut tr = std::ptr::read_unaligned(tr_ptr);
-                        if is_reply && prepared_bc_reply(fd, reply_count).is_none() {
-                            let frame_id = handle_bc_reply(fd, &mut tr);
-                            remember_prepared_bc_reply(
-                                fd,
-                                PreparedBcReply {
-                                    frame_id,
-                                    data_ptr: tr.data.ptr.buffer as usize,
-                                },
-                            );
-                            std::ptr::write_unaligned(tr_ptr, tr);
+                        let prepared = is_reply
+                            .then(|| prepared_bc_reply(fd, reply_count))
+                            .flatten();
+                        if let Some(prepared) = prepared {
+                            tr = prepared.transaction;
                         }
+                        let mut shadow = None;
+                        let inspectable = if let Some(mut payload) =
+                            TransactionPayloadShadow::read(&tr)
+                        {
+                            payload.install(&mut tr);
+                            shadow = Some(payload);
+                            true
+                        } else {
+                            warn!(
+                                "event=binder skipped unsafe {} parcel fd={} data_size={} offsets_size={}",
+                                if is_reply { "reply" } else { "transaction" },
+                                fd,
+                                tr.data_size,
+                                tr.offsets_size
+                            );
+                            false
+                        };
                         let label = match cmd_nr {
                             BC_TRANSACTION_NR => "BC_TRANSACTION",
                             BC_REPLY_NR => "BC_REPLY",
@@ -423,7 +1608,28 @@ unsafe fn parse_write_buffer(
                             BC_REPLY_SG_NR => "BC_REPLY_SG",
                             _ => unreachable!(),
                         };
-                        log_write_transaction(label, &tr);
+                        let frame_id = if is_reply && prepared.is_none() && inspectable {
+                            Some(handle_bc_reply(binder_state_key(fd), &mut tr))
+                        } else {
+                            None
+                        };
+                        if inspectable {
+                            log_write_transaction(label, &tr);
+                        }
+                        if let Some(shadow) = shadow.as_ref() {
+                            shadow.restore(&mut tr);
+                        }
+                        if let Some(frame_id) = frame_id {
+                            remember_prepared_bc_reply(
+                                fd,
+                                PreparedBcReply {
+                                    frame_id,
+                                    data_ptr: tr.data.ptr.buffer as usize,
+                                    transaction: tr,
+                                },
+                            );
+                        }
+                        std::ptr::write_unaligned(tr_ptr, tr);
                         completion_commands.push((
                             offset + cmd_size,
                             is_reply.then_some(tr.data.ptr.buffer as usize),
@@ -457,14 +1663,15 @@ unsafe fn parse_write_buffer(
             }
             if cmd == BC_ACQUIRE_DONE_CMD && cmd_size == size_of::<binder_ptr_cookie>() {
                 let ptr_cookie = std::ptr::read_unaligned(payload as *const binder_ptr_cookie);
+                let target = LocalBinderTarget {
+                    ptr: ptr_cookie.ptr,
+                    cookie: ptr_cookie.cookie,
+                };
                 completion_commands.push((
                     offset + cmd_size,
                     None,
                     false,
-                    Some(LocalBinderTarget {
-                        ptr: ptr_cookie.ptr,
-                        cookie: ptr_cookie.cookie,
-                    }),
+                    operation_publication_pending_acquire(target, binder_state_key(fd)),
                 ));
             }
         }
@@ -475,15 +1682,12 @@ unsafe fn parse_write_buffer(
     completion_commands
 }
 
-unsafe fn parse_read_buffer(
-    fd: c_int,
-    old_ioctl_fn: unsafe extern "C" fn(c_int, c_int, *mut c_void) -> c_int,
-    ptr: *mut c_void,
-    size: u64,
-) {
-    let base = ptr as *mut u8;
-    let total_size = size as usize;
+unsafe fn parse_read_buffer(fd: c_int, read: &mut [u8]) -> PendingReadEffects {
+    let base = read.as_mut_ptr();
+    let total_size = read.len();
     let mut offset = 0usize;
+    let connection = binder_state_key(fd);
+    let mut effects = PendingReadEffects::new(connection);
     while offset < total_size {
         let command_start = base.add(offset);
         if total_size.saturating_sub(offset) < size_of::<u32>() {
@@ -517,21 +1721,14 @@ unsafe fn parse_read_buffer(
         );
 
         if cmd == BR_TRANSACTION_COMPLETE_CMD {
-            if complete_transaction_submission(fd).is_some_and(|hide| hide) {
-                debug!(
-                    "event=synthetic consumed hidden BR_TRANSACTION_COMPLETE for synthetic reply"
-                );
-                fill_noop_command(command_start as *mut c_void, size_of::<u32>());
-            }
+            complete_transaction_submission(fd);
         } else if terminal_reply
             || matches!(
                 cmd_nr,
                 BR_ONEWAY_SPAM_SUSPECT_NR | BR_TRANSACTION_PENDING_FROZEN_NR
             )
         {
-            if complete_failed_transaction_submission(fd, cmd_nr) {
-                fill_noop_command(command_start as *mut c_void, cmd_size + size_of::<u32>());
-            }
+            complete_failed_transaction_submission(fd, cmd_nr);
         } else if is_read {
             match cmd_nr {
                 BR_TRANSACTION_NR => {
@@ -539,11 +1736,14 @@ unsafe fn parse_read_buffer(
                         let tr = std::ptr::read_unaligned(
                             payload as *const binder_transaction_data_secctx,
                         );
-                        Some((
-                            tr.transaction_data,
-                            parse_secctx_sid(tr.secctx),
-                            "BR_TRANSACTION_SEC_CTX",
-                        ))
+                        let caller_sid = if tr.secctx == 0 {
+                            Some(None)
+                        } else {
+                            copy_process_c_string(tr.secctx as usize).map(Some)
+                        };
+                        caller_sid.map(|caller_sid| {
+                            (tr.transaction_data, caller_sid, "BR_TRANSACTION_SEC_CTX")
+                        })
                     } else if cmd_size == size_of::<binder_transaction_data>() {
                         Some((
                             std::ptr::read_unaligned(payload as *const binder_transaction_data),
@@ -555,26 +1755,36 @@ unsafe fn parse_read_buffer(
                         None
                     };
                     if let Some((mut tr, caller_sid, label)) = transaction {
-                        match handle_incoming_transaction(
-                            fd,
-                            old_ioctl_fn,
-                            &mut tr,
-                            caller_sid,
-                            label,
-                        ) {
-                            Some(true) => std::ptr::write_unaligned(
-                                payload as *mut binder_transaction_data,
-                                tr,
-                            ),
-                            Some(false) => fill_noop_command(
-                                command_start as *mut c_void,
-                                cmd_size + size_of::<u32>(),
-                            ),
-                            None => {}
+                        if let Some(mut shadow) = TransactionPayloadShadow::read(&tr) {
+                            shadow.install(&mut tr);
+                            let handled =
+                                handle_incoming_transaction(fd, &mut tr, caller_sid, label);
+                            if handled {
+                                if tr.data_size != 0
+                                    && tr.data.ptr.buffer as usize == shadow.data_ptr()
+                                {
+                                    effects.staged_inbound_shadows.push(
+                                        retain_inbound_transaction_shadow(connection, shadow),
+                                    );
+                                } else {
+                                    shadow.restore(&mut tr);
+                                }
+                                std::ptr::write_unaligned(
+                                    payload as *mut binder_transaction_data,
+                                    tr,
+                                );
+                            } else {
+                                shadow.restore(&mut tr);
+                            }
+                        } else {
+                            warn!(
+                                "event=binder skipped unsafe incoming transaction parcel fd={} data_size={} offsets_size={}",
+                                fd, tr.data_size, tr.offsets_size
+                            );
                         }
                     }
                 }
-                BR_INCREFS_NR | BR_ACQUIRE_NR | BR_RELEASE_NR | BR_DECREFS_NR => {
+                BR_ACQUIRE_NR => {
                     if cmd_size == size_of::<binder_ptr_cookie>() {
                         let ptr_cookie =
                             std::ptr::read_unaligned(payload as *const binder_ptr_cookie);
@@ -582,52 +1792,8 @@ unsafe fn parse_read_buffer(
                             ptr: ptr_cookie.ptr,
                             cookie: ptr_cookie.cookie,
                         };
-                        if is_raw_synthetic_target(target) {
-                            let kind = lookup_raw_synthetic_target(target);
-                            match cmd_nr {
-                                BR_INCREFS_NR => {
-                                    submit_synthetic_command(
-                                        fd,
-                                        old_ioctl_fn,
-                                        BC_INCREFS_DONE_CMD,
-                                        ptr_cookie,
-                                        None,
-                                        "BC_INCREFS_DONE",
-                                    );
-                                }
-                                BR_ACQUIRE_NR => {
-                                    let acquire_target = (kind
-                                        == Some(SyntheticTargetKind::Operation)
-                                        && observe_raw_binder_acquire(target))
-                                    .then_some(target);
-                                    submit_synthetic_command(
-                                        fd,
-                                        old_ioctl_fn,
-                                        BC_ACQUIRE_DONE_CMD,
-                                        ptr_cookie,
-                                        acquire_target,
-                                        "BC_ACQUIRE_DONE",
-                                    );
-                                }
-                                BR_RELEASE_NR => {
-                                    if kind == Some(SyntheticTargetKind::Operation) {
-                                        drop_synthetic_operation_target(target);
-                                    }
-                                }
-                                BR_DECREFS_NR => {}
-                                _ => unreachable!(),
-                            }
-                            debug!(
-                                "event=synthetic consumed raw Binder ref command nr={} ptr=0x{:x} cookie=0x{:x} live={}",
-                                cmd_nr,
-                                target.ptr,
-                                target.cookie,
-                                kind.is_some()
-                            );
-                            fill_noop_command(
-                                command_start as *mut c_void,
-                                cmd_size + size_of::<u32>(),
-                            );
+                        if let Some(retirement) = observe_operation_acquire(fd, target) {
+                            effects.operation_acquires.push(retirement);
                         }
                     } else {
                         warn!(
@@ -636,62 +1802,31 @@ unsafe fn parse_read_buffer(
                         );
                     }
                 }
-                BR_ATTEMPT_ACQUIRE_NR => {
-                    if cmd_size == size_of::<binder_pri_ptr_cookie>() {
-                        let pri_ptr_cookie =
-                            std::ptr::read_unaligned(payload as *const binder_pri_ptr_cookie);
-                        let target = LocalBinderTarget {
-                            ptr: pri_ptr_cookie.ptr,
-                            cookie: pri_ptr_cookie.cookie,
-                        };
-                        if is_raw_synthetic_target(target) {
-                            let kind = lookup_raw_synthetic_target(target);
-                            let live = kind.is_some();
-                            let acquire_target = (live
-                                && kind == Some(SyntheticTargetKind::Operation)
-                                && observe_raw_binder_acquire(target))
-                            .then_some(target);
-                            submit_synthetic_command(
-                                fd,
-                                old_ioctl_fn,
-                                BC_ACQUIRE_RESULT_CMD,
-                                i32::from(live),
-                                acquire_target,
-                                "BC_ACQUIRE_RESULT",
-                            );
-                            debug!(
-                                "event=synthetic consumed raw Binder attempt-acquire ptr=0x{:x} cookie=0x{:x} live={}",
-                                target.ptr, target.cookie, live
-                            );
-                            fill_noop_command(
-                                command_start as *mut c_void,
-                                cmd_size + size_of::<u32>(),
-                            );
-                        }
-                    } else {
-                        warn!(
-                            "unexpected binder attempt-acquire payload size {}",
-                            cmd_size
-                        );
-                    }
-                }
                 BR_REPLY_NR => {
                     complete_sync_transaction(fd, SyncTransactionState::AwaitingReply);
                     if cmd_size == size_of::<binder_transaction_data>() {
-                        let tr =
+                        let mut tr =
                             std::ptr::read_unaligned(payload as *const binder_transaction_data);
-                        debug!(
-                            ">>> BR_REPLY | target: {}, code: 0x{:x}, sender_euid: {}, sender_pid: {}, flags: 0x{:x}{}, parcel_size: {}, offsets_size: {}, parcel: {}",
-                            format_target(&tr),
-                            tr.code,
-                            tr.sender_euid,
-                            tr.sender_pid,
-                            tr.flags,
-                            if (tr.flags & TF_ONE_WAY) != 0 { ", oneway" } else { "" },
-                            tr.data_size,
-                            tr.offsets_size,
-                            preview_transaction_parcel(&tr),
-                        );
+                        if let Some(mut shadow) = TransactionPayloadShadow::read(&tr) {
+                            shadow.install(&mut tr);
+                            debug!(
+                                ">>> BR_REPLY | target: {}, code: 0x{:x}, sender_euid: {}, sender_pid: {}, flags: 0x{:x}{}, parcel_size: {}, offsets_size: {}, parcel: {}",
+                                format_target(&tr),
+                                tr.code,
+                                tr.sender_euid,
+                                tr.sender_pid,
+                                tr.flags,
+                                if (tr.flags & TF_ONE_WAY) != 0 { ", oneway" } else { "" },
+                                tr.data_size,
+                                tr.offsets_size,
+                                preview_transaction_parcel(&tr),
+                            );
+                        } else {
+                            warn!(
+                                "event=binder skipped unsafe BR_REPLY parcel fd={} data_size={} offsets_size={}",
+                                fd, tr.data_size, tr.offsets_size
+                            );
+                        }
                     } else {
                         warn!("unexpected BR_REPLY payload size {}", cmd_size);
                     }
@@ -701,375 +1836,30 @@ unsafe fn parse_read_buffer(
         }
         offset += cmd_size;
     }
+    effects
 }
 
 unsafe fn handle_incoming_transaction(
     fd: c_int,
-    old_ioctl_fn: unsafe extern "C" fn(c_int, c_int, *mut c_void) -> c_int,
     tr: &mut binder_transaction_data,
     caller_sid: Option<String>,
     label: &str,
-) -> Option<bool> {
-    if let Some(reply) = handle_synthetic_br_transaction(tr, caller_sid.clone(), label) {
-        if !submit_synthetic_transaction_reply(fd, old_ioctl_fn, tr, reply) {
-            warn!(
-                "event=synthetic {} reply submission did not complete synchronously; hiding the already-executed transaction",
-                label
-            );
-        }
-        return Some(false);
-    }
-
-    handle_br_transaction(tr, caller_sid, label).then_some(true)
-}
-
-unsafe fn fill_noop_command(command_start: *mut c_void, total_len: usize) {
-    let mut written = 0usize;
-    while total_len.saturating_sub(written) >= size_of::<u32>() {
-        std::ptr::write_unaligned(command_start.add(written) as *mut u32, BR_NOOP_CMD);
-        written += size_of::<u32>();
-    }
-}
-
-unsafe fn submit_synthetic_command<T: Copy>(
-    fd: c_int,
-    old_ioctl_fn: unsafe extern "C" fn(c_int, c_int, *mut c_void) -> c_int,
-    command: u32,
-    payload: T,
-    acquire_target: Option<LocalBinderTarget>,
-    label: &'static str,
-) {
-    let mut write = Vec::with_capacity(size_of::<u32>() + size_of::<T>());
-    push_unaligned(&mut write, &command);
-    push_unaligned(&mut write, &payload);
-    submit_or_defer_synthetic_write(fd, old_ioctl_fn, write, None, acquire_target, label);
-}
-
-unsafe fn submit_synthetic_transaction_reply(
-    fd: c_int,
-    old_ioctl_fn: unsafe extern "C" fn(c_int, c_int, *mut c_void) -> c_int,
-    tr: &binder_transaction_data,
-    reply: SyntheticReply,
 ) -> bool {
-    let reply = Box::new(reply);
-    let mut write = Vec::new();
-    push_unaligned(&mut write, &BC_FREE_BUFFER_CMD);
-    let free_buffer = tr.data.ptr.buffer;
-    push_unaligned(&mut write, &free_buffer);
-
-    let has_reply = !matches!(reply.as_ref(), SyntheticReply::NoReply);
-    if has_reply {
-        let mut reply_tr = *tr;
-        reply_tr.target.handle = 0;
-        reply_tr.cookie = 0;
-        reply_tr.code = 0;
-        reply_tr.sender_pid = 0;
-        reply_tr.sender_euid = 0;
-        match reply.as_ref() {
-            SyntheticReply::Parcel(reply) => {
-                reply_tr.flags = 0;
-                reply_tr.data_size = reply.data_size();
-                reply_tr.offsets_size = reply.offsets_size();
-                reply_tr.data.ptr.buffer = reply.data_ptr() as libc::c_ulong;
-                reply_tr.data.ptr.offsets = if reply.offsets.is_empty() {
-                    0
-                } else {
-                    reply.offsets.as_ptr() as libc::c_ulong
-                };
-            }
-            SyntheticReply::Status(status) => {
-                reply_tr.flags = TF_STATUS_CODE;
-                reply_tr.data_size = size_of::<i32>();
-                reply_tr.offsets_size = 0;
-                reply_tr.data.ptr.buffer = status as *const i32 as libc::c_ulong;
-                reply_tr.data.ptr.offsets = 0;
-            }
-            SyntheticReply::NoReply => unreachable!(),
-        }
-        push_unaligned(&mut write, &BC_REPLY_CMD);
-        push_unaligned(&mut write, &reply_tr);
-    }
-    submit_or_defer_synthetic_write(
-        fd,
-        old_ioctl_fn,
-        write,
-        Some(reply),
-        None,
-        "synthetic BC_REPLY",
-    )
-}
-
-unsafe fn submit_or_defer_synthetic_write(
-    fd: c_int,
-    old_ioctl_fn: unsafe extern "C" fn(c_int, c_int, *mut c_void) -> c_int,
-    mut write: Vec<u8>,
-    reply: Option<Box<SyntheticReply>>,
-    acquire_target: Option<LocalBinderTarget>,
-    label: &'static str,
-) -> bool {
-    let queue_was_empty =
-        PENDING_SYNTHETIC_WRITES.with(|pending| !pending.borrow().contains_key(&fd));
-    let (consumed, status) = if queue_was_empty {
-        submit_write_buffer(fd, old_ioctl_fn, &mut write, label)
-    } else {
-        (0, SyntheticWriteStatus::Retry)
+    let target = LocalBinderTarget {
+        ptr: tr.target.ptr,
+        cookie: tr.cookie,
     };
-    let mut pending_write = PendingSyntheticWrite {
-        write,
-        consumed,
-        reply,
-        acquire_target,
-        needs_read: status == SyntheticWriteStatus::NeedsRead,
-        recovery: SyntheticWriteRecovery::None,
-        label,
-    };
-    match status {
-        SyntheticWriteStatus::Complete => {
-            complete_synthetic_write(fd, pending_write);
-            true
+    if lookup_synthetic_target(target).is_some() {
+        if (tr.flags & TF_ONE_WAY) == 0 {
+            push_pending_frame(binder_state_key(fd));
         }
-        SyntheticWriteStatus::Failed(error) => {
-            if pending_write.prepare_original_reply_retry(error) {
-                PENDING_SYNTHETIC_WRITES.with(|pending| {
-                    pending
-                        .borrow_mut()
-                        .entry(fd)
-                        .or_default()
-                        .push_back(pending_write);
-                });
-            } else if let Some(cleanup) = pending_write.install_status_fallback(error) {
-                PENDING_SYNTHETIC_WRITES.with(|pending| {
-                    let mut pending = pending.borrow_mut();
-                    let queue = pending.entry(fd).or_default();
-                    queue.push_back(pending_write);
-                    if !cleanup.is_empty() {
-                        queue.push_back(PendingSyntheticWrite {
-                            write: cleanup,
-                            consumed: 0,
-                            reply: None,
-                            acquire_target: None,
-                            needs_read: false,
-                            recovery: SyntheticWriteRecovery::StatusFallback,
-                            label: "synthetic BC_FREE_BUFFER cleanup",
-                        });
-                    }
-                });
-            } else {
-                drop(pending_write);
-            }
-            false
-        }
-        SyntheticWriteStatus::Retry | SyntheticWriteStatus::NeedsRead => {
-            PENDING_SYNTHETIC_WRITES.with(|pending| {
-                pending
-                    .borrow_mut()
-                    .entry(fd)
-                    .or_default()
-                    .push_back(pending_write);
-            });
-            false
-        }
+        return false;
     }
+
+    handle_br_transaction(binder_state_key(fd), tr, caller_sid, label)
 }
 
-fn complete_synthetic_write(fd: c_int, mut write: PendingSyntheticWrite) {
-    if let Some(target) = write.acquire_target.take() {
-        complete_operation_acquire(target);
-    }
-    let operation_target = match write.reply.as_deref_mut() {
-        Some(SyntheticReply::Parcel(reply)) => reply.native_operation_target.take(),
-        Some(SyntheticReply::Status(_)) => None,
-        Some(SyntheticReply::NoReply) | None => return,
-    };
-    if let Some(target) = operation_target {
-        complete_operation_publication(target, fd);
-    }
-    record_transaction_completion(fd, true, false, true, operation_target);
-}
-
-unsafe fn flush_pending_synthetic_writes(
-    fd: c_int,
-    old_ioctl_fn: unsafe extern "C" fn(c_int, c_int, *mut c_void) -> c_int,
-) -> PendingSyntheticFlush {
-    loop {
-        let Some(mut write) = PENDING_SYNTHETIC_WRITES.with(|pending| {
-            let mut pending = pending.borrow_mut();
-            let queue = pending.get_mut(&fd)?;
-            let write = queue.pop_front();
-            if queue.is_empty() {
-                pending.remove(&fd);
-            }
-            write
-        }) else {
-            return PendingSyntheticFlush::Drained;
-        };
-
-        if write.needs_read {
-            PENDING_SYNTHETIC_WRITES.with(|pending| {
-                pending
-                    .borrow_mut()
-                    .entry(fd)
-                    .or_default()
-                    .push_front(write);
-            });
-            return PendingSyntheticFlush::NeedsRead;
-        }
-
-        let consumed = write.consumed;
-        let (written, status) =
-            submit_write_buffer(fd, old_ioctl_fn, &mut write.write[consumed..], write.label);
-        write.consumed += written;
-        match status {
-            SyntheticWriteStatus::Complete => {
-                complete_synthetic_write(fd, write);
-            }
-            SyntheticWriteStatus::Retry | SyntheticWriteStatus::NeedsRead => {
-                write.needs_read = status == SyntheticWriteStatus::NeedsRead;
-                PENDING_SYNTHETIC_WRITES.with(|pending| {
-                    pending
-                        .borrow_mut()
-                        .entry(fd)
-                        .or_default()
-                        .push_front(write);
-                });
-                return if status == SyntheticWriteStatus::Retry {
-                    PendingSyntheticFlush::Retry
-                } else {
-                    PendingSyntheticFlush::NeedsRead
-                };
-            }
-            SyntheticWriteStatus::Failed(error) => {
-                let failed_label = write.label;
-                if write.prepare_original_reply_retry(error) {
-                    warn!(
-                        "event=synthetic retrying terminally failed {} write once fd={} errno={}",
-                        failed_label, fd, error
-                    );
-                    PENDING_SYNTHETIC_WRITES.with(|pending| {
-                        pending
-                            .borrow_mut()
-                            .entry(fd)
-                            .or_default()
-                            .push_front(write);
-                    });
-                    continue;
-                }
-                if let Some(cleanup) = write.install_status_fallback(error) {
-                    warn!(
-                        "event=synthetic replacing terminally failed {} write with status fallback fd={} errno={}",
-                        failed_label, fd, error
-                    );
-                    PENDING_SYNTHETIC_WRITES.with(|pending| {
-                        let mut pending = pending.borrow_mut();
-                        let queue = pending.entry(fd).or_default();
-                        if !cleanup.is_empty() {
-                            queue.push_front(PendingSyntheticWrite {
-                                write: cleanup,
-                                consumed: 0,
-                                reply: None,
-                                acquire_target: None,
-                                needs_read: false,
-                                recovery: SyntheticWriteRecovery::StatusFallback,
-                                label: "synthetic BC_FREE_BUFFER cleanup",
-                            });
-                        }
-                        queue.push_front(write);
-                    });
-                    continue;
-                }
-                warn!(
-                    "event=synthetic dropping terminally failed {} write fd={} consumed={} expected={} errno={}",
-                    write.label,
-                    fd,
-                    write.consumed,
-                    write.write.len(),
-                    error
-                );
-                drop(write);
-                continue;
-            }
-        }
-    }
-}
-
-fn complete_pending_synthetic_read(fd: c_int) {
-    PENDING_SYNTHETIC_WRITES.with(|pending| {
-        if let Some(write) = pending
-            .borrow_mut()
-            .get_mut(&fd)
-            .and_then(|queue| queue.front_mut())
-        {
-            write.needs_read = false;
-        }
-    });
-}
-
-fn drop_pending_synthetic_writes(fd: c_int) {
-    let writes = PENDING_SYNTHETIC_WRITES.with(|pending| pending.borrow_mut().remove(&fd));
-    drop(writes);
-}
-
-unsafe fn submit_write_buffer(
-    fd: c_int,
-    old_ioctl_fn: unsafe extern "C" fn(c_int, c_int, *mut c_void) -> c_int,
-    write: &mut [u8],
-    label: &str,
-) -> (usize, SyntheticWriteStatus) {
-    let mut consumed = 0usize;
-    if write.is_empty() {
-        return (0, SyntheticWriteStatus::Complete);
-    }
-    loop {
-        let remaining = write.len() - consumed;
-        let mut bwr = binder_write_read {
-            write_size: remaining,
-            write_consumed: 0,
-            write_buffer: write.as_mut_ptr().add(consumed) as libc::c_ulong,
-            read_size: 0,
-            read_consumed: 0,
-            read_buffer: 0,
-        };
-        let ret = old_ioctl_fn(
-            fd,
-            BINDER_WRITE_READ as c_int,
-            &mut bwr as *mut binder_write_read as *mut c_void,
-        );
-        if bwr.write_consumed > remaining {
-            warn!(
-                "event=synthetic invalid {} write consumption from binder driver: consumed={} remaining={}",
-                label, bwr.write_consumed, remaining
-            );
-            return (consumed, SyntheticWriteStatus::Failed(libc::EPROTO));
-        }
-        consumed += bwr.write_consumed;
-        if consumed == write.len() {
-            return (consumed, SyntheticWriteStatus::Complete);
-        }
-
-        if ret < 0 {
-            let error = std::io::Error::last_os_error()
-                .raw_os_error()
-                .unwrap_or(libc::EIO);
-            if matches!(error, libc::EINTR | libc::EAGAIN) {
-                return (consumed, SyntheticWriteStatus::Retry);
-            }
-            warn!(
-                "event=synthetic failed to submit {} to binder driver: ret={} consumed={} expected={} errno={}",
-                label,
-                ret,
-                consumed,
-                write.len(),
-                error
-            );
-            return (consumed, SyntheticWriteStatus::Failed(error));
-        }
-
-        if bwr.write_consumed == 0 {
-            return (consumed, SyntheticWriteStatus::NeedsRead);
-        }
-    }
-}
-
+#[cfg(test)]
 fn push_unaligned<T: Copy>(out: &mut Vec<u8>, value: &T) {
     let start = out.len();
     out.resize(start + size_of::<T>(), 0);
@@ -1082,16 +1872,15 @@ fn record_transaction_completion(
     fd: c_int,
     is_reply: bool,
     expects_reply: bool,
-    hide_from_host: bool,
-    operation_target: Option<LocalBinderTarget>,
+    operation_target: Option<NativeBinderRetirement>,
 ) {
+    let connection = binder_state_key(fd);
     let pending_count = PENDING_TRANSACTION_COMPLETIONS.with(|pending| {
         let mut pending = pending.borrow_mut();
-        let queue = pending.entry(fd).or_default();
+        let queue = pending.entry(connection).or_default();
         queue.push_back(PendingTransactionCompletion {
             is_reply,
             expects_reply,
-            hide_from_host,
             operation_target,
         });
         queue.len()
@@ -1100,63 +1889,56 @@ fn record_transaction_completion(
         SYNC_TRANSACTIONS.with(|transactions| {
             transactions
                 .borrow_mut()
-                .entry(fd)
+                .entry(connection)
                 .or_default()
                 .push(SyncTransactionState::PendingCompletion);
         });
     }
     debug!(
-        "event=synthetic registered BR_TRANSACTION_COMPLETE for fd={} thread={:?} reply={} expects_reply={} hidden={} pending={}",
+        "event=synthetic registered BR_TRANSACTION_COMPLETE for fd={} thread={:?} reply={} expects_reply={} pending={}",
         fd,
         std::thread::current().id(),
         is_reply,
         expects_reply,
-        hide_from_host,
         pending_count
     );
 }
 
-fn observe_raw_binder_acquire(target: LocalBinderTarget) -> bool {
-    if mark_operation_publication_acquire_pending(target) {
+fn observe_operation_acquire(
+    fd: c_int,
+    target: LocalBinderTarget,
+) -> Option<NativeBinderRetirement> {
+    let retirement = mark_operation_publication_acquire_pending(target, binder_state_key(fd));
+    if retirement.is_some() {
         debug!(
-            "event=synthetic observed BR_ACQUIRE for raw operation target ptr=0x{:x} cookie=0x{:x}",
+            "event=synthetic observed BR_ACQUIRE for operation target ptr=0x{:x} cookie=0x{:x}",
             target.ptr, target.cookie
         );
-        true
-    } else {
-        false
     }
+    retirement
 }
 
-fn complete_operation_acquire(target: LocalBinderTarget) {
-    mark_operation_publication_acquire_committed(target);
+fn complete_operation_acquire(retirement: NativeBinderRetirement) {
+    mark_operation_publication_acquire_committed(retirement);
 }
 
-fn complete_operation_publication(target: LocalBinderTarget, binder_fd: c_int) {
-    mark_operation_publication_completed(target, binder_fd);
+fn complete_operation_publication(retirement: NativeBinderRetirement, binder_fd: c_int) {
+    mark_operation_publication_completed(retirement, observed_binder_fd_token(binder_fd));
 }
 
 unsafe fn flush_native_binder_lifecycle(
     old_ioctl_fn: unsafe extern "C" fn(c_int, c_int, *mut c_void) -> c_int,
 ) {
-    while let Some(retirement) = take_native_binder_retirement() {
-        debug!(
-            "event=synthetic native operation binder destroyed; retiring ptr=0x{:x} cookie=0x{:x} generation={}",
-            retirement.target.ptr, retirement.target.cookie, retirement.generation
-        );
-        retire_native_operation_target(retirement);
-    }
-
-    let now = Instant::now();
-    if let Some(probe) = take_operation_publication_probe(now) {
+    while let Some(probe) = take_operation_publication_probe(Instant::now()) {
         let node_exists = operation_binder_node_exists(old_ioctl_fn, probe);
-        if let Some(target) = finish_operation_publication_probe(probe, node_exists, Instant::now())
+        if let Some(retirement) =
+            finish_operation_publication_probe(probe, node_exists, Instant::now())
         {
             debug!(
-                "event=synthetic operation publication node disappeared; dropping ptr=0x{:x} cookie=0x{:x}",
-                target.ptr, target.cookie
+                "event=synthetic operation publication has no driver references; dropping ptr=0x{:x} cookie=0x{:x}",
+                retirement.target.ptr, retirement.target.cookie
             );
-            drop_synthetic_operation_target(target);
+            crate::hook::rewrite::drop_synthetic_operation_retirement(retirement);
         }
     }
 }
@@ -1171,25 +1953,41 @@ unsafe fn operation_binder_node_exists(
         ptr: target.ptr.checked_sub(1).ok_or(libc::EINVAL)?,
         ..Default::default()
     };
-    if old_ioctl_fn(
-        probe.binder_fd,
+    let ret = match call_binder_connection_ioctl(
+        probe.binder,
+        old_ioctl_fn,
         BINDER_GET_NODE_DEBUG_INFO as c_int,
         &mut info as *mut binder_node_debug_info as *mut c_void,
-    ) < 0
-    {
+    ) {
+        BinderIoctlCall::Called(ret) => ret,
+        BinderIoctlCall::Stale => {
+            debug!(
+                "event=synthetic operation publication belongs to a retired Binder fd generation; retaining until acquire ownership is resolved ptr=0x{:x} cookie=0x{:x} fd={} generation={}",
+                target.ptr, target.cookie, probe.binder.fd, probe.binder.generation
+            );
+            return Err(libc::ESTALE);
+        }
+        BinderIoctlCall::Retired => {
+            if operation_publication_acquire_is_pending(probe) {
+                return Err(libc::ESTALE);
+            }
+            return Ok(false);
+        }
+    };
+    if ret < 0 {
         let error = std::io::Error::last_os_error()
             .raw_os_error()
             .unwrap_or(libc::EIO);
-        if matches!(error, libc::EBADF | libc::ENOTTY) {
+        if error == libc::EBADF {
             debug!(
-                "event=synthetic operation node query fd no longer references its Binder connection fd={} ptr=0x{:x} cookie=0x{:x} errno={}",
-                probe.binder_fd, target.ptr, target.cookie, error
+                "event=synthetic operation node query fd no longer references its Binder connection; retaining because process-wide acquire work may still be in flight fd={} ptr=0x{:x} cookie=0x{:x} errno={}",
+                probe.binder.fd, target.ptr, target.cookie, error
             );
-            return Ok(false);
+            return Err(error);
         }
         debug!(
             "event=synthetic operation node query failed fd={} ptr=0x{:x} cookie=0x{:x} errno={}",
-            probe.binder_fd, target.ptr, target.cookie, error
+            probe.binder.fd, target.ptr, target.cookie, error
         );
         return Err(error);
     }
@@ -1202,25 +2000,26 @@ unsafe fn operation_binder_node_exists(
         }
         warn!(
             "event=synthetic operation node identity changed fd={} expected_ptr=0x{:x} expected_cookie=0x{:x} actual_cookie=0x{:x}; treating target as gone",
-            probe.binder_fd, target.ptr, target.cookie, info.cookie
+            probe.binder.fd, target.ptr, target.cookie, info.cookie
         );
         return Ok(false);
     }
     warn!(
         "event=synthetic operation node query returned unexpected identity fd={} expected_ptr=0x{:x} expected_cookie=0x{:x} actual_ptr=0x{:x} actual_cookie=0x{:x}",
-        probe.binder_fd, target.ptr, target.cookie, info.ptr, info.cookie
+        probe.binder.fd, target.ptr, target.cookie, info.ptr, info.cookie
     );
     Err(libc::EPROTO)
 }
 
-fn complete_transaction_submission(fd: c_int) -> Option<bool> {
+fn complete_transaction_submission(fd: c_int) -> Option<()> {
+    let connection = binder_state_key(fd);
     let (completion, remaining) = PENDING_TRANSACTION_COMPLETIONS.with(|pending| {
         let mut pending = pending.borrow_mut();
-        let queue = pending.get_mut(&fd)?;
+        let queue = pending.get_mut(&connection)?;
         let completion = queue.pop_front()?;
         let remaining = queue.len();
         if queue.is_empty() {
-            pending.remove(&fd);
+            pending.remove(&connection);
         }
         Some((completion, remaining))
     })?;
@@ -1234,19 +2033,19 @@ fn complete_transaction_submission(fd: c_int) -> Option<bool> {
     }
 
     debug!(
-        "event=synthetic consumed BR_TRANSACTION_COMPLETE for fd={} thread={:?} hidden={} remaining={}",
+        "event=synthetic consumed BR_TRANSACTION_COMPLETE for fd={} thread={:?} remaining={}",
         fd,
         std::thread::current().id(),
-        completion.hide_from_host,
         remaining
     );
-    Some(completion.hide_from_host)
+    Some(())
 }
 
 fn mark_sync_transaction_completed(fd: c_int) -> bool {
+    let connection = binder_state_key(fd);
     SYNC_TRANSACTIONS.with(|transactions| {
         let mut transactions = transactions.borrow_mut();
-        let Some(stack) = transactions.get_mut(&fd) else {
+        let Some(stack) = transactions.get_mut(&connection) else {
             return false;
         };
         let Some(state) = stack.last_mut() else {
@@ -1261,9 +2060,10 @@ fn mark_sync_transaction_completed(fd: c_int) -> bool {
 }
 
 fn complete_sync_transaction(fd: c_int, expected: SyncTransactionState) -> bool {
+    let connection = binder_state_key(fd);
     SYNC_TRANSACTIONS.with(|transactions| {
         let mut transactions = transactions.borrow_mut();
-        let Some(stack) = transactions.get_mut(&fd) else {
+        let Some(stack) = transactions.get_mut(&connection) else {
             return false;
         };
         if stack.last() != Some(&expected) {
@@ -1271,13 +2071,14 @@ fn complete_sync_transaction(fd: c_int, expected: SyncTransactionState) -> bool 
         }
         stack.pop();
         if stack.is_empty() {
-            transactions.remove(&fd);
+            transactions.remove(&connection);
         }
         true
     })
 }
 
-fn complete_failed_transaction_submission(fd: c_int, cmd_nr: u32) -> bool {
+fn complete_failed_transaction_submission(fd: c_int, cmd_nr: u32) {
+    let connection = binder_state_key(fd);
     let terminal_reply = matches!(
         cmd_nr,
         BR_DEAD_REPLY_NR | BR_FAILED_REPLY_NR | BR_FROZEN_REPLY_NR
@@ -1285,33 +2086,37 @@ fn complete_failed_transaction_submission(fd: c_int, cmd_nr: u32) -> bool {
     if terminal_reply {
         let failed_reply = PENDING_TRANSACTION_COMPLETIONS.with(|pending| {
             let mut pending = pending.borrow_mut();
-            let queue = pending.get_mut(&fd)?;
+            let queue = pending.get_mut(&connection)?;
             if queue.front().is_none_or(|completion| !completion.is_reply) {
                 return None;
             }
             let completion = queue.pop_front()?;
             if queue.is_empty() {
-                pending.remove(&fd);
+                pending.remove(&connection);
             }
             Some(completion)
         });
         if let Some(completion) = failed_reply {
             if let Some(target) = completion.operation_target {
-                drop_synthetic_operation_target(target);
+                retire_synthetic_operation_retirement(target);
+                debug!(
+                    "event=synthetic failed reply retired operation backend and retained publication tombstone fd={} ptr=0x{:x} cookie=0x{:x}",
+                    fd, target.target.ptr, target.target.cookie
+                );
             }
             debug!(
                 "event=synthetic consumed terminal result for failed synthetic reply fd={} thread={:?}",
                 fd,
                 std::thread::current().id()
             );
-            return completion.hide_from_host;
+            return;
         }
     }
 
     let front = PENDING_TRANSACTION_COMPLETIONS.with(|pending| {
         pending
             .borrow()
-            .get(&fd)
+            .get(&connection)
             .and_then(|queue| queue.front())
             .map(|completion| (completion.is_reply, completion.expects_reply))
     });
@@ -1332,7 +2137,7 @@ fn complete_failed_transaction_submission(fd: c_int, cmd_nr: u32) -> bool {
             fd,
             std::thread::current().id()
         );
-        return false;
+        return;
     }
 
     if !immediate_failure && matches!(front, Some((false, true))) {
@@ -1345,13 +2150,13 @@ fn complete_failed_transaction_submission(fd: c_int, cmd_nr: u32) -> bool {
 
     let removed = PENDING_TRANSACTION_COMPLETIONS.with(|pending| {
         let mut pending = pending.borrow_mut();
-        let queue = pending.get_mut(&fd)?;
+        let queue = pending.get_mut(&connection)?;
         if queue.front().is_none_or(|completion| completion.is_reply) {
             return None;
         }
         queue.pop_front();
         if queue.is_empty() {
-            pending.remove(&fd);
+            pending.remove(&connection);
         }
         Some(())
     });
@@ -1362,7 +2167,6 @@ fn complete_failed_transaction_submission(fd: c_int, cmd_nr: u32) -> bool {
             std::thread::current().id()
         );
     }
-    false
 }
 
 #[cfg(test)]
@@ -1372,31 +2176,39 @@ mod tests {
         pending_reply_frame_claims_for_test, pending_reply_frame_count_for_test,
         reset_pending_reply_frames_for_test,
     };
-    use crate::parcel;
-    use std::sync::atomic::{AtomicBool, AtomicUsize};
+    use std::sync::atomic::{AtomicI32, AtomicUsize};
+    use std::sync::Barrier;
+    use std::time::Duration;
 
     static CAPTURED_REPLY_DATA: Mutex<Option<Vec<u8>>> = Mutex::new(None);
     static HOST_IOCTL_CALLS: AtomicUsize = AtomicUsize::new(0);
-    static PARTIAL_IOCTL_CALLS: AtomicUsize = AtomicUsize::new(0);
-    static PARTIAL_IOCTL_FAIL: AtomicBool = AtomicBool::new(false);
-    static PARTIAL_IOCTL_INTERRUPT: AtomicBool = AtomicBool::new(false);
-    static RECOVERY_IOCTL_CALLS: AtomicUsize = AtomicUsize::new(0);
-    static NEEDS_READ_IOCTL_CALLS: AtomicUsize = AtomicUsize::new(0);
     static INTERLEAVED_REPLY_IOCTL_CALLS: AtomicUsize = AtomicUsize::new(0);
+    static EFAULT_IOCTL_CALLS: AtomicUsize = AtomicUsize::new(0);
+    static COPYBACK_IOCTL_CALLS: AtomicUsize = AtomicUsize::new(0);
+    static BOUNDARY_IOCTL_CALLS: AtomicUsize = AtomicUsize::new(0);
+    static BOUNDARY_IOCTL_MODE: AtomicUsize = AtomicUsize::new(0);
+    static POST_IOCTL_INVALIDATE_FD: AtomicI32 = AtomicI32::new(-1);
+    static POST_IOCTL_PROTECT_ADDRESS: AtomicUsize = AtomicUsize::new(0);
+    static POST_IOCTL_PROTECT_LENGTH: AtomicUsize = AtomicUsize::new(0);
     static NODE_QUERY_RESULTS: Mutex<VecDeque<Result<binder_node_debug_info, c_int>>> =
         Mutex::new(VecDeque::new());
     static SYNTHETIC_REPLY_TEST_LOCK: Mutex<()> = Mutex::new(());
+    static PINNED_IOCTL_ENTERED: LazyLock<Barrier> = LazyLock::new(|| Barrier::new(2));
+    static PINNED_IOCTL_RELEASE: LazyLock<Barrier> = LazyLock::new(|| Barrier::new(2));
 
     fn drain_transaction_completions(fd: c_int) {
         while complete_transaction_submission(fd).is_some() {}
         abort_prepared_bc_replies(fd);
-        clear_outbound_reply_buffers(fd);
+        let connection = binder_state_key(fd);
+        clear_outbound_reply_buffers(connection);
         SYNC_TRANSACTIONS.with(|transactions| {
-            transactions.borrow_mut().remove(&fd);
+            transactions.borrow_mut().remove(&connection);
         });
-        PENDING_SYNTHETIC_WRITES.with(|pending| {
-            pending.borrow_mut().clear();
-        });
+    }
+
+    fn reset_binder_fd_for_test(fd: c_int) {
+        let retired = invalidate_binder_fd_token(binder_fd_token(fd));
+        forget_current_thread_binder_fd(fd, retired);
     }
 
     unsafe extern "C" fn capture_reply_ioctl(
@@ -1449,26 +2261,6 @@ mod tests {
         0
     }
 
-    unsafe extern "C" fn partial_reply_ioctl(fd: c_int, request: c_int, arg: *mut c_void) -> c_int {
-        if request != BINDER_WRITE_READ as c_int || arg.is_null() {
-            return -1;
-        }
-        let bwr = &mut *(arg as *mut binder_write_read);
-        if PARTIAL_IOCTL_CALLS.fetch_add(1, Ordering::SeqCst) == 0 {
-            bwr.write_consumed = size_of::<u32>() + size_of::<libc::c_ulong>();
-            return 0;
-        }
-        if PARTIAL_IOCTL_FAIL.load(Ordering::SeqCst) {
-            *libc::__errno() = libc::EIO;
-            return -1;
-        }
-        if PARTIAL_IOCTL_INTERRUPT.load(Ordering::SeqCst) {
-            *libc::__errno() = libc::EINTR;
-            return -1;
-        }
-        capture_reply_ioctl(fd, request, arg)
-    }
-
     unsafe extern "C" fn fail_reply_ioctl(_fd: c_int, _request: c_int, arg: *mut c_void) -> c_int {
         let bwr = &mut *(arg as *mut binder_write_read);
         bwr.write_consumed = 0;
@@ -1476,49 +2268,10 @@ mod tests {
         -1
     }
 
-    unsafe extern "C" fn fail_twice_then_capture_ioctl(
-        fd: c_int,
-        request: c_int,
-        arg: *mut c_void,
-    ) -> c_int {
-        if RECOVERY_IOCTL_CALLS.fetch_add(1, Ordering::SeqCst) < 2 {
-            return fail_reply_ioctl(fd, request, arg);
-        }
-        capture_reply_ioctl(fd, request, arg)
-    }
-
-    unsafe extern "C" fn interrupt_reply_ioctl(
-        _fd: c_int,
-        _request: c_int,
-        arg: *mut c_void,
-    ) -> c_int {
-        let bwr = &mut *(arg as *mut binder_write_read);
-        bwr.write_consumed = 0;
-        *libc::__errno() = libc::EINTR;
+    unsafe extern "C" fn efault_ioctl(_fd: c_int, _request: c_int, _arg: *mut c_void) -> c_int {
+        EFAULT_IOCTL_CALLS.fetch_add(1, Ordering::SeqCst);
+        *libc::__errno() = libc::EFAULT;
         -1
-    }
-
-    unsafe extern "C" fn needs_read_ioctl(_fd: c_int, request: c_int, arg: *mut c_void) -> c_int {
-        assert_eq!(request, BINDER_WRITE_READ as c_int);
-        let bwr = &mut *(arg as *mut binder_write_read);
-        match NEEDS_READ_IOCTL_CALLS.fetch_add(1, Ordering::SeqCst) {
-            0 => {
-                assert!(bwr.write_size > 0);
-                bwr.write_consumed = 0;
-            }
-            1 => {
-                assert_eq!(bwr.write_size, 0);
-                assert!(bwr.read_size >= size_of::<u32>());
-                std::ptr::write_unaligned(bwr.read_buffer as *mut u32, BR_NOOP_CMD);
-                bwr.read_consumed = size_of::<u32>();
-            }
-            2 | 3 => {
-                assert!(bwr.write_size > 0);
-                bwr.write_consumed = bwr.write_size;
-            }
-            call => panic!("unexpected NeedsRead ioctl call {call}"),
-        }
-        0
     }
 
     unsafe extern "C" fn node_query_ioctl(_fd: c_int, request: c_int, arg: *mut c_void) -> c_int {
@@ -1539,6 +2292,94 @@ mod tests {
                 -1
             }
         }
+    }
+
+    unsafe extern "C" fn blocking_ioctl(_fd: c_int, _request: c_int, _arg: *mut c_void) -> c_int {
+        PINNED_IOCTL_ENTERED.wait();
+        PINNED_IOCTL_RELEASE.wait();
+        0
+    }
+
+    unsafe extern "C" fn invalidate_after_consuming_ioctl(
+        _fd: c_int,
+        request: c_int,
+        arg: *mut c_void,
+    ) -> c_int {
+        assert_eq!(request, BINDER_WRITE_READ as c_int);
+        let bwr = &mut *(arg as *mut binder_write_read);
+        bwr.write_consumed = bwr.write_size;
+        assert!(bwr.read_size >= size_of::<u32>());
+        std::ptr::write_unaligned(bwr.read_buffer as *mut u32, BR_NOOP_CMD);
+        bwr.read_consumed = size_of::<u32>();
+        invalidate_binder_fd(POST_IOCTL_INVALIDATE_FD.load(Ordering::SeqCst));
+        0
+    }
+
+    unsafe extern "C" fn partial_read_ioctl(_fd: c_int, request: c_int, arg: *mut c_void) -> c_int {
+        assert_eq!(request, BINDER_WRITE_READ as c_int);
+        let bwr = &mut *(arg as *mut binder_write_read);
+        assert_eq!(bwr.read_consumed, size_of::<u32>());
+        assert!(bwr.read_size >= 3 * size_of::<u32>());
+        std::ptr::write_unaligned(
+            (bwr.read_buffer as *mut u8).add(bwr.read_consumed) as *mut u32,
+            BR_NOOP_CMD,
+        );
+        bwr.read_consumed += size_of::<u32>();
+        0
+    }
+
+    unsafe extern "C" fn prefix_only_read_ioctl(
+        _fd: c_int,
+        request: c_int,
+        arg: *mut c_void,
+    ) -> c_int {
+        assert_eq!(request, BINDER_WRITE_READ as c_int);
+        let bwr = &mut *(arg as *mut binder_write_read);
+        assert!(bwr.read_consumed > 0);
+        0
+    }
+
+    unsafe extern "C" fn protect_copyback_ioctl(
+        _fd: c_int,
+        request: c_int,
+        arg: *mut c_void,
+    ) -> c_int {
+        assert_eq!(request, BINDER_WRITE_READ as c_int);
+        COPYBACK_IOCTL_CALLS.fetch_add(1, Ordering::SeqCst);
+        let bwr = &mut *(arg as *mut binder_write_read);
+        bwr.write_consumed = bwr.write_size;
+        if bwr.read_consumed < bwr.read_size {
+            std::ptr::write_unaligned(
+                (bwr.read_buffer as *mut u8).add(bwr.read_consumed) as *mut u32,
+                BR_TRANSACTION_COMPLETE_CMD,
+            );
+            bwr.read_consumed += size_of::<u32>();
+        }
+        assert_eq!(
+            libc::mprotect(
+                POST_IOCTL_PROTECT_ADDRESS.load(Ordering::SeqCst) as *mut c_void,
+                POST_IOCTL_PROTECT_LENGTH.load(Ordering::SeqCst),
+                libc::PROT_NONE,
+            ),
+            0
+        );
+        0
+    }
+
+    unsafe extern "C" fn invalid_consumption_ioctl(
+        _fd: c_int,
+        request: c_int,
+        arg: *mut c_void,
+    ) -> c_int {
+        assert_eq!(request, BINDER_WRITE_READ as c_int);
+        BOUNDARY_IOCTL_CALLS.fetch_add(1, Ordering::SeqCst);
+        let bwr = &mut *(arg as *mut binder_write_read);
+        match BOUNDARY_IOCTL_MODE.load(Ordering::SeqCst) {
+            0 => bwr.write_consumed = bwr.write_size + 1,
+            1 => bwr.read_consumed = bwr.read_size + 1,
+            _ => bwr.read_consumed -= 1,
+        }
+        0
     }
 
     unsafe extern "C" fn retry_host_reply_ioctl(
@@ -1565,6 +2406,42 @@ mod tests {
         }
     }
 
+    unsafe extern "C" fn partial_eintr_host_write_ioctl(
+        _fd: c_int,
+        request: c_int,
+        arg: *mut c_void,
+    ) -> c_int {
+        assert_eq!(request, BINDER_WRITE_READ as c_int);
+        let bwr = &mut *(arg as *mut binder_write_read);
+        let command_size = size_of::<u32>() + size_of::<binder_transaction_data>();
+        if HOST_IOCTL_CALLS.fetch_add(1, Ordering::SeqCst) == 0 {
+            assert_eq!(bwr.write_consumed, 0);
+            bwr.write_consumed = command_size;
+            *libc::__errno() = libc::EINTR;
+            -1
+        } else {
+            assert_eq!(bwr.write_consumed, 0);
+            assert_eq!(bwr.write_size, command_size);
+            bwr.write_consumed = bwr.write_size;
+            0
+        }
+    }
+
+    unsafe extern "C" fn write_error_resets_accumulated_read_ioctl(
+        _fd: c_int,
+        request: c_int,
+        arg: *mut c_void,
+    ) -> c_int {
+        assert_eq!(request, BINDER_WRITE_READ as c_int);
+        let bwr = &mut *(arg as *mut binder_write_read);
+        assert!(bwr.write_size > 0);
+        assert!(bwr.read_consumed > 0);
+        bwr.write_consumed = 0;
+        bwr.read_consumed = 0;
+        *libc::__errno() = libc::EINTR;
+        -1
+    }
+
     unsafe extern "C" fn interleaved_host_reply_ioctl(
         _fd: c_int,
         request: c_int,
@@ -1587,25 +2464,13 @@ mod tests {
             }
             1 => {
                 bwr.write_consumed = bwr.write_size;
-                bwr.read_consumed = 0;
+                assert_eq!(
+                    bwr.read_consumed,
+                    size_of::<u32>() + size_of::<binder_transaction_data>()
+                );
             }
             call => panic!("unexpected interleaved reply ioctl call {call}"),
         }
-        0
-    }
-
-    unsafe extern "C" fn suppressed_host_read_ioctl(
-        _fd: c_int,
-        request: c_int,
-        arg: *mut c_void,
-    ) -> c_int {
-        assert_eq!(request, BINDER_WRITE_READ as c_int);
-        let bwr = &mut *(arg as *mut binder_write_read);
-        assert_eq!(bwr.write_size, 0);
-        assert_eq!(bwr.write_consumed, 0);
-        assert!(bwr.read_size >= size_of::<u32>());
-        std::ptr::write_unaligned(bwr.read_buffer as *mut u32, BR_NOOP_CMD);
-        bwr.read_consumed = size_of::<u32>();
         0
     }
 
@@ -1614,7 +2479,8 @@ mod tests {
         let _guard = SYNTHETIC_REPLY_TEST_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        reset_pending_reply_frames_for_test(0);
+        let _route_guard = crate::tracker::state_test_guard();
+        reset_pending_reply_frames_for_test(0, 0);
         let tr: binder_transaction_data = unsafe { std::mem::zeroed() };
         let mut write = Vec::new();
         let bc_transaction_cmd = BC_REPLY_CMD - BC_REPLY_NR + BC_TRANSACTION_NR;
@@ -1623,17 +2489,26 @@ mod tests {
         push_unaligned(&mut write, &BC_REPLY_CMD);
         push_unaligned(&mut write, &tr);
         push_unaligned(&mut write, &BC_ACQUIRE_DONE_CMD);
+        let acquire_target = LocalBinderTarget {
+            ptr: 0x1234,
+            cookie: 0x5678,
+        };
+        let acquire_retirement = register_operation_publication_for_test(acquire_target);
+        let connection = binder_state_key(20);
+        bind_operation_publication_connection(acquire_retirement, connection);
+        assert_eq!(
+            mark_operation_publication_acquire_pending(acquire_target, connection),
+            Some(acquire_retirement)
+        );
         push_unaligned(
             &mut write,
             &binder_ptr_cookie {
-                ptr: 0x1234,
-                cookie: 0x5678,
+                ptr: acquire_target.ptr,
+                cookie: acquire_target.cookie,
             },
         );
 
-        let completions = unsafe {
-            parse_write_buffer(20, write.as_mut_ptr() as *mut c_void, write.len() as u64)
-        };
+        let completions = unsafe { parse_write_buffer(20, &mut write) };
         assert_eq!(completions.len(), 3);
         assert_eq!(completions[0].1, None);
         assert!(completions[0].2);
@@ -1641,81 +2516,722 @@ mod tests {
         assert_eq!(completions[1].1, Some(0));
         assert!(!completions[1].2);
         assert_eq!(completions[1].3, None);
-        assert_eq!(
-            completions[2].3,
-            Some(LocalBinderTarget {
-                ptr: 0x1234,
-                cookie: 0x5678,
-            })
-        );
+        assert_eq!(completions[2].3, Some(acquire_retirement));
         abort_prepared_bc_replies(20);
+        cancel_operation_publication_acquire_pending(acquire_retirement);
+        finish_local_operation_publication(acquire_retirement);
     }
 
     #[test]
-    fn pending_synthetic_writes_are_isolated_by_binder_fd() {
+    fn reset_discards_pending_staged_shadow_but_preserves_live_shadow() {
         let _guard = SYNTHETIC_REPLY_TEST_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let blocked_fd = 16;
-        let ready_fd = 17;
-        drain_transaction_completions(blocked_fd);
-        drain_transaction_completions(ready_fd);
-        *CAPTURED_REPLY_DATA
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
-
+        let connection = binder_state_key(20);
+        clear_inbound_transaction_shadows(connection);
+        let original = [1u8, 2, 3, 4];
         let mut tr: binder_transaction_data = unsafe { std::mem::zeroed() };
-        tr.data.ptr.buffer = 0x4000;
-        let status = || SyntheticReply::Status(i32::from(rsbinder::StatusCode::UnknownTransaction));
-        assert!(!unsafe {
-            submit_synthetic_transaction_reply(blocked_fd, interrupt_reply_ioctl, &tr, status())
+        tr.data_size = original.len();
+        tr.data.ptr.buffer = original.as_ptr() as libc::c_ulong;
+        let shadow = unsafe { TransactionPayloadShadow::read(&tr) }
+            .expect("readable transaction should create a shadow");
+        let live_buffer = retain_inbound_transaction_shadow(connection, shadow);
+
+        assert_eq!(
+            inbound_transaction_original_buffer(connection, live_buffer),
+            None
+        );
+        publish_inbound_transaction_shadows(connection, &[live_buffer]);
+        assert_eq!(
+            inbound_transaction_original_buffer(connection, live_buffer),
+            Some(original.as_ptr() as libc::c_ulong)
+        );
+
+        let staged = unsafe { TransactionPayloadShadow::read(&tr) }
+            .expect("readable transaction should create a shadow");
+        let staged_buffer = retain_inbound_transaction_shadow(connection, staged);
+        let mut read_effects = PendingReadEffects::new(connection);
+        read_effects.staged_inbound_shadows.push(staged_buffer);
+        PENDING_IOCTL_COPYBACKS.with(|pending| {
+            pending.borrow_mut().insert(
+                connection,
+                PendingIoctlCopyback {
+                    arg: 0,
+                    write_buffer: 0,
+                    read_buffer: 0,
+                    write_size: 0,
+                    read_size: 0,
+                    read: PendingReadCopyback::None,
+                    output: unsafe { std::mem::zeroed() },
+                    read_effects,
+                    freed_inbound_shadows: Vec::new(),
+                    ret: 0,
+                    errno: 0,
+                },
+            );
         });
-        assert!(unsafe {
-            submit_synthetic_transaction_reply(ready_fd, capture_reply_ioctl, &tr, status())
-        });
-        assert!(PENDING_SYNTHETIC_WRITES.with(|pending| {
-            let pending = pending.borrow();
-            pending.contains_key(&blocked_fd) && !pending.contains_key(&ready_fd)
-        }));
-        assert_eq!(complete_transaction_submission(ready_fd), Some(true));
-        assert_eq!(complete_transaction_submission(blocked_fd), None);
-        drop_pending_synthetic_writes(blocked_fd);
+
+        reset_current_thread_binder_state(connection);
+        assert_eq!(
+            inbound_transaction_original_buffer(connection, live_buffer),
+            Some(original.as_ptr() as libc::c_ulong)
+        );
+        assert!(!INBOUND_TRANSACTION_SHADOWS
+            .lock()
+            .expect("inbound transaction shadow map poisoned")
+            .contains_key(&(connection, staged_buffer)));
+        clear_inbound_transaction_shadows(connection);
     }
 
     #[test]
-    fn zero_progress_synthetic_write_allows_read_before_retrying() {
+    fn undelivered_operation_acquire_is_canceled_but_delivered_acquire_is_retained() {
         let _guard = SYNTHETIC_REPLY_TEST_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let fd = 18;
+        let _route_guard = crate::tracker::state_test_guard();
+        let fd = 98;
+        let connection = binder_state_key(fd);
+        let target = LocalBinderTarget {
+            ptr: 0x1234,
+            cookie: 0x5678,
+        };
+        let retirement = register_operation_publication_for_test(target);
+        bind_operation_publication_connection(retirement, connection);
+
+        let mut effects = PendingReadEffects::new(connection);
+        effects
+            .operation_acquires
+            .push(observe_operation_acquire(fd, target).unwrap());
+        drop(effects);
+        assert_eq!(
+            mark_operation_publication_acquire_pending(target, connection),
+            Some(retirement)
+        );
+        cancel_operation_publication_acquire_pending(retirement);
+
+        let mut effects = PendingReadEffects::new(connection);
+        effects
+            .operation_acquires
+            .push(observe_operation_acquire(fd, target).unwrap());
+        effects.commit();
+        assert_eq!(
+            mark_operation_publication_acquire_pending(target, connection),
+            None
+        );
+
+        cancel_operation_publication_acquire_pending(retirement);
+        finish_local_operation_publication(retirement);
+        reset_binder_fd_for_test(fd);
+    }
+
+    #[test]
+    fn inbound_shadow_free_is_translated_and_released_only_after_consumption() {
+        let _guard = SYNTHETIC_REPLY_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let connection = binder_state_key(20);
+        clear_inbound_transaction_shadows(connection);
+        let original = [1u8, 2, 3, 4];
+        let mut tr: binder_transaction_data = unsafe { std::mem::zeroed() };
+        tr.data_size = original.len();
+        tr.data.ptr.buffer = original.as_ptr() as libc::c_ulong;
+        let shadow = unsafe { TransactionPayloadShadow::read(&tr) }
+            .expect("readable transaction should create a shadow");
+        let shadow_buffer = retain_inbound_transaction_shadow(connection, shadow);
+        publish_inbound_transaction_shadows(connection, &[shadow_buffer]);
+
+        let mut write = Vec::new();
+        push_unaligned(&mut write, &BC_FREE_BUFFER_CMD);
+        push_unaligned(&mut write, &shadow_buffer);
+        push_unaligned(&mut write, &BC_REPLY_CMD);
+        assert!(!unsafe { write_buffer_is_safe_to_intercept(&write) });
+
+        let rewritten = unsafe { rewrite_inbound_free_buffers(connection, &mut write) };
+        let command_end = size_of::<u32>() + size_of::<libc::c_ulong>();
+        assert_eq!(rewritten, vec![(command_end, shadow_buffer)]);
+        assert_eq!(
+            unsafe {
+                std::ptr::read_unaligned(write.as_ptr().add(size_of::<u32>()) as *const usize)
+            },
+            original.as_ptr() as usize
+        );
+
+        complete_inbound_free_buffers(connection, &rewritten, command_end - 1);
+        assert_eq!(
+            inbound_transaction_original_buffer(connection, shadow_buffer),
+            Some(original.as_ptr() as libc::c_ulong)
+        );
+        mark_inbound_free_buffers_consumed(connection, &rewritten, command_end);
+        complete_inbound_free_buffers(connection, &rewritten, command_end);
+        assert_eq!(
+            inbound_transaction_original_buffer(connection, shadow_buffer),
+            None
+        );
+    }
+
+    #[test]
+    fn binder_fd_generation_reset_discards_stale_thread_state() {
+        let _guard = SYNTHETIC_REPLY_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let fd = 90;
+        reset_binder_fd_for_test(fd);
         drain_transaction_completions(fd);
-        NEEDS_READ_IOCTL_CALLS.store(0, Ordering::SeqCst);
 
-        let mut tr: binder_transaction_data = unsafe { std::mem::zeroed() };
-        tr.data.ptr.buffer = 0x5000;
-        assert!(!unsafe {
-            submit_synthetic_transaction_reply(
-                fd,
-                needs_read_ioctl,
-                &tr,
-                SyntheticReply::Status(i32::from(rsbinder::StatusCode::UnknownTransaction)),
-            )
+        let original = synchronize_binder_fd_generation(fd).unwrap();
+        let connection = original.connection;
+        record_transaction_completion(fd, false, true, None);
+        PREPARED_BC_REPLIES.with(|prepared| {
+            prepared
+                .borrow_mut()
+                .entry(connection)
+                .or_default()
+                .push_back(PreparedBcReply {
+                    frame_id: None,
+                    data_ptr: 0,
+                    transaction: unsafe { std::mem::zeroed() },
+                });
         });
+        reset_pending_reply_frames_for_test(connection, 1);
 
-        let mut host_write = Vec::new();
-        push_unaligned(&mut host_write, &BC_FREE_BUFFER_CMD);
-        push_unaligned(&mut host_write, &0usize);
-        let mut host_read = [0u8; size_of::<u32>()];
+        invalidate_binder_fd(fd);
+        assert_eq!(synchronize_binder_fd_generation(fd), Err(original));
+        let replacement = synchronize_binder_fd_generation(fd).unwrap();
+
+        assert_ne!(replacement.connection, original.connection);
+        assert!(!binder_fd_token_is_current(original));
+        assert!(binder_fd_token_is_current(replacement));
+        assert!(PENDING_TRANSACTION_COMPLETIONS
+            .with(|pending| { !pending.borrow().contains_key(&connection) }));
+        assert!(SYNC_TRANSACTIONS
+            .with(|transactions| { !transactions.borrow().contains_key(&connection) }));
+        assert!(
+            PREPARED_BC_REPLIES.with(|prepared| { !prepared.borrow().contains_key(&connection) })
+        );
+        assert_eq!(pending_reply_frame_count_for_test(connection), 0);
+
+        reset_binder_fd_for_test(fd);
+    }
+
+    #[test]
+    fn invalid_binder_write_read_input_returns_efault_without_crashing() {
+        let _guard = SYNTHETIC_REPLY_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        EFAULT_IOCTL_CALLS.store(0, Ordering::SeqCst);
+        let previous = OLD_IOCTL.swap(efault_ioctl as *mut c_void, Ordering::SeqCst);
+
+        assert_eq!(
+            unsafe {
+                new_ioctl(
+                    91,
+                    BINDER_WRITE_READ as c_int,
+                    std::ptr::dangling_mut::<c_void>(),
+                )
+            },
+            -1
+        );
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::EFAULT)
+        );
+
         let mut bwr = binder_write_read {
-            write_size: host_write.len(),
+            write_size: size_of::<u32>(),
             write_consumed: 0,
-            write_buffer: host_write.as_mut_ptr() as libc::c_ulong,
+            write_buffer: 1,
             read_size: 0,
             read_consumed: 0,
             read_buffer: 0,
         };
-        let previous = OLD_IOCTL.swap(needs_read_ioctl as *mut c_void, Ordering::SeqCst);
+        assert_eq!(
+            unsafe {
+                new_ioctl(
+                    91,
+                    BINDER_WRITE_READ as c_int,
+                    (&mut bwr as *mut binder_write_read).cast(),
+                )
+            },
+            -1
+        );
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::EFAULT)
+        );
+        assert_eq!(EFAULT_IOCTL_CALLS.load(Ordering::SeqCst), 1);
 
+        bwr.write_size = 0;
+        bwr.write_buffer = 0;
+        bwr.read_size = size_of::<u32>();
+        bwr.read_buffer = 1;
+        assert_eq!(
+            unsafe {
+                new_ioctl(
+                    91,
+                    BINDER_WRITE_READ as c_int,
+                    (&mut bwr as *mut binder_write_read).cast(),
+                )
+            },
+            -1
+        );
+        assert_eq!(EFAULT_IOCTL_CALLS.load(Ordering::SeqCst), 2);
+
+        OLD_IOCTL.store(previous, Ordering::SeqCst);
+        reset_binder_fd_for_test(91);
+        unsafe { *libc::__errno() = 0 };
+    }
+
+    #[test]
+    fn read_shadow_only_copies_newly_consumed_bytes() {
+        let _guard = SYNTHETIC_REPLY_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let fd = 96;
+        reset_binder_fd_for_test(fd);
+        let mut read = [0x5au8; 3 * size_of::<u32>()];
+        let mut bwr = binder_write_read {
+            write_size: 0,
+            write_consumed: 0,
+            write_buffer: 0,
+            read_size: read.len(),
+            read_consumed: size_of::<u32>(),
+            read_buffer: read.as_mut_ptr() as libc::c_ulong,
+        };
+        let previous = OLD_IOCTL.swap(capture_reply_ioctl as *mut c_void, Ordering::SeqCst);
+
+        assert_eq!(
+            unsafe {
+                new_ioctl(
+                    fd,
+                    BINDER_WRITE_READ as c_int,
+                    (&mut bwr as *mut binder_write_read).cast(),
+                )
+            },
+            0
+        );
+        assert_eq!(read, [0x5a; 3 * size_of::<u32>()]);
+
+        OLD_IOCTL.store(partial_read_ioctl as *mut c_void, Ordering::SeqCst);
+        assert_eq!(
+            unsafe {
+                new_ioctl(
+                    fd,
+                    BINDER_WRITE_READ as c_int,
+                    (&mut bwr as *mut binder_write_read).cast(),
+                )
+            },
+            0
+        );
+        assert_eq!(bwr.read_consumed, 2 * size_of::<u32>());
+        assert_eq!(&read[..size_of::<u32>()], &[0x5a; size_of::<u32>()]);
+        assert_eq!(
+            &read[size_of::<u32>()..2 * size_of::<u32>()],
+            &BR_NOOP_CMD.to_ne_bytes()
+        );
+        assert_eq!(&read[2 * size_of::<u32>()..], &[0x5a; size_of::<u32>()]);
+
+        read[..size_of::<u32>()].fill(0x33);
+        OLD_IOCTL.store(prefix_only_read_ioctl as *mut c_void, Ordering::SeqCst);
+        assert_eq!(
+            unsafe {
+                new_ioctl(
+                    fd,
+                    BINDER_WRITE_READ as c_int,
+                    (&mut bwr as *mut binder_write_read).cast(),
+                )
+            },
+            0
+        );
+        assert_eq!(bwr.read_consumed, 2 * size_of::<u32>());
+        assert_eq!(&read[..size_of::<u32>()], &[0x33; size_of::<u32>()]);
+        assert_eq!(&read[2 * size_of::<u32>()..], &[0x5a; size_of::<u32>()]);
+
+        OLD_IOCTL.store(previous, Ordering::SeqCst);
+        reset_binder_fd_for_test(fd);
+    }
+
+    #[test]
+    fn post_ioctl_copyback_failures_return_efault_without_replaying_ioctl() {
+        let _guard = SYNTHETIC_REPLY_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let fd = 97;
+        reset_binder_fd_for_test(fd);
+        let connection = binder_state_key(fd);
+        let pending_completions = || {
+            PENDING_TRANSACTION_COMPLETIONS
+                .with(|pending| pending.borrow().get(&connection).map_or(0, VecDeque::len))
+        };
+        record_transaction_completion(fd, false, false, None);
+        assert_eq!(pending_completions(), 1);
+        COPYBACK_IOCTL_CALLS.store(0, Ordering::SeqCst);
+        let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize };
+        let map_page = || unsafe {
+            let page = libc::mmap(
+                std::ptr::null_mut(),
+                page_size,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
+                -1,
+                0,
+            );
+            assert_ne!(page, libc::MAP_FAILED);
+            page
+        };
+        let read_page = map_page();
+        unsafe { std::ptr::write_bytes(read_page.cast::<u8>(), 0x5a, page_size) };
+        let mut bwr = binder_write_read {
+            write_size: 0,
+            write_consumed: 0,
+            write_buffer: 0,
+            read_size: size_of::<u32>(),
+            read_consumed: 0,
+            read_buffer: read_page as libc::c_ulong,
+        };
+        POST_IOCTL_PROTECT_ADDRESS.store(read_page as usize, Ordering::SeqCst);
+        POST_IOCTL_PROTECT_LENGTH.store(page_size, Ordering::SeqCst);
+        let previous = OLD_IOCTL.swap(protect_copyback_ioctl as *mut c_void, Ordering::SeqCst);
+
+        assert_eq!(
+            unsafe {
+                new_ioctl(
+                    fd,
+                    BINDER_WRITE_READ as c_int,
+                    (&mut bwr as *mut binder_write_read).cast(),
+                )
+            },
+            -1
+        );
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::EFAULT)
+        );
+        assert_eq!(bwr.read_consumed, 0);
+        assert_eq!(pending_completions(), 1);
+        assert_eq!(
+            unsafe { libc::mprotect(read_page, page_size, libc::PROT_READ | libc::PROT_WRITE,) },
+            0
+        );
+        assert_eq!(
+            unsafe {
+                new_ioctl(
+                    fd,
+                    BINDER_WRITE_READ as c_int,
+                    (&mut bwr as *mut binder_write_read).cast(),
+                )
+            },
+            0
+        );
+        assert_eq!(COPYBACK_IOCTL_CALLS.load(Ordering::SeqCst), 1);
+        assert_eq!(bwr.read_consumed, size_of::<u32>());
+        assert_eq!(pending_completions(), 0);
+        assert_eq!(
+            unsafe { std::slice::from_raw_parts(read_page.cast::<u8>(), size_of::<u32>()) },
+            &BR_TRANSACTION_COMPLETE_CMD.to_ne_bytes()
+        );
+
+        let bwr_page = map_page();
+        let bwr_ptr = bwr_page.cast::<binder_write_read>();
+        unsafe {
+            std::ptr::write(
+                bwr_ptr,
+                binder_write_read {
+                    write_size: 0,
+                    write_consumed: 0,
+                    write_buffer: 0,
+                    read_size: 0,
+                    read_consumed: 0,
+                    read_buffer: 0,
+                },
+            )
+        };
+        POST_IOCTL_PROTECT_ADDRESS.store(bwr_page as usize, Ordering::SeqCst);
+        assert_eq!(
+            unsafe { new_ioctl(fd, BINDER_WRITE_READ as c_int, bwr_ptr.cast()) },
+            -1
+        );
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::EFAULT)
+        );
+        assert_eq!(COPYBACK_IOCTL_CALLS.load(Ordering::SeqCst), 2);
+
+        assert_eq!(
+            unsafe { libc::mprotect(bwr_page, page_size, libc::PROT_READ | libc::PROT_WRITE,) },
+            0
+        );
+        assert_eq!(
+            unsafe { new_ioctl(fd, BINDER_WRITE_READ as c_int, bwr_ptr.cast()) },
+            0
+        );
+        assert_eq!(COPYBACK_IOCTL_CALLS.load(Ordering::SeqCst), 2);
+        OLD_IOCTL.store(previous, Ordering::SeqCst);
+        unsafe {
+            libc::munmap(read_page, page_size);
+            libc::munmap(bwr_page, page_size);
+        }
+        reset_binder_fd_for_test(fd);
+        unsafe { *libc::__errno() = 0 };
+    }
+
+    #[test]
+    fn invalid_driver_consumption_poison_connection_without_replaying_ioctl() {
+        let _guard = SYNTHETIC_REPLY_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let previous = OLD_IOCTL.swap(invalid_consumption_ioctl as *mut c_void, Ordering::SeqCst);
+        let mut write = BR_NOOP_CMD.to_ne_bytes();
+        let mut read = [0u8; 2 * size_of::<u32>()];
+
+        let assert_poisoned = |fd, bwr: &mut binder_write_read, mode| {
+            reset_binder_fd_for_test(fd);
+            BOUNDARY_IOCTL_CALLS.store(0, Ordering::SeqCst);
+            BOUNDARY_IOCTL_MODE.store(mode, Ordering::SeqCst);
+            for _ in 0..2 {
+                assert_eq!(
+                    unsafe {
+                        new_ioctl(
+                            fd,
+                            BINDER_WRITE_READ as c_int,
+                            (bwr as *mut binder_write_read).cast(),
+                        )
+                    },
+                    -1
+                );
+                assert_eq!(
+                    std::io::Error::last_os_error().raw_os_error(),
+                    Some(libc::EPROTO)
+                );
+            }
+            assert_eq!(BOUNDARY_IOCTL_CALLS.load(Ordering::SeqCst), 1);
+            assert!(PENDING_IOCTL_COPYBACKS
+                .with(|pending| !pending.borrow().contains_key(&binder_state_key(fd))));
+            reset_binder_fd_for_test(fd);
+        };
+
+        assert_poisoned(
+            99,
+            &mut binder_write_read {
+                write_size: write.len(),
+                write_consumed: 0,
+                write_buffer: write.as_mut_ptr() as libc::c_ulong,
+                read_size: 0,
+                read_consumed: 0,
+                read_buffer: 0,
+            },
+            0,
+        );
+        assert_poisoned(
+            100,
+            &mut binder_write_read {
+                write_size: 0,
+                write_consumed: 0,
+                write_buffer: 0,
+                read_size: read.len(),
+                read_consumed: 0,
+                read_buffer: read.as_mut_ptr() as libc::c_ulong,
+            },
+            1,
+        );
+        assert_poisoned(
+            101,
+            &mut binder_write_read {
+                write_size: 0,
+                write_consumed: 0,
+                write_buffer: 0,
+                read_size: read.len(),
+                read_consumed: size_of::<u32>(),
+                read_buffer: read.as_mut_ptr() as libc::c_ulong,
+            },
+            2,
+        );
+
+        OLD_IOCTL.store(previous, Ordering::SeqCst);
+        unsafe { *libc::__errno() = 0 };
+    }
+
+    #[test]
+    fn unsafe_reply_parcels_and_partial_commands_are_not_claimed() {
+        let _guard = SYNTHETIC_REPLY_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let fd = 93;
+        let connection = binder_state_key(fd);
+        let previous = OLD_IOCTL.swap(efault_ioctl as *mut c_void, Ordering::SeqCst);
+        let mut tr: binder_transaction_data = unsafe { std::mem::zeroed() };
+        tr.data_size = 1;
+        tr.data.ptr.buffer = 1;
+        let mut write = Vec::new();
+        push_unaligned(&mut write, &BC_REPLY_CMD);
+        push_unaligned(&mut write, &tr);
+        let mut bwr = binder_write_read {
+            write_size: write.len(),
+            write_consumed: 0,
+            write_buffer: write.as_mut_ptr() as libc::c_ulong,
+            read_size: 0,
+            read_consumed: 0,
+            read_buffer: 0,
+        };
+
+        reset_pending_reply_frames_for_test(connection, 1);
+        assert_eq!(
+            unsafe {
+                new_ioctl(
+                    fd,
+                    BINDER_WRITE_READ as c_int,
+                    (&mut bwr as *mut binder_write_read).cast(),
+                )
+            },
+            -1
+        );
+        assert_eq!(pending_reply_frame_claims_for_test(connection), vec![false]);
+
+        tr.data_size = 0;
+        tr.data.ptr.buffer = 0;
+        write.clear();
+        push_unaligned(&mut write, &BC_REPLY_CMD);
+        push_unaligned(&mut write, &tr);
+        bwr.write_size = write.len();
+        bwr.write_consumed = size_of::<u32>() + 1;
+        bwr.write_buffer = write.as_mut_ptr() as libc::c_ulong;
+        assert_eq!(
+            unsafe {
+                new_ioctl(
+                    fd,
+                    BINDER_WRITE_READ as c_int,
+                    (&mut bwr as *mut binder_write_read).cast(),
+                )
+            },
+            -1
+        );
+        assert_eq!(pending_reply_frame_claims_for_test(connection), vec![false]);
+
+        OLD_IOCTL.store(previous, Ordering::SeqCst);
+        reset_pending_reply_frames_for_test(connection, 0);
+        reset_binder_fd_for_test(fd);
+        unsafe { *libc::__errno() = 0 };
+    }
+
+    #[test]
+    fn reused_fd_fails_closed_once_then_accepts_the_new_generation() {
+        let _guard = SYNTHETIC_REPLY_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let fd = 89;
+        reset_binder_fd_for_test(fd);
+
+        let original = synchronize_binder_fd_generation(fd).unwrap();
+        invalidate_binder_fd(fd);
+        assert_eq!(synchronize_binder_fd_generation(fd), Err(original));
+        let replacement = synchronize_binder_fd_generation(fd).unwrap();
+
+        assert_ne!(replacement.connection, original.connection);
+        assert!(!binder_fd_token_is_current(original));
+        assert!(binder_fd_token_is_current(replacement));
+
+        reset_binder_fd_for_test(fd);
+    }
+
+    #[test]
+    fn duplicated_binder_fds_share_connection_state_until_the_last_close() {
+        let _guard = SYNTHETIC_REPLY_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let original_fd = 94;
+        let alias_fd = 95;
+        reset_binder_fd_for_test(original_fd);
+        reset_binder_fd_for_test(alias_fd);
+
+        let original = binder_fd_token(original_fd);
+        assert_eq!(
+            unsafe { duplicate_binder_fd_with_lifecycle(original_fd, None, || alias_fd) },
+            alias_fd
+        );
+        let alias = binder_fd_token(alias_fd);
+        assert_eq!(alias.connection, original.connection);
+        assert_eq!(alias.generation, original.generation);
+
+        record_transaction_completion(original_fd, false, false, None);
+        assert_eq!(complete_transaction_submission(alias_fd), Some(()));
+        assert_eq!(
+            unsafe { close_with_binder_fd_lifecycle(original_fd, || 0) },
+            0
+        );
+        assert!(binder_fd_token_is_current(alias));
+        assert_eq!(unsafe { close_with_binder_fd_lifecycle(alias_fd, || 0) }, 0);
+        assert!(!binder_fd_token_is_current(alias));
+
+        reset_binder_fd_for_test(original_fd);
+        reset_binder_fd_for_test(alias_fd);
+    }
+
+    #[test]
+    fn binder_fd_duplicated_before_first_io_shares_its_lifecycle() {
+        let _guard = SYNTHETIC_REPLY_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let fd = unsafe { libc::open(c"/dev/binder".as_ptr(), libc::O_RDWR | libc::O_CLOEXEC) };
+        assert!(fd >= 0, "test requires the Android Binder driver");
+        assert!(existing_binder_fd_lifecycle(fd).is_none());
+
+        let alias = unsafe { duplicate_binder_fd_with_lifecycle(fd, None, || libc::dup(fd)) };
+        assert!(alias >= 0);
+        let source = existing_binder_fd_lifecycle(fd).expect("source should be registered");
+        let destination =
+            existing_binder_fd_lifecycle(alias).expect("destination should inherit source");
+        assert!(Arc::ptr_eq(&source, &destination));
+
+        assert_eq!(
+            unsafe { close_with_binder_fd_lifecycle(alias, || libc::close(alias)) },
+            0
+        );
+        assert_eq!(
+            unsafe { close_with_binder_fd_lifecycle(fd, || libc::close(fd)) },
+            0
+        );
+    }
+
+    #[test]
+    fn reused_fd_never_submits_an_ambiguous_write() {
+        let _guard = SYNTHETIC_REPLY_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let fd = 88;
+        reset_binder_fd_for_test(fd);
+
+        synchronize_binder_fd_generation(fd).unwrap();
+        invalidate_binder_fd(fd);
+        let mut write = Vec::new();
+        push_unaligned(&mut write, &BC_FREE_BUFFER_CMD);
+        push_unaligned(&mut write, &0usize);
+        let mut bwr = binder_write_read {
+            write_size: write.len(),
+            write_consumed: 0,
+            write_buffer: write.as_mut_ptr() as libc::c_ulong,
+            read_size: 0,
+            read_consumed: 0,
+            read_buffer: 0,
+        };
+        let previous = OLD_IOCTL.swap(capture_reply_ioctl as *mut c_void, Ordering::SeqCst);
+
+        assert_eq!(
+            unsafe {
+                new_ioctl(
+                    fd,
+                    BINDER_WRITE_READ as c_int,
+                    &mut bwr as *mut binder_write_read as *mut c_void,
+                )
+            },
+            -1
+        );
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::EBADF)
+        );
+        assert_eq!(bwr.write_consumed, 0);
+
+        bwr.write_size = 0;
+        bwr.write_consumed = 0;
         assert_eq!(
             unsafe {
                 new_ioctl(
@@ -1726,60 +3242,183 @@ mod tests {
             },
             0
         );
-        assert_eq!(bwr.write_consumed, 0);
-        assert_eq!(NEEDS_READ_IOCTL_CALLS.load(Ordering::SeqCst), 1);
-        assert!(PENDING_SYNTHETIC_WRITES.with(|pending| {
-            pending
-                .borrow()
-                .get(&fd)
-                .and_then(|queue| queue.front())
-                .is_some_and(|write| write.needs_read)
-        }));
 
+        OLD_IOCTL.store(previous, Ordering::SeqCst);
+        reset_binder_fd_for_test(fd);
+    }
+
+    #[test]
+    fn binder_fd_close_and_replacement_serialize_with_ioctl() {
+        let _guard = SYNTHETIC_REPLY_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let fd = 91;
+        reset_binder_fd_for_test(fd);
+        let original = binder_fd_token(fd);
+        assert!(binder_fd_token_is_current(original));
+        let lifecycle = binder_fd_lifecycle(fd);
+        let ioctl = lifecycle
+            .state
+            .lock()
+            .expect("binder fd lifecycle poisoned");
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+
+        let close_thread = std::thread::spawn(move || {
+            let result = unsafe {
+                close_with_binder_fd_lifecycle(fd, || {
+                    started_tx.send(()).unwrap();
+                    0
+                })
+            };
+            done_tx.send(result).unwrap();
+        });
+        started_rx.recv().unwrap();
+        assert!(done_rx.try_recv().is_err());
+
+        drop(ioctl);
+        assert_eq!(done_rx.recv().unwrap(), 0);
+        close_thread.join().unwrap();
+        assert!(!binder_fd_token_is_current(original));
+
+        let after_close = binder_fd_token(fd);
+        unsafe {
+            *libc::__errno() = libc::EIO;
+        }
         assert_eq!(
             unsafe {
-                new_ioctl(
-                    fd,
-                    BINDER_WRITE_READ as c_int,
-                    &mut bwr as *mut binder_write_read as *mut c_void,
-                )
+                duplicate_binder_fd_with_lifecycle(fd + 1, Some(fd), || {
+                    *libc::__errno() = libc::EPERM;
+                    -1
+                })
             },
-            0
+            -1
         );
-        assert_eq!(bwr.write_consumed, 0);
-        assert_eq!(NEEDS_READ_IOCTL_CALLS.load(Ordering::SeqCst), 1);
-        assert!(PENDING_SYNTHETIC_WRITES.with(|pending| {
-            pending
-                .borrow()
-                .get(&fd)
-                .and_then(|queue| queue.front())
-                .is_some_and(|write| write.needs_read)
-        }));
-
-        bwr.read_size = host_read.len();
-        bwr.read_buffer = host_read.as_mut_ptr() as libc::c_ulong;
         assert_eq!(
-            unsafe {
-                new_ioctl(
-                    fd,
-                    BINDER_WRITE_READ as c_int,
-                    &mut bwr as *mut binder_write_read as *mut c_void,
-                )
-            },
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::EPERM)
+        );
+        assert!(binder_fd_token_is_current(after_close));
+        assert_eq!(
+            unsafe { duplicate_binder_fd_with_lifecycle(fd + 1, Some(fd), || fd) },
+            fd
+        );
+        assert!(!binder_fd_token_is_current(after_close));
+
+        reset_binder_fd_for_test(fd);
+        reset_binder_fd_for_test(fd + 1);
+    }
+
+    #[test]
+    fn blocking_binder_read_does_not_hold_the_fd_lifecycle_lock() {
+        let _guard = SYNTHETIC_REPLY_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut pipe = [-1; 2];
+        assert_eq!(
+            unsafe { libc::pipe2(pipe.as_mut_ptr(), libc::O_CLOEXEC) },
             0
         );
-        assert_eq!(bwr.write_size, host_write.len());
-        assert_eq!(bwr.write_consumed, 0);
-        assert_eq!(NEEDS_READ_IOCTL_CALLS.load(Ordering::SeqCst), 2);
-        assert!(PENDING_SYNTHETIC_WRITES.with(|pending| {
-            pending
-                .borrow()
-                .get(&fd)
-                .and_then(|queue| queue.front())
-                .is_some_and(|write| !write.needs_read)
-        }));
+        let fd = pipe[0];
+        reset_binder_fd_for_test(fd);
+        let token = binder_fd_token(fd);
+        let lifecycle = existing_binder_fd_lifecycle(fd).unwrap();
+        let ioctl_thread = std::thread::spawn(move || unsafe {
+            call_binder_ioctl(
+                token,
+                blocking_ioctl,
+                BINDER_WRITE_READ as c_int,
+                std::ptr::null_mut(),
+            )
+        });
+        PINNED_IOCTL_ENTERED.wait();
+        let pinned_fd = *lifecycle.pinned_fd.get().unwrap();
 
-        bwr.read_consumed = 0;
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let close_thread = std::thread::spawn(move || {
+            let result = unsafe { close_with_binder_fd_lifecycle(fd, || 7) };
+            done_tx.send(result).unwrap();
+        });
+        let close_result = done_rx.recv_timeout(Duration::from_secs(1));
+        assert!(unsafe { libc::fcntl(pinned_fd, libc::F_GETFD) } >= 0);
+        PINNED_IOCTL_RELEASE.wait();
+
+        assert_eq!(ioctl_thread.join().unwrap(), BinderIoctlCall::Called(0));
+        close_thread.join().unwrap();
+        assert_eq!(close_result.unwrap(), 7);
+        drop(lifecycle);
+        assert_eq!(unsafe { libc::fcntl(pinned_fd, libc::F_GETFD) }, -1);
+        unsafe {
+            libc::syscall(libc::SYS_close, pipe[0]);
+            libc::syscall(libc::SYS_close, pipe[1]);
+        }
+        reset_binder_fd_for_test(fd);
+    }
+
+    #[test]
+    fn binder_ioctl_reuses_one_pin_until_connection_retires() {
+        let _guard = SYNTHETIC_REPLY_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut pipe = [-1; 2];
+        assert_eq!(
+            unsafe { libc::pipe2(pipe.as_mut_ptr(), libc::O_CLOEXEC) },
+            0
+        );
+        let fd = pipe[0];
+        reset_binder_fd_for_test(fd);
+        let token = binder_fd_token(fd);
+
+        let first = BinderIoctlGuard::begin(token).unwrap();
+        let pinned_fd = first.fd();
+        assert_ne!(pinned_fd, fd);
+        drop(first);
+        assert!(unsafe { libc::fcntl(pinned_fd, libc::F_GETFD) } >= 0);
+
+        let second = BinderIoctlGuard::begin(token).unwrap();
+        assert_eq!(second.fd(), pinned_fd);
+        drop(second);
+
+        assert_eq!(
+            unsafe { close_with_binder_fd_lifecycle(fd, || libc::close(fd)) },
+            0
+        );
+        assert_eq!(unsafe { libc::fcntl(pinned_fd, libc::F_GETFD) }, -1);
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::EBADF)
+        );
+        unsafe {
+            libc::close(pipe[1]);
+        }
+    }
+
+    #[test]
+    fn completed_ioctl_keeps_its_result_after_fd_reuse() {
+        let _guard = SYNTHETIC_REPLY_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let fd = 92;
+        reset_binder_fd_for_test(fd);
+        POST_IOCTL_INVALIDATE_FD.store(fd, Ordering::SeqCst);
+
+        let mut write = Vec::new();
+        push_unaligned(&mut write, &BC_FREE_BUFFER_CMD);
+        push_unaligned(&mut write, &0usize);
+        let mut read = [0u8; size_of::<u32>()];
+        let mut bwr = binder_write_read {
+            write_size: write.len(),
+            write_consumed: 0,
+            write_buffer: write.as_mut_ptr() as libc::c_ulong,
+            read_size: read.len(),
+            read_consumed: 0,
+            read_buffer: read.as_mut_ptr() as libc::c_ulong,
+        };
+        let previous = OLD_IOCTL.swap(
+            invalidate_after_consuming_ioctl as *mut c_void,
+            Ordering::SeqCst,
+        );
+
         assert_eq!(
             unsafe {
                 new_ioctl(
@@ -1791,16 +3430,15 @@ mod tests {
             0
         );
         assert_eq!(bwr.write_consumed, bwr.write_size);
-        assert_eq!(NEEDS_READ_IOCTL_CALLS.load(Ordering::SeqCst), 4);
-        assert!(PENDING_SYNTHETIC_WRITES.with(|pending| pending.borrow().is_empty()));
-        assert_eq!(complete_transaction_submission(fd), Some(true));
+        assert_eq!(bwr.read_consumed, size_of::<u32>());
+        assert_eq!(read, BR_NOOP_CMD.to_ne_bytes());
 
         OLD_IOCTL.store(previous, Ordering::SeqCst);
-        drain_transaction_completions(fd);
+        reset_binder_fd_for_test(fd);
     }
 
     #[test]
-    fn operation_node_query_requires_an_exact_ptr_and_cookie_match() {
+    fn operation_node_query_requires_an_exact_node() {
         let _guard = SYNTHETIC_REPLY_TEST_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -1808,11 +3446,14 @@ mod tests {
             ptr: 0x30,
             cookie: 0x40,
         };
+        reset_binder_fd_for_test(19);
+        let binder = synchronize_binder_fd_generation(19).unwrap();
         let probe = OperationPublicationProbe {
             target,
-            binder_fd: 19,
+            binder,
             generation: 1,
             not_before: Instant::now(),
+            query_failures: 0,
         };
         let info = |ptr, cookie, has_strong_ref, has_weak_ref| binder_node_debug_info {
             ptr,
@@ -1862,202 +3503,37 @@ mod tests {
             Err(libc::EIO)
         );
 
-        for error in [libc::EBADF, libc::ENOTTY] {
-            queue(VecDeque::from([Err(error)]));
-            assert_eq!(
-                unsafe { operation_binder_node_exists(node_query_ioctl, probe) },
-                Ok(false)
-            );
-        }
-    }
+        queue(VecDeque::from([Err(libc::EBADF)]));
+        assert_eq!(
+            unsafe { operation_binder_node_exists(node_query_ioctl, probe) },
+            Err(libc::EBADF)
+        );
 
-    #[test]
-    fn synthetic_reply_distinguishes_partial_completion_and_failure() {
-        let _guard = SYNTHETIC_REPLY_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let mut tr: binder_transaction_data = unsafe { std::mem::zeroed() };
-        tr.data.ptr.buffer = 0x3000;
-        let status = || SyntheticReply::Status(i32::from(rsbinder::StatusCode::UnknownTransaction));
+        queue(VecDeque::from([Err(libc::ENOTTY)]));
+        assert_eq!(
+            unsafe { operation_binder_node_exists(node_query_ioctl, probe) },
+            Err(libc::ENOTTY)
+        );
 
-        drain_transaction_completions(3);
-        *CAPTURED_REPLY_DATA
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
-        PARTIAL_IOCTL_CALLS.store(0, Ordering::SeqCst);
-        PARTIAL_IOCTL_FAIL.store(false, Ordering::SeqCst);
-        let submitted =
-            unsafe { submit_synthetic_transaction_reply(3, partial_reply_ioctl, &tr, status()) };
-        assert!(submitted);
-        assert_eq!(PARTIAL_IOCTL_CALLS.load(Ordering::SeqCst), 2);
-        assert!(CAPTURED_REPLY_DATA
+        invalidate_binder_fd(19);
+        queue(VecDeque::from([Ok(info(0x30, 0x40, 1, 0))]));
+        assert_eq!(
+            unsafe { operation_binder_node_exists(node_query_ioctl, probe) },
+            Ok(false)
+        );
+        assert_eq!(
+            NODE_QUERY_RESULTS
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .len(),
+            1,
+            "retired publication must not query a reused Binder fd"
+        );
+        NODE_QUERY_RESULTS
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .take()
-            .is_some());
-        assert_eq!(complete_transaction_submission(3), Some(true));
-
-        drain_transaction_completions(4);
-        PARTIAL_IOCTL_CALLS.store(0, Ordering::SeqCst);
-        PARTIAL_IOCTL_INTERRUPT.store(true, Ordering::SeqCst);
-        let submitted =
-            unsafe { submit_synthetic_transaction_reply(4, partial_reply_ioctl, &tr, status()) };
-        assert!(!submitted);
-        assert!(CAPTURED_REPLY_DATA
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .is_none());
-        assert_eq!(complete_transaction_submission(4), None);
-        let previous = OLD_IOCTL.swap(partial_reply_ioctl as *mut c_void, Ordering::SeqCst);
-        let mut bwr: binder_write_read = unsafe { std::mem::zeroed() };
-        assert_eq!(
-            unsafe {
-                new_ioctl(
-                    4,
-                    BINDER_WRITE_READ as c_int,
-                    &mut bwr as *mut binder_write_read as *mut c_void,
-                )
-            },
-            -1
-        );
-        assert_eq!(
-            std::io::Error::last_os_error().raw_os_error(),
-            Some(libc::EINTR)
-        );
-        OLD_IOCTL.store(previous, Ordering::SeqCst);
-        PARTIAL_IOCTL_INTERRUPT.store(false, Ordering::SeqCst);
-        assert_eq!(
-            unsafe { flush_pending_synthetic_writes(4, partial_reply_ioctl) },
-            PendingSyntheticFlush::Drained
-        );
-        assert!(CAPTURED_REPLY_DATA
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .take()
-            .is_some());
-        assert_eq!(complete_transaction_submission(4), Some(true));
-
-        drain_transaction_completions(8);
-        PARTIAL_IOCTL_CALLS.store(0, Ordering::SeqCst);
-        PARTIAL_IOCTL_FAIL.store(true, Ordering::SeqCst);
-        let submitted =
-            unsafe { submit_synthetic_transaction_reply(8, partial_reply_ioctl, &tr, status()) };
-        assert!(!submitted);
-        PENDING_SYNTHETIC_WRITES.with(|pending| {
-            let pending = pending.borrow();
-            let writes = pending
-                .get(&8)
-                .expect("original reply retry should be queued");
-            assert_eq!(writes.len(), 1);
-            assert!(!writes[0].needs_read);
-            assert_eq!(writes[0].recovery, SyntheticWriteRecovery::ReplyRetried);
-        });
-        PARTIAL_IOCTL_FAIL.store(false, Ordering::SeqCst);
-        assert_eq!(
-            unsafe { flush_pending_synthetic_writes(8, partial_reply_ioctl) },
-            PendingSyntheticFlush::Drained
-        );
-        let captured = CAPTURED_REPLY_DATA
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .take()
-            .expect("original status reply should be submitted");
-        assert_eq!(
-            i32::from_ne_bytes(captured.try_into().expect("status reply size")),
-            i32::from(rsbinder::StatusCode::UnknownTransaction)
-        );
-        assert_eq!(complete_transaction_submission(8), Some(true));
-
-        drain_transaction_completions(5);
-        *CAPTURED_REPLY_DATA
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
-        let submitted =
-            unsafe { submit_synthetic_transaction_reply(5, fail_reply_ioctl, &tr, status()) };
-        assert!(!submitted);
-        assert_eq!(complete_transaction_submission(5), None);
-        PENDING_SYNTHETIC_WRITES.with(|pending| {
-            let pending = pending.borrow();
-            let writes = pending
-                .get(&5)
-                .expect("original reply retry should be queued");
-            assert_eq!(writes.len(), 1);
-            assert!(!writes[0].needs_read);
-            assert_eq!(writes[0].recovery, SyntheticWriteRecovery::ReplyRetried);
-        });
-        assert_eq!(
-            unsafe { flush_pending_synthetic_writes(5, capture_reply_ioctl) },
-            PendingSyntheticFlush::Drained
-        );
-        PENDING_SYNTHETIC_WRITES.with(|pending| assert!(pending.borrow().is_empty()));
-        let captured = CAPTURED_REPLY_DATA
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .take()
-            .expect("zero-progress retry should submit the original status reply");
-        assert_eq!(
-            i32::from_ne_bytes(captured.try_into().expect("status reply size")),
-            i32::from(rsbinder::StatusCode::UnknownTransaction)
-        );
-        assert_eq!(complete_transaction_submission(5), Some(true));
-
-        drain_transaction_completions(9);
-        RECOVERY_IOCTL_CALLS.store(0, Ordering::SeqCst);
-        *CAPTURED_REPLY_DATA
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
-        let submitted = unsafe {
-            submit_synthetic_transaction_reply(9, fail_twice_then_capture_ioctl, &tr, status())
-        };
-        assert!(!submitted);
-        assert_eq!(
-            unsafe { flush_pending_synthetic_writes(9, fail_twice_then_capture_ioctl) },
-            PendingSyntheticFlush::Drained
-        );
-        PENDING_SYNTHETIC_WRITES.with(|pending| assert!(pending.borrow().is_empty()));
-        let captured = CAPTURED_REPLY_DATA
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .take()
-            .expect("second terminal failure should submit status fallback");
-        assert_eq!(
-            i32::from_ne_bytes(captured.try_into().expect("status reply size")),
-            i32::from(rsbinder::StatusCode::FailedTransaction)
-        );
-        assert_eq!(complete_transaction_submission(9), Some(true));
-
-        drain_transaction_completions(11);
-        let submitted =
-            unsafe { submit_synthetic_transaction_reply(11, fail_reply_ioctl, &tr, status()) };
-        assert!(!submitted);
-        assert_eq!(
-            unsafe { flush_pending_synthetic_writes(11, fail_reply_ioctl) },
-            PendingSyntheticFlush::Drained
-        );
-        PENDING_SYNTHETIC_WRITES.with(|pending| assert!(pending.borrow().is_empty()));
-        assert_eq!(complete_transaction_submission(11), None);
-
-        drain_transaction_completions(10);
-        let submitted = unsafe {
-            submit_synthetic_transaction_reply(10, fail_reply_ioctl, &tr, SyntheticReply::NoReply)
-        };
-        assert!(!submitted);
-        PENDING_SYNTHETIC_WRITES.with(|pending| {
-            let pending = pending.borrow();
-            let writes = pending
-                .get(&10)
-                .expect("free-buffer retry should be queued");
-            assert_eq!(writes.len(), 1);
-            assert_eq!(writes[0].recovery, SyntheticWriteRecovery::ReplyRetried);
-        });
-        assert_eq!(
-            unsafe { flush_pending_synthetic_writes(10, capture_reply_ioctl) },
-            PendingSyntheticFlush::Drained
-        );
-        PENDING_SYNTHETIC_WRITES.with(|pending| assert!(pending.borrow().is_empty()));
-        assert_eq!(complete_transaction_submission(10), None);
-        PARTIAL_IOCTL_FAIL.store(false, Ordering::SeqCst);
-        unsafe { *libc::__errno() = 0 };
+            .clear();
+        reset_binder_fd_for_test(19);
     }
 
     #[test]
@@ -2066,8 +3542,9 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let fd = 24;
+        let connection = binder_state_key(fd);
         drain_transaction_completions(fd);
-        reset_pending_reply_frames_for_test(2);
+        reset_pending_reply_frames_for_test(connection, 2);
         *CAPTURED_REPLY_DATA
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
@@ -2101,8 +3578,8 @@ mod tests {
             std::io::Error::last_os_error().raw_os_error(),
             Some(libc::EIO)
         );
-        assert_eq!(pending_reply_frame_claims_for_test(), vec![false]);
-        PREPARED_BC_REPLIES.with(|prepared| assert!(!prepared.borrow().contains_key(&fd)));
+        assert_eq!(pending_reply_frame_claims_for_test(connection), vec![false]);
+        PREPARED_BC_REPLIES.with(|prepared| assert!(!prepared.borrow().contains_key(&connection)));
 
         tr.data.ptr.buffer = 0x2222;
         write.clear();
@@ -2122,11 +3599,11 @@ mod tests {
             },
             0
         );
-        assert_eq!(pending_reply_frame_count_for_test(), 0);
-        PREPARED_BC_REPLIES.with(|prepared| assert!(!prepared.borrow().contains_key(&fd)));
+        assert_eq!(pending_reply_frame_count_for_test(connection), 0);
+        PREPARED_BC_REPLIES.with(|prepared| assert!(!prepared.borrow().contains_key(&connection)));
 
         OLD_IOCTL.store(previous, Ordering::SeqCst);
-        reset_pending_reply_frames_for_test(0);
+        reset_pending_reply_frames_for_test(connection, 0);
         drain_transaction_completions(fd);
         CAPTURED_REPLY_DATA
             .lock()
@@ -2140,8 +3617,10 @@ mod tests {
         let _guard = SYNTHETIC_REPLY_TEST_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        drain_transaction_completions(6);
-        reset_pending_reply_frames_for_test(3);
+        let fd = 6;
+        let connection = binder_state_key(fd);
+        drain_transaction_completions(fd);
+        reset_pending_reply_frames_for_test(connection, 3);
         HOST_IOCTL_CALLS.store(0, Ordering::SeqCst);
 
         let tr: binder_transaction_data = unsafe { std::mem::zeroed() };
@@ -2163,27 +3642,27 @@ mod tests {
         assert_eq!(
             unsafe {
                 new_ioctl(
-                    6,
+                    fd,
                     BINDER_WRITE_READ as c_int,
                     &mut bwr as *mut binder_write_read as *mut c_void,
                 )
             },
             0
         );
-        assert_eq!(pending_reply_frame_count_for_test(), 3);
+        assert_eq!(pending_reply_frame_count_for_test(connection), 3);
 
         assert_eq!(
             unsafe {
                 new_ioctl(
-                    6,
+                    fd,
                     BINDER_WRITE_READ as c_int,
                     &mut bwr as *mut binder_write_read as *mut c_void,
                 )
             },
             -1
         );
-        assert_eq!(pending_reply_frame_count_for_test(), 1);
-        PREPARED_BC_REPLIES.with(|prepared| assert!(!prepared.borrow().contains_key(&6)));
+        assert_eq!(pending_reply_frame_count_for_test(connection), 1);
+        PREPARED_BC_REPLIES.with(|prepared| assert!(!prepared.borrow().contains_key(&connection)));
 
         write.clear();
         push_unaligned(&mut write, &BC_REPLY_CMD);
@@ -2195,65 +3674,136 @@ mod tests {
         assert_eq!(
             unsafe {
                 new_ioctl(
-                    6,
+                    fd,
                     BINDER_WRITE_READ as c_int,
                     &mut bwr as *mut binder_write_read as *mut c_void,
                 )
             },
             0
         );
-        assert_eq!(pending_reply_frame_count_for_test(), 0);
+        assert_eq!(pending_reply_frame_count_for_test(connection), 0);
 
         OLD_IOCTL.store(previous, Ordering::SeqCst);
-        reset_pending_reply_frames_for_test(0);
-        drain_transaction_completions(6);
+        reset_pending_reply_frames_for_test(connection, 0);
+        drain_transaction_completions(fd);
         unsafe { *libc::__errno() = 0 };
     }
 
     #[test]
-    fn suppressed_host_write_commits_only_accumulated_reply_prefix() {
+    fn fatal_partial_write_retains_unconsumed_operation_acquire() {
         let _guard = SYNTHETIC_REPLY_TEST_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let fd = 23;
-        drain_transaction_completions(fd);
-        reset_pending_reply_frames_for_test(3);
+        let _route_guard = crate::tracker::state_test_guard();
+        let fd = 32;
+        let target = LocalBinderTarget {
+            ptr: 0x1234,
+            cookie: 0x5678,
+        };
+        let retirement = register_operation_publication_for_test(target);
+        let connection = binder_state_key(fd);
+        bind_operation_publication_connection(retirement, connection);
+        assert_eq!(
+            mark_operation_publication_acquire_pending(target, connection),
+            Some(retirement)
+        );
 
-        let tr: binder_transaction_data = unsafe { std::mem::zeroed() };
+        let mut transaction: binder_transaction_data = unsafe { std::mem::zeroed() };
+        transaction.flags = TF_ONE_WAY;
+        let transaction_command = BC_REPLY_CMD - BC_REPLY_NR + BC_TRANSACTION_NR;
         let mut write = Vec::new();
-        push_unaligned(&mut write, &BC_REPLY_CMD);
-        push_unaligned(&mut write, &tr);
-        push_unaligned(&mut write, &BC_REPLY_CMD);
-        push_unaligned(&mut write, &tr);
-        let reply_size = size_of::<u32>() + size_of::<binder_transaction_data>();
-        unsafe { parse_write_buffer(fd, write.as_mut_ptr() as *mut c_void, write.len() as u64) };
-        PENDING_SYNTHETIC_WRITES.with(|pending| {
-            pending
-                .borrow_mut()
-                .entry(fd)
-                .or_default()
-                .push_back(PendingSyntheticWrite {
-                    write: vec![0],
-                    consumed: 0,
-                    reply: None,
-                    acquire_target: None,
-                    needs_read: true,
-                    recovery: SyntheticWriteRecovery::None,
-                    label: "test pending write",
-                });
-        });
-
-        let mut read = vec![0u8; size_of::<u32>()];
+        push_unaligned(&mut write, &transaction_command);
+        push_unaligned(&mut write, &transaction);
+        push_unaligned(&mut write, &BC_ACQUIRE_DONE_CMD);
+        push_unaligned(
+            &mut write,
+            &binder_ptr_cookie {
+                ptr: target.ptr,
+                cookie: target.cookie,
+            },
+        );
         let mut bwr = binder_write_read {
             write_size: write.len(),
-            write_consumed: reply_size,
+            write_consumed: 0,
             write_buffer: write.as_mut_ptr() as libc::c_ulong,
-            read_size: read.len(),
+            read_size: 0,
             read_consumed: 0,
-            read_buffer: read.as_mut_ptr() as libc::c_ulong,
+            read_buffer: 0,
         };
-        let previous = OLD_IOCTL.swap(suppressed_host_read_ioctl as *mut c_void, Ordering::SeqCst);
+        HOST_IOCTL_CALLS.store(1, Ordering::SeqCst);
+        let previous = OLD_IOCTL.swap(retry_host_reply_ioctl as *mut c_void, Ordering::SeqCst);
 
+        assert_eq!(
+            unsafe {
+                new_ioctl(
+                    fd,
+                    BINDER_WRITE_READ as c_int,
+                    (&mut bwr as *mut binder_write_read).cast(),
+                )
+            },
+            -1
+        );
+        assert_eq!(
+            bwr.write_consumed,
+            size_of::<u32>() + size_of::<binder_transaction_data>()
+        );
+        assert_eq!(
+            mark_operation_publication_acquire_pending(target, connection),
+            None
+        );
+
+        cancel_operation_publication_acquire_pending(retirement);
+        finish_local_operation_publication(retirement);
+        drain_transaction_completions(fd);
+        OLD_IOCTL.store(previous, Ordering::SeqCst);
+        reset_binder_fd_for_test(fd);
+        unsafe { *libc::__errno() = 0 };
+    }
+
+    #[test]
+    fn partial_eintr_retry_registers_each_host_transaction_once() {
+        let _guard = SYNTHETIC_REPLY_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let fd = 25;
+        drain_transaction_completions(fd);
+        HOST_IOCTL_CALLS.store(0, Ordering::SeqCst);
+
+        let mut tr: binder_transaction_data = unsafe { std::mem::zeroed() };
+        tr.flags = TF_ONE_WAY;
+        let command = BC_REPLY_CMD - BC_REPLY_NR + BC_TRANSACTION_NR;
+        let mut write = Vec::new();
+        push_unaligned(&mut write, &command);
+        push_unaligned(&mut write, &tr);
+        push_unaligned(&mut write, &command);
+        push_unaligned(&mut write, &tr);
+        let mut bwr = binder_write_read {
+            write_size: write.len(),
+            write_consumed: 0,
+            write_buffer: write.as_mut_ptr() as libc::c_ulong,
+            read_size: 0,
+            read_consumed: 0,
+            read_buffer: 0,
+        };
+        let previous = OLD_IOCTL.swap(
+            partial_eintr_host_write_ioctl as *mut c_void,
+            Ordering::SeqCst,
+        );
+
+        assert_eq!(
+            unsafe {
+                new_ioctl(
+                    fd,
+                    BINDER_WRITE_READ as c_int,
+                    &mut bwr as *mut binder_write_read as *mut c_void,
+                )
+            },
+            -1
+        );
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::EINTR)
+        );
         assert_eq!(
             unsafe {
                 new_ioctl(
@@ -2264,22 +3814,56 @@ mod tests {
             },
             0
         );
-        assert_eq!(bwr.write_consumed, reply_size);
-        assert_eq!(pending_reply_frame_count_for_test(), 2);
-        PREPARED_BC_REPLIES.with(|prepared| {
-            assert_eq!(prepared.borrow().get(&fd).map(VecDeque::len), Some(1));
-        });
-        PENDING_SYNTHETIC_WRITES.with(|pending| {
-            assert!(pending
-                .borrow()
-                .get(&fd)
-                .and_then(|writes| writes.front())
-                .is_some_and(|write| !write.needs_read));
-        });
+        assert_eq!(complete_transaction_submission(fd), Some(()));
+        assert_eq!(complete_transaction_submission(fd), Some(()));
+        assert_eq!(complete_transaction_submission(fd), None);
 
         OLD_IOCTL.store(previous, Ordering::SeqCst);
-        reset_pending_reply_frames_for_test(0);
         drain_transaction_completions(fd);
+        unsafe { *libc::__errno() = 0 };
+    }
+
+    #[test]
+    fn write_error_preserves_kernel_read_consumed_reset() {
+        let _guard = SYNTHETIC_REPLY_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let fd = 26;
+        let mut write = [0u8; size_of::<u32>()];
+        let mut read = [0x5au8; 2 * size_of::<u32>()];
+        let mut bwr = binder_write_read {
+            write_size: write.len(),
+            write_consumed: 0,
+            write_buffer: write.as_mut_ptr() as libc::c_ulong,
+            read_size: read.len(),
+            read_consumed: size_of::<u32>(),
+            read_buffer: read.as_mut_ptr() as libc::c_ulong,
+        };
+        let previous = OLD_IOCTL.swap(
+            write_error_resets_accumulated_read_ioctl as *mut c_void,
+            Ordering::SeqCst,
+        );
+
+        assert_eq!(
+            unsafe {
+                new_ioctl(
+                    fd,
+                    BINDER_WRITE_READ as c_int,
+                    (&mut bwr as *mut binder_write_read).cast(),
+                )
+            },
+            -1
+        );
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::EINTR)
+        );
+        assert_eq!(bwr.read_consumed, 0);
+        assert_eq!(read, [0x5a; 2 * size_of::<u32>()]);
+
+        OLD_IOCTL.store(previous, Ordering::SeqCst);
+        reset_binder_fd_for_test(fd);
+        unsafe { *libc::__errno() = 0 };
     }
 
     #[test]
@@ -2288,8 +3872,9 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let fd = 21;
+        let connection = binder_state_key(fd);
         drain_transaction_completions(fd);
-        reset_pending_reply_frames_for_test(1);
+        reset_pending_reply_frames_for_test(connection, 1);
         INTERLEAVED_REPLY_IOCTL_CALLS.store(0, Ordering::SeqCst);
 
         let tr: binder_transaction_data = unsafe { std::mem::zeroed() };
@@ -2321,7 +3906,10 @@ mod tests {
             0
         );
         assert_eq!(bwr.write_consumed, 0);
-        assert_eq!(pending_reply_frame_claims_for_test(), vec![true, false]);
+        assert_eq!(
+            pending_reply_frame_claims_for_test(connection),
+            vec![true, false]
+        );
 
         assert_eq!(
             unsafe {
@@ -2334,10 +3922,10 @@ mod tests {
             0
         );
         assert_eq!(bwr.write_consumed, bwr.write_size);
-        assert_eq!(pending_reply_frame_claims_for_test(), vec![false]);
+        assert_eq!(pending_reply_frame_claims_for_test(connection), vec![false]);
 
         OLD_IOCTL.store(previous, Ordering::SeqCst);
-        reset_pending_reply_frames_for_test(0);
+        reset_pending_reply_frames_for_test(connection, 0);
         drain_transaction_completions(fd);
     }
 
@@ -2349,9 +3937,9 @@ mod tests {
         let fd = 9;
         drain_transaction_completions(fd);
 
-        record_transaction_completion(fd, false, true, false, None);
-        assert_eq!(complete_transaction_submission(fd), Some(false));
-        record_transaction_completion(fd, false, true, false, None);
+        record_transaction_completion(fd, false, true, None);
+        assert_eq!(complete_transaction_submission(fd), Some(()));
+        record_transaction_completion(fd, false, true, None);
         complete_failed_transaction_submission(fd, BR_DEAD_REPLY_NR);
         assert_eq!(complete_transaction_submission(fd), None);
         complete_failed_transaction_submission(fd, BR_FROZEN_REPLY_NR);
@@ -2360,19 +3948,19 @@ mod tests {
             SyncTransactionState::AwaitingReply
         ));
 
-        record_transaction_completion(fd, false, true, false, None);
-        assert_eq!(complete_transaction_submission(fd), Some(false));
+        record_transaction_completion(fd, false, true, None);
+        assert_eq!(complete_transaction_submission(fd), Some(()));
         assert!(complete_sync_transaction(
             fd,
             SyncTransactionState::AwaitingReply
         ));
-        record_transaction_completion(fd, false, true, false, None);
+        record_transaction_completion(fd, false, true, None);
         complete_failed_transaction_submission(fd, BR_FAILED_REPLY_NR);
         assert_eq!(complete_transaction_submission(fd), None);
 
-        record_transaction_completion(fd, false, true, false, None);
-        assert_eq!(complete_transaction_submission(fd), Some(false));
-        record_transaction_completion(fd, false, false, false, None);
+        record_transaction_completion(fd, false, true, None);
+        assert_eq!(complete_transaction_submission(fd), Some(()));
+        record_transaction_completion(fd, false, false, None);
         complete_failed_transaction_submission(fd, BR_DEAD_REPLY_NR);
         assert_eq!(complete_transaction_submission(fd), None);
         assert!(complete_sync_transaction(
@@ -2380,105 +3968,5 @@ mod tests {
             SyncTransactionState::AwaitingReply
         ));
         drain_transaction_completions(fd);
-    }
-
-    #[test]
-    fn terminal_failure_removes_synthetic_reply_completion() {
-        let _guard = SYNTHETIC_REPLY_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        for (fd, terminal) in [(10, BR_DEAD_REPLY_NR), (11, BR_FROZEN_REPLY_NR)] {
-            drain_transaction_completions(fd);
-            record_transaction_completion(
-                fd,
-                true,
-                false,
-                true,
-                Some(LocalBinderTarget {
-                    ptr: 0x3456,
-                    cookie: 0x789a,
-                }),
-            );
-            assert!(complete_failed_transaction_submission(fd, terminal));
-            assert_eq!(complete_transaction_submission(fd), None);
-        }
-    }
-
-    #[test]
-    fn synthetic_reply_storage_and_completion_lifecycle() {
-        let _guard = SYNTHETIC_REPLY_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        drain_transaction_completions(1);
-        drain_transaction_completions(2);
-        *CAPTURED_REPLY_DATA
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
-        let mut tr: binder_transaction_data = unsafe { std::mem::zeroed() };
-        tr.data.ptr.buffer = 0x1000;
-        let reply = parcel::build_raw_i32_reply(0x1234_5678)
-            .expect("raw i32 synthetic reply should serialize");
-
-        let submitted = unsafe {
-            submit_synthetic_transaction_reply(
-                1,
-                capture_reply_ioctl,
-                &tr,
-                SyntheticReply::Parcel(Box::new(reply)),
-            )
-        };
-
-        assert!(submitted);
-        let captured = CAPTURED_REPLY_DATA
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .take()
-            .expect("fake ioctl should capture BC_REPLY payload");
-        assert_eq!(captured.len(), size_of::<i32>());
-        let value = unsafe { std::ptr::read_unaligned(captured.as_ptr() as *const i32) };
-        assert_eq!(value, 0x1234_5678);
-        assert_eq!(complete_transaction_submission(1), Some(true));
-        assert_eq!(complete_transaction_submission(1), None);
-
-        let mut tr: binder_transaction_data = unsafe { std::mem::zeroed() };
-        tr.data.ptr.buffer = 0x2000;
-
-        let submitted = unsafe {
-            submit_synthetic_transaction_reply(
-                2,
-                capture_reply_ioctl,
-                &tr,
-                SyntheticReply::Status(i32::from(rsbinder::StatusCode::UnknownTransaction)),
-            )
-        };
-
-        assert!(submitted);
-        let captured = CAPTURED_REPLY_DATA
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .take()
-            .expect("fake ioctl should capture synthetic status payload");
-        assert_eq!(captured.len(), size_of::<i32>());
-        let status = unsafe { std::ptr::read_unaligned(captured.as_ptr() as *const i32) };
-        assert_eq!(status, i32::from(rsbinder::StatusCode::UnknownTransaction));
-        assert_eq!(complete_transaction_submission(2), Some(true));
-        assert_eq!(complete_transaction_submission(2), None);
-
-        let submitted = unsafe {
-            submit_synthetic_transaction_reply(2, capture_reply_ioctl, &tr, SyntheticReply::NoReply)
-        };
-
-        assert!(submitted);
-        assert!(CAPTURED_REPLY_DATA
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .is_none());
-        assert_eq!(complete_transaction_submission(2), None);
-
-        drain_transaction_completions(1);
-        drain_transaction_completions(2);
-        *CAPTURED_REPLY_DATA
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
     }
 }

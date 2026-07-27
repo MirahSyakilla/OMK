@@ -1,12 +1,12 @@
-use std::fs::File;
-use std::io::Read;
+use std::fs::{self, File, OpenOptions};
+use std::io::{Read, Write};
 use std::os::unix::ffi::OsStrExt;
 use std::{
-    ffi::CString,
+    ffi::{CString, OsString},
     path::{Path, PathBuf},
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use log::debug;
 use lsplt_rs::MapInfo;
 use sha2::{Digest, Sha256};
@@ -81,6 +81,94 @@ pub(crate) fn hex_encode(bytes: &[u8]) -> String {
         output.push(HEX[(byte & 0x0f) as usize] as char);
     }
     output
+}
+
+pub(crate) fn private_temp_path(path: &Path) -> PathBuf {
+    let mut name = path
+        .file_name()
+        .map(OsString::from)
+        .unwrap_or_else(|| OsString::from("state"));
+    name.push(format!(".tmp-{}", std::process::id()));
+    path.parent()
+        .map(|parent| parent.join(&name))
+        .unwrap_or_else(|| PathBuf::from(name))
+}
+
+pub(crate) fn write_private_atomic(
+    path: &Path,
+    contents: &[u8],
+    max_bytes: u64,
+    label: &str,
+) -> Result<()> {
+    if contents.len() as u64 > max_bytes {
+        bail!(
+            "serialized {label} is {} bytes, exceeding the {max_bytes} byte limit",
+            contents.len()
+        );
+    }
+    let temp_path = private_temp_path(path);
+    let mut options = OpenOptions::new();
+    options.create(true).write(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    {
+        let mut temp = options
+            .open(&temp_path)
+            .with_context(|| format!("failed to open temporary {label} {}", temp_path.display()))?;
+        temp.write_all(contents).with_context(|| {
+            format!("failed to write temporary {label} {}", temp_path.display())
+        })?;
+        temp.sync_all()
+            .with_context(|| format!("failed to sync temporary {label} {}", temp_path.display()))?;
+    }
+    fs::rename(&temp_path, path).with_context(|| {
+        format!(
+            "failed to atomically replace {label} {} with {}",
+            path.display(),
+            temp_path.display()
+        )
+    })?;
+    if let Some(parent) = path.parent() {
+        File::open(parent)
+            .with_context(|| format!("failed to open {label} directory {}", parent.display()))?
+            .sync_all()
+            .with_context(|| format!("failed to sync {label} directory {}", parent.display()))?;
+    }
+    Ok(())
+}
+
+pub(crate) fn read_limited_string(
+    path: &Path,
+    max_bytes: u64,
+    label: &str,
+) -> Result<Option<String>> {
+    let metadata = match fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(error).with_context(|| format!("failed to stat {label} {}", path.display()))
+        }
+    };
+    if metadata.len() > max_bytes {
+        bail!(
+            "{label} {} is {} bytes, exceeding the {max_bytes} byte limit",
+            path.display(),
+            metadata.len()
+        );
+    }
+    let contents = fs::read_to_string(path)
+        .with_context(|| format!("failed to read {label} {}", path.display()))?;
+    if contents.len() as u64 > max_bytes {
+        bail!(
+            "{label} {} grew to {} bytes, exceeding the {max_bytes} byte limit",
+            path.display(),
+            contents.len()
+        );
+    }
+    Ok(Some(contents))
 }
 
 pub fn describe_elf(path: &Path) -> Result<String> {
@@ -208,26 +296,7 @@ pub fn find_process_by_name(target_name: &str) -> Result<(i32, PathBuf)> {
         };
         let path = entry.path();
 
-        let process_name = match std::fs::read(path.join("cmdline")) {
-            Ok(cmdline) => {
-                let first = cmdline
-                    .split(|byte| *byte == 0)
-                    .find(|part| !part.is_empty())
-                    .unwrap_or(&[]);
-                Path::new(std::ffi::OsStr::from_bytes(first))
-                    .file_name()
-                    .and_then(std::ffi::OsStr::to_str)
-                    .map(str::to_owned)
-            }
-            Err(_) => None,
-        }
-        .or_else(|| {
-            std::fs::read_to_string(path.join("comm"))
-                .ok()
-                .map(|name| name.trim().to_owned())
-        });
-
-        if process_name.as_deref() != Some(target_name) {
+        if process_name(pid).as_deref() != Some(target_name) {
             continue;
         }
 
@@ -243,4 +312,24 @@ pub fn find_process_by_name(target_name: &str) -> Result<(i32, PathBuf)> {
         format!("Process '{}' not found", target_name),
     ))
     .context("")
+}
+
+pub fn process_name(pid: i32) -> Option<String> {
+    let path = PathBuf::from(format!("/proc/{pid}"));
+    std::fs::read(path.join("cmdline"))
+        .ok()
+        .and_then(|cmdline| {
+            let first = cmdline
+                .split(|byte| *byte == 0)
+                .find(|part| !part.is_empty())?;
+            Path::new(std::ffi::OsStr::from_bytes(first))
+                .file_name()
+                .and_then(std::ffi::OsStr::to_str)
+                .map(str::to_owned)
+        })
+        .or_else(|| {
+            std::fs::read_to_string(path.join("comm"))
+                .ok()
+                .map(|name| name.trim().to_owned())
+        })
 }

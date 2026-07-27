@@ -59,44 +59,23 @@ fn log_loader_abi() {
     );
 }
 
-fn build_remote_abstract_sockaddr_bytes(magic_bytes: &[u8]) -> Result<(Vec<u8>, usize)> {
-    let sun_path_offset = offset_of!(libc::sockaddr_un, sun_path);
-    let mut addr_bytes = vec![0u8; size_of::<libc::sockaddr_un>()];
-    let family = (libc::AF_UNIX as u16).to_ne_bytes();
-    addr_bytes[0] = family[0];
-    addr_bytes[1] = family[1];
-
-    let needed = sun_path_offset + 1 + magic_bytes.len();
-    if needed > addr_bytes.len() {
+fn build_abstract_sockaddr(magic_bytes: &[u8]) -> Result<(libc::sockaddr_un, usize)> {
+    let mut addr: libc::sockaddr_un = unsafe { std::mem::zeroed() };
+    if magic_bytes.len() > addr.sun_path.len().saturating_sub(1) {
         bail!(
             "abstract socket name is too long for sockaddr_un: {} bytes",
             magic_bytes.len()
         );
     }
 
-    addr_bytes[sun_path_offset] = 0;
-    let start = sun_path_offset + 1;
-    addr_bytes[start..start + magic_bytes.len()].copy_from_slice(magic_bytes);
-    Ok((addr_bytes, needed))
-}
-
-fn build_local_abstract_sockaddr(magic_bytes: &[u8]) -> Result<libc::sockaddr_un> {
-    let mut local_dest_addr: libc::sockaddr_un = unsafe { std::mem::zeroed() };
-    let max_len = local_dest_addr.sun_path.len().saturating_sub(1);
-    if magic_bytes.len() > max_len {
-        bail!(
-            "abstract socket name is too long for local sockaddr_un: {} bytes",
-            magic_bytes.len()
-        );
-    }
-
-    local_dest_addr.sun_family = libc::AF_UNIX as u16;
-    local_dest_addr.sun_path[0] = 0 as libc::c_char;
+    addr.sun_family = libc::AF_UNIX as u16;
     for (i, byte) in magic_bytes.iter().enumerate() {
-        local_dest_addr.sun_path[1 + i] = *byte as libc::c_char;
+        addr.sun_path[1 + i] = *byte as libc::c_char;
     }
-
-    Ok(local_dest_addr)
+    Ok((
+        addr,
+        offset_of!(libc::sockaddr_un, sun_path) + 1 + magic_bytes.len(),
+    ))
 }
 
 fn generate_remote_payload_identifier() -> Result<String> {
@@ -401,42 +380,6 @@ fn expected_sender_credentials() -> libc::ucred {
     }
 }
 
-fn enable_remote_passcred<F, G, H>(
-    pid: Pid,
-    remote_socket: i32,
-    label: &str,
-    addrs: RemoteFdHandoffAddrs,
-    push_to_remote_stack: &mut F,
-    get_remote_errno: &G,
-    close_remote: &H,
-) -> Result<()>
-where
-    F: FnMut(&[u8]) -> Result<usize>,
-    G: Fn() -> Result<i32>,
-    H: Fn(i32) -> Result<()>,
-{
-    let enable: libc::c_int = 1;
-    let remote_enable_ptr = push_to_remote_stack(&enable.to_ne_bytes())?;
-    let result = remote_c_int_result(sys::remote_call(
-        pid,
-        addrs.setsockopt,
-        addrs.libc_return,
-        &[
-            remote_socket as usize,
-            libc::SOL_SOCKET as usize,
-            libc::SO_PASSCRED as usize,
-            remote_enable_ptr,
-            size_of::<libc::c_int>(),
-        ],
-    )?);
-    if result == -1 {
-        let err = get_remote_errno()?;
-        close_remote(remote_socket)?;
-        bail!("Failed to enable SO_PASSCRED on remote {label} handoff socket. Remote errno: {err}");
-    }
-    Ok(())
-}
-
 fn send_fd_to_remote<F, G, H>(
     pid: Pid,
     local_fd: RawFd,
@@ -475,25 +418,41 @@ where
         let err = get_remote_errno()?;
         bail!("Failed to create remote {label} handoff socket. Remote errno: {err}");
     }
-    enable_remote_passcred(
+    let enable: libc::c_int = 1;
+    let remote_enable_ptr = push_to_remote_stack(&enable.to_ne_bytes())?;
+    let result = remote_c_int_result(sys::remote_call(
         pid,
-        remote_socket,
-        label,
-        addrs,
-        push_to_remote_stack,
-        get_remote_errno,
-        close_remote,
-    )?;
+        addrs.setsockopt,
+        addrs.libc_return,
+        &[
+            remote_socket as usize,
+            libc::SOL_SOCKET as usize,
+            libc::SO_PASSCRED as usize,
+            remote_enable_ptr,
+            size_of::<libc::c_int>(),
+        ],
+    )?);
+    if result == -1 {
+        let err = get_remote_errno()?;
+        close_remote(remote_socket)?;
+        bail!("Failed to enable SO_PASSCRED on remote {label} handoff socket. Remote errno: {err}");
+    }
 
     let magic_bytes = generate_fd_handoff_name()?;
 
-    let (addr_bytes, addr_len) = build_remote_abstract_sockaddr_bytes(&magic_bytes)?;
+    let (mut local_dest_addr, addr_len) = build_abstract_sockaddr(&magic_bytes)?;
     debug!(
         "Generated {label} handoff socket with {} random abstract-name bytes",
         magic_bytes.len()
     );
 
-    let remote_addr_ptr = push_to_remote_stack(&addr_bytes)?;
+    let addr_bytes = unsafe {
+        std::slice::from_raw_parts(
+            &local_dest_addr as *const _ as *const u8,
+            size_of::<libc::sockaddr_un>(),
+        )
+    };
+    let remote_addr_ptr = push_to_remote_stack(addr_bytes)?;
     let bind_res = remote_c_int_result(sys::remote_call(
         pid,
         addrs.bind,
@@ -549,7 +508,6 @@ where
         ],
     )?;
 
-    let mut local_dest_addr = build_local_abstract_sockaddr(&magic_bytes)?;
     let mut local_cmsg_storage = vec![0usize; control_words(send_cmsg_space)];
     let mut payload_byte = [0x42u8];
     let mut local_iov = libc::iovec {

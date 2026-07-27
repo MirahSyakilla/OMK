@@ -1,8 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::sync::Once;
+use std::fmt;
+use std::sync::{Arc, Condvar, Mutex, Once};
 use std::time::{Duration, Instant};
 use std::{cmp, thread};
 
@@ -33,16 +32,48 @@ static PROCESS_STATE_INIT: Once = Once::new();
 static RPC_CACHE: Mutex<RpcCacheState> = Mutex::new(RpcCacheState {
     generation: 0,
     cache: None,
+    connecting: None,
+    next_connect_attempt: 0,
+    last_connect_error: None,
 });
+static RPC_CACHE_READY: Condvar = Condvar::new();
 
 struct RpcCacheState {
     generation: u64,
     cache: Option<RpcCache>,
+    connecting: Option<u64>,
+    next_connect_attempt: u64,
+    last_connect_error: Option<Arc<anyhow::Error>>,
 }
 
 struct RpcCache {
     session: RpcSession,
     services: HashMap<&'static str, SIBinder>,
+}
+
+#[derive(Clone)]
+struct SharedRpcConnectError(Arc<anyhow::Error>);
+
+impl fmt::Debug for SharedRpcConnectError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self.0.as_ref(), f)
+    }
+}
+
+impl fmt::Display for SharedRpcConnectError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self.0.as_ref(), f)
+    }
+}
+
+impl std::error::Error for SharedRpcConnectError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.0.as_ref().as_ref())
+    }
+}
+
+fn shared_rpc_connect_error(error: &Arc<anyhow::Error>) -> anyhow::Error {
+    anyhow::Error::new(SharedRpcConnectError(Arc::clone(error)))
 }
 
 struct PmDeathRecipient;
@@ -67,8 +98,10 @@ pub fn install_direct_rpc_session() -> Result<()> {
     let old = {
         let mut state = RPC_CACHE.lock().expect("RPC cache poisoned");
         state.generation = state.generation.wrapping_add(1);
+        state.last_connect_error = None;
         state.cache.replace(cache)
     };
+    RPC_CACHE_READY.notify_all();
     drop(old);
     Ok(())
 }
@@ -99,6 +132,72 @@ fn connect_rpc_session_once(connect_context: &'static str) -> Result<RpcCache> {
     })
 }
 
+fn ensure_rpc_cache(connect_context: &'static str) -> Result<()> {
+    loop {
+        let (generation, attempt) = {
+            let mut state = RPC_CACHE.lock().expect("RPC cache poisoned");
+            if state.cache.is_some() {
+                return Ok(());
+            }
+            if let Some(attempt) = state.connecting {
+                state = RPC_CACHE_READY
+                    .wait_while(state, |state| {
+                        state.cache.is_none() && state.connecting == Some(attempt)
+                    })
+                    .expect("RPC cache poisoned");
+                if state.cache.is_some() {
+                    return Ok(());
+                }
+                if state.connecting != Some(attempt) {
+                    if let Some(error) = state.last_connect_error.as_ref() {
+                        return Err(shared_rpc_connect_error(error));
+                    }
+                }
+                drop(state);
+                continue;
+            }
+
+            let attempt = state.next_connect_attempt;
+            state.next_connect_attempt = state.next_connect_attempt.wrapping_add(1);
+            state.connecting = Some(attempt);
+            (state.generation, attempt)
+        };
+
+        let candidate = connect_rpc_session(connect_context);
+        let mut state = RPC_CACHE.lock().expect("RPC cache poisoned");
+        if state.connecting == Some(attempt) {
+            state.connecting = None;
+        }
+        let mut stale_cache = None;
+        let outcome = if state.cache.is_none() && state.generation == generation {
+            match candidate {
+                Ok(cache) => {
+                    state.cache = Some(cache);
+                    state.generation = state.generation.wrapping_add(1);
+                    state.last_connect_error = None;
+                    Some(Ok(()))
+                }
+                Err(error) => {
+                    let error = Arc::new(error);
+                    state.last_connect_error = Some(Arc::clone(&error));
+                    Some(Err(shared_rpc_connect_error(&error)))
+                }
+            }
+        } else {
+            if let Ok(cache) = candidate {
+                stale_cache = Some(cache);
+            }
+            None
+        };
+        RPC_CACHE_READY.notify_all();
+        drop(state);
+        drop(stale_cache);
+        if let Some(outcome) = outcome {
+            return outcome;
+        }
+    }
+}
+
 fn get_rpc_binder<T>(
     service_name: &'static str,
     connect_context: &'static str,
@@ -109,25 +208,12 @@ where
 {
     let mut reconnected = false;
     loop {
-        let mut connected = false;
+        ensure_rpc_cache(connect_context)?;
         let (session, identity, cached) = {
-            let mut state = RPC_CACHE.lock().expect("RPC cache poisoned");
-            if state.cache.is_none() {
-                let generation = state.generation;
-                drop(state);
-                let candidate = connect_rpc_session(connect_context);
-                state = RPC_CACHE.lock().expect("RPC cache poisoned");
-                if state.cache.is_none() && state.generation == generation {
-                    state.cache = Some(candidate?);
-                    state.generation = state.generation.wrapping_add(1);
-                    connected = true;
-                } else {
-                    drop(state);
-                    drop(candidate);
-                    continue;
-                }
-            }
-            let cache = state.cache.as_ref().expect("RPC cache just initialized");
+            let state = RPC_CACHE.lock().expect("RPC cache poisoned");
+            let Some(cache) = state.cache.as_ref() else {
+                continue;
+            };
             (
                 cache.session.clone(),
                 cache
@@ -139,7 +225,7 @@ where
             )
         };
 
-        if let Some(binder) = cached.filter(|_| !refresh || connected) {
+        if let Some(binder) = cached.filter(|_| !refresh) {
             let client = <T as FromIBinder>::try_from(binder).context(connect_context)?;
             let state = RPC_CACHE.lock().expect("RPC cache poisoned");
             if state
@@ -249,10 +335,6 @@ pub fn get_omk() -> Result<Strong<dyn IOhMyKsService>> {
     get_rpc_binder(rpc::SERVICE, "failed to connect to omk service", false)
 }
 
-fn get_omk_fresh() -> Result<Strong<dyn IOhMyKsService>> {
-    get_rpc_binder(rpc::SERVICE, "failed to connect to omk service", true)
-}
-
 pub fn with_omk_retry<T, F>(mut f: F) -> Result<T>
 where
     F: FnMut(&Strong<dyn IOhMyKsService>) -> Result<T>,
@@ -273,7 +355,7 @@ where
     F: FnOnce(&Strong<dyn IOhMyKsService>) -> Result<T>,
 {
     with_binder_once(
-        get_omk_fresh,
+        || get_rpc_binder(rpc::SERVICE, "failed to connect to omk service", true),
         |client| {
             clear_rpc_cache_if(rpc::SERVICE, &client.as_binder());
         },
@@ -282,34 +364,25 @@ where
     )
 }
 
-pub fn get_omk_authorization() -> Result<Strong<dyn IOhMyAuthorizationService>> {
+fn get_omk_authorization_fresh() -> Result<Strong<dyn IOhMyAuthorizationService>> {
     get_rpc_binder(
         rpc::AUTHORIZATION_SERVICE,
         "failed to connect to omk_authorization service",
-        false,
+        true,
     )
 }
 
-pub fn with_omk_authorization_retry<T, F>(mut f: F) -> Result<T>
+pub fn with_omk_authorization_once<T, F>(f: F) -> Result<T>
 where
-    F: FnMut(&Strong<dyn IOhMyAuthorizationService>) -> Result<T>,
+    F: FnOnce(&Strong<dyn IOhMyAuthorizationService>) -> Result<T>,
 {
-    with_binder_retry(
-        rpc::AUTHORIZATION_SERVICE,
-        get_omk_authorization,
+    with_binder_once(
+        get_omk_authorization_fresh,
         |client| {
             clear_rpc_cache_if(rpc::AUTHORIZATION_SERVICE, &client.as_binder());
         },
-        is_stale_rpc_error,
-        &mut f,
-    )
-}
-
-pub fn get_omk_maintenance() -> Result<Strong<dyn IOhMyMaintenanceService>> {
-    get_rpc_binder(
-        rpc::MAINTENANCE_SERVICE,
-        "failed to connect to omk_maintenance service",
-        false,
+        is_rpc_cache_invalidating_error,
+        f,
     )
 }
 
@@ -318,21 +391,6 @@ fn get_omk_maintenance_fresh() -> Result<Strong<dyn IOhMyMaintenanceService>> {
         rpc::MAINTENANCE_SERVICE,
         "failed to connect to omk_maintenance service",
         true,
-    )
-}
-
-pub fn with_omk_maintenance_retry<T, F>(mut f: F) -> Result<T>
-where
-    F: FnMut(&Strong<dyn IOhMyMaintenanceService>) -> Result<T>,
-{
-    with_binder_retry(
-        rpc::MAINTENANCE_SERVICE,
-        get_omk_maintenance,
-        |client| {
-            clear_rpc_cache_if(rpc::MAINTENANCE_SERVICE, &client.as_binder());
-        },
-        is_stale_rpc_error,
-        &mut f,
     )
 }
 
@@ -435,25 +493,25 @@ pub(crate) fn is_stale_rpc_status_code(status: StatusCode) -> bool {
     )
 }
 
-fn is_stale_rpc_error(error: &anyhow::Error) -> bool {
-    error.chain().any(|cause| {
-        cause.downcast_ref::<Status>().is_some_and(|status| {
-            status.exception_code() == ExceptionCode::TransactionFailed
-                && is_stale_rpc_status_code(status.transaction_error())
-        }) || cause
-            .downcast_ref::<StatusCode>()
-            .is_some_and(|status| is_stale_rpc_status_code(*status))
-    })
+pub(crate) fn is_rpc_cache_invalidating_status_code(status: StatusCode) -> bool {
+    is_stale_rpc_status_code(status)
+        || status == StatusCode::NoInit
+        || matches!(status, StatusCode::Errno(errno) if matches!(
+            errno.abs(),
+            libc::ENOENT | libc::ECONNREFUSED | libc::ECONNRESET | libc::ENOTCONN | libc::EPIPE
+        ))
 }
 
 fn is_rpc_cache_invalidating_error(error: &anyhow::Error) -> bool {
-    is_stale_rpc_error(error)
-        || error.chain().any(|cause| {
-            cause.downcast_ref::<Status>().is_some_and(|status| {
-                status.exception_code() == ExceptionCode::TransactionFailed
-                    && status.transaction_error() == StatusCode::Unknown
-            })
-        })
+    error.chain().any(|cause| {
+        cause.downcast_ref::<Status>().is_some_and(|status| {
+            status.exception_code() == ExceptionCode::TransactionFailed
+                && (is_rpc_cache_invalidating_status_code(status.transaction_error())
+                    || status.transaction_error() == StatusCode::Unknown)
+        }) || cause
+            .downcast_ref::<StatusCode>()
+            .is_some_and(|status| is_rpc_cache_invalidating_status_code(*status))
+    })
 }
 
 fn is_dead_object_status(status: &Status) -> bool {
@@ -501,15 +559,34 @@ mod tests {
             StatusCode::NotEnoughData,
         ] {
             assert!(is_stale_rpc_status_code(status));
-            assert!(is_stale_rpc_error(&anyhow::Error::new(Status::from(
-                status
-            ))));
-            assert!(is_stale_rpc_error(&anyhow::Error::new(status)));
+            assert!(is_rpc_cache_invalidating_error(&anyhow::Error::new(
+                Status::from(status)
+            )));
+            assert!(is_rpc_cache_invalidating_error(&anyhow::Error::new(status)));
+        }
+
+        let shared = Arc::new(
+            anyhow::Error::new(StatusCode::DeadObject).context("failed to connect to omk service"),
+        );
+        assert!(is_rpc_cache_invalidating_error(&shared_rpc_connect_error(
+            &shared
+        )));
+
+        for status in [
+            StatusCode::NoInit,
+            StatusCode::Errno(libc::ECONNRESET),
+            StatusCode::Errno(libc::ENOTCONN),
+            StatusCode::Errno(libc::EPIPE),
+        ] {
+            assert!(is_rpc_cache_invalidating_status_code(status));
+            assert!(is_rpc_cache_invalidating_error(&anyhow::Error::new(
+                Status::from(status)
+            )));
+            assert!(is_rpc_cache_invalidating_error(&anyhow::Error::new(status)));
         }
 
         let stale = anyhow::Error::new(Status::from(StatusCode::Unknown));
         assert!(!is_stale_rpc_status_code(StatusCode::Unknown));
-        assert!(!is_stale_rpc_error(&stale));
         assert!(is_rpc_cache_invalidating_error(&stale));
         assert!(!is_dead_object_error(&stale));
 
@@ -517,7 +594,6 @@ mod tests {
         assert!(!is_rpc_cache_invalidating_error(&direct_unknown));
 
         let business = anyhow::Error::new(Status::new_service_specific_error(1, None));
-        assert!(!is_stale_rpc_error(&business));
         assert!(!is_rpc_cache_invalidating_error(&business));
     }
 }

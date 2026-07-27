@@ -168,7 +168,10 @@ pub fn set_regs(pid: Pid, regs: &Regs) -> Result<()> {
     Ok(())
 }
 
-pub fn read_stack(pid: Pid, remote_addr: usize, buf: &mut [u8]) -> Result<usize> {
+pub fn read_process_exact(pid: Pid, remote_addr: usize, buf: &mut [u8]) -> Result<()> {
+    if buf.is_empty() {
+        return Ok(());
+    }
     let local = iovec {
         iov_base: buf.as_mut_ptr() as *mut c_void,
         iov_len: buf.len(),
@@ -202,48 +205,78 @@ pub fn read_stack(pid: Pid, remote_addr: usize, buf: &mut [u8]) -> Result<usize>
             buf.len()
         )
     } else {
-        Ok(result as usize)
+        Ok(())
     }
+}
+
+pub fn write_process_exact(pid: Pid, remote_addr: usize, data: &[u8]) -> Result<()> {
+    let mut written = 0usize;
+    while written < data.len() {
+        let local = iovec {
+            iov_base: data[written..].as_ptr() as *mut c_void,
+            iov_len: data.len() - written,
+        };
+        let remote = iovec {
+            iov_base: remote_addr
+                .checked_add(written)
+                .ok_or_else(|| anyhow!("process_vm_writev address overflow"))?
+                as *mut c_void,
+            iov_len: data.len() - written,
+        };
+
+        let result = unsafe {
+            libc::process_vm_writev(
+                pid.as_raw(),
+                &local as *const iovec,
+                1,
+                &remote as *const iovec,
+                1,
+                0,
+            )
+        };
+
+        if result == -1 {
+            let error = std::io::Error::last_os_error();
+            bail!(
+                "process_vm_writev failed after writing {}/{} bytes: {}",
+                written,
+                data.len(),
+                error
+            );
+        }
+        if result == 0 {
+            bail!(
+                "process_vm_writev made no progress after writing {}/{} bytes",
+                written,
+                data.len()
+            );
+        }
+        written = written
+            .checked_add(result as usize)
+            .ok_or_else(|| anyhow!("process_vm_writev byte count overflow"))?;
+        if written > data.len() {
+            bail!(
+                "process_vm_writev wrote too much data: {}/{} bytes",
+                written,
+                data.len()
+            );
+        }
+    }
+    Ok(())
+}
+
+pub fn read_stack(pid: Pid, remote_addr: usize, buf: &mut [u8]) -> Result<usize> {
+    read_process_exact(pid, remote_addr, buf)?;
+    Ok(buf.len())
 }
 
 pub fn push_stack(pid: Pid, remote_addr: usize, data: &[u8]) -> Result<usize> {
     let new_addr = remote_addr
         .checked_sub(data.len())
         .ok_or_else(|| anyhow!("Stack overflow when pushing data"))?;
-
-    let local = iovec {
-        iov_base: data.as_ptr() as *mut c_void,
-        iov_len: data.len(),
-    };
-
-    let remote = iovec {
-        iov_base: new_addr as *mut c_void,
-        iov_len: data.len(),
-    };
-
-    let result = unsafe {
-        libc::process_vm_writev(
-            pid.as_raw(),
-            &local as *const iovec,
-            1,
-            &remote as *const iovec,
-            1,
-            0,
-        )
-    };
-
-    if result == -1 {
-        let error = std::io::Error::last_os_error();
-        error!("process_vm_writev failed: {}", error);
-        bail!("process_vm_writev failed: {}", error);
-    }
-    if result != data.len() as isize {
-        bail!(
-            "process_vm_writev wrote incomplete data: {}/{} bytes",
-            result,
-            data.len()
-        );
-    }
+    write_process_exact(pid, new_addr, data).inspect_err(|error| {
+        error!("process_vm_writev failed: {error}");
+    })?;
     Ok(new_addr)
 }
 

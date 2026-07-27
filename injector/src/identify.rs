@@ -13,6 +13,13 @@ pub const KEYSTORE_SERVICE_INTERFACE: &str = "android.system.keystore2.IKeystore
 pub const KEYSTORE_SECURITY_LEVEL_INTERFACE: &str =
     "android.system.keystore2.IKeystoreSecurityLevel";
 pub const KEYSTORE_OPERATION_INTERFACE: &str = "android.system.keystore2.IKeystoreOperation";
+pub const KNOWN_KEYSTORE_INTERFACES: [&str; 5] = [
+    KEYSTORE_AUTHORIZATION_INTERFACE,
+    KEYSTORE_MAINTENANCE_INTERFACE,
+    KEYSTORE_SERVICE_INTERFACE,
+    KEYSTORE_SECURITY_LEVEL_INTERFACE,
+    KEYSTORE_OPERATION_INTERFACE,
+];
 
 pub const AIDL_GET_INTERFACE_HASH_TRANSACTION: u32 =
     kmr_common::consts::AIDL_GET_INTERFACE_HASH_TRANSACTION;
@@ -207,7 +214,7 @@ pub fn service_method_from_code_for(
     code: u32,
 ) -> Option<ServiceMethod> {
     match android_major_version {
-        Some(12 | 13) => match transaction_offset(code)? {
+        Some(version @ 12..=15) => match transaction_offset(code)? {
             0 => Some(ServiceMethod::GetSecurityLevel),
             1 => Some(ServiceMethod::GetKeyEntry),
             2 => Some(ServiceMethod::UpdateSubcomponent),
@@ -215,18 +222,8 @@ pub fn service_method_from_code_for(
             4 => Some(ServiceMethod::DeleteKey),
             5 => Some(ServiceMethod::Grant),
             6 => Some(ServiceMethod::Ungrant),
-            _ => None,
-        },
-        Some(14 | 15) => match transaction_offset(code)? {
-            0 => Some(ServiceMethod::GetSecurityLevel),
-            1 => Some(ServiceMethod::GetKeyEntry),
-            2 => Some(ServiceMethod::UpdateSubcomponent),
-            3 => Some(ServiceMethod::ListEntries),
-            4 => Some(ServiceMethod::DeleteKey),
-            5 => Some(ServiceMethod::Grant),
-            6 => Some(ServiceMethod::Ungrant),
-            7 => Some(ServiceMethod::GetNumberOfEntries),
-            8 => Some(ServiceMethod::ListEntriesBatched),
+            7 if version >= 14 => Some(ServiceMethod::GetNumberOfEntries),
+            8 if version >= 14 => Some(ServiceMethod::ListEntriesBatched),
             _ => None,
         },
         _ => current_service_method_from_code(code),

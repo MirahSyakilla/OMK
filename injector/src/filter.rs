@@ -1,3 +1,5 @@
+use kmr_common::consts::{AID_APP_START, AID_USER_OFFSET};
+
 use crate::config::FilterConfig;
 
 #[derive(Debug, Clone)]
@@ -26,12 +28,24 @@ pub struct FilterDecision {
 pub fn evaluate(
     scoop: &[String],
     config: &FilterConfig,
+    uid: u32,
     resolution: PackageResolution,
 ) -> FilterDecision {
     if !config.enabled {
         return FilterDecision {
             allowed: true,
             reason: FilterReason::Disabled,
+            packages: match resolution {
+                PackageResolution::Known(packages) => packages,
+                PackageResolution::Unknown => Vec::new(),
+            },
+        };
+    }
+
+    if config.block_android_package && uid % AID_USER_OFFSET < AID_APP_START {
+        return FilterDecision {
+            allowed: false,
+            reason: FilterReason::RejectedAndroidPackage,
             packages: match resolution {
                 PackageResolution::Known(packages) => packages,
                 PackageResolution::Unknown => Vec::new(),
@@ -55,9 +69,7 @@ pub fn evaluate(
         }
     };
 
-    let reason = if !packages.iter().any(|pkg| scoop.contains(pkg)) {
-        FilterReason::RejectedNotInScope
-    } else if config.block_android_package
+    let reason = if config.block_android_package
         && packages
             .iter()
             .any(|pkg| pkg == "android" || pkg.starts_with("android."))
@@ -68,6 +80,8 @@ pub fn evaluate(
         .any(|pkg| config.deny_packages.contains(pkg))
     {
         FilterReason::RejectedByDenylist
+    } else if !packages.iter().any(|pkg| scoop.contains(pkg)) {
+        FilterReason::RejectedNotInScope
     } else {
         FilterReason::Allowed
     };
@@ -96,7 +110,7 @@ mod tests {
         let mut config = base_config();
         config.enabled = false;
 
-        let decision = evaluate(&base_scope(), &config, PackageResolution::Unknown);
+        let decision = evaluate(&base_scope(), &config, 10_000, PackageResolution::Unknown);
         assert!(decision.allowed);
         assert_eq!(decision.reason, FilterReason::Disabled);
 
@@ -106,6 +120,7 @@ mod tests {
         let decision = evaluate(
             &scope,
             &config,
+            10_000,
             PackageResolution::Known(vec!["android".to_string()]),
         );
         assert!(!decision.allowed);
@@ -119,6 +134,7 @@ mod tests {
         let decision = evaluate(
             &scope,
             &config,
+            10_000,
             PackageResolution::Known(vec!["com.example.app".to_string()]),
         );
         assert!(!decision.allowed);
@@ -130,6 +146,7 @@ mod tests {
         let decision = evaluate(
             &base_scope(),
             &config,
+            10_000,
             PackageResolution::Known(vec!["com.other".to_string()]),
         );
         assert!(!decision.allowed);
@@ -138,9 +155,35 @@ mod tests {
         let mut config = base_config();
         config.allow_unknown_package = true;
 
-        let decision = evaluate(&base_scope(), &config, PackageResolution::Unknown);
+        let decision = evaluate(&base_scope(), &config, 10_000, PackageResolution::Unknown);
         assert!(decision.allowed);
         assert_eq!(decision.reason, FilterReason::Allowed);
+
+        let decision = evaluate(&base_scope(), &config, 110_000, PackageResolution::Unknown);
+        assert!(decision.allowed);
+
+        for uid in [9_999, 109_999] {
+            let decision = evaluate(&base_scope(), &config, uid, PackageResolution::Unknown);
+            assert!(!decision.allowed);
+        }
+
+        let decision = evaluate(&base_scope(), &config, 0, PackageResolution::Unknown);
+        assert!(!decision.allowed);
+        assert_eq!(decision.reason, FilterReason::RejectedAndroidPackage);
+
+        config.block_android_package = false;
+        let decision = evaluate(&base_scope(), &config, 0, PackageResolution::Unknown);
+        assert!(decision.allowed);
+
+        let config = base_config();
+        let scope = vec!["com.android.vending".to_string()];
+        let decision = evaluate(
+            &scope,
+            &config,
+            10_000,
+            PackageResolution::Known(scope.clone()),
+        );
+        assert!(decision.allowed);
 
         let mut config = base_config();
         config.block_android_package = false;
@@ -148,9 +191,30 @@ mod tests {
         let decision = evaluate(
             &[],
             &config,
+            10_000,
             PackageResolution::Known(vec!["com.anything".to_string()]),
         );
         assert!(!decision.allowed);
         assert_eq!(decision.reason, FilterReason::RejectedNotInScope);
+
+        let config = base_config();
+        let decision = evaluate(
+            &[],
+            &config,
+            10_000,
+            PackageResolution::Known(vec!["android".to_string()]),
+        );
+        assert_eq!(decision.reason, FilterReason::RejectedAndroidPackage);
+
+        let mut config = base_config();
+        config.block_android_package = false;
+        config.deny_packages = vec!["com.blocked".to_string()];
+        let decision = evaluate(
+            &[],
+            &config,
+            10_000,
+            PackageResolution::Known(vec!["com.blocked".to_string()]),
+        );
+        assert_eq!(decision.reason, FilterReason::RejectedByDenylist);
     }
 }
