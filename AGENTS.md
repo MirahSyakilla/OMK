@@ -12,11 +12,31 @@
   build/deployment scripts and shell packaging assets are tooling, not precedent for new runtime
   components.
 
+## Review Scope
+
+- Do not report or fix scenarios that require multiple independently abnormal, low-probability
+  conditions and are unreachable through normal supported operation.
+- When excluding such a scenario, state the concrete conditions that must coincide and why normal
+  supported paths cannot reach it. Low frequency or a narrow timing window alone does not exclude
+  an issue reachable through normal supported operation.
+
 ## Behavioral Invariants
 
 ### OMK Routing
 
-- For requests routed by `scoop`, OMK is authoritative once it is reachable.
+- For every request routed by `scoop` with `FilterDecision::allowed == true`, OMK is the only
+  backend during normal reachable operation. Per-method intercept settings still determine whether
+  a request is routed by `scoop`.
+- Choose the backend only from the current caller, filter decision, method, and configuration. Do
+  not read or infer which backend created a key, `KeyDescriptor`, `KEY_ID`, `GRANT`, alias,
+  wrapping key, or attestation key.
+- Per-method intercept settings are authoritative. When interception for a method is disabled, pass
+  the request to System unchanged even for a caller allowed by `scoop`
+- Do not support key or descriptor continuity between System and OMK. Pass old, externally
+  supplied, and System-created descriptors to the selected backend unchanged; an OMK business
+  error for such a descriptor is authoritative.
+- Do not maintain a persistent route ledger, virtual descriptor namespace, descriptor-owner cache,
+  or cross-restart provenance state. Non-`scoop` requests retain the existing System/filter path.
 - Return OMK business errors as-is. Reachable transport, boundary, or injector failures that are
   not OMK-unavailable must not fall back to a successful system reply; normalize them to the
   existing AOSP-compatible error path, such as `SYSTEM_ERROR` where applicable.

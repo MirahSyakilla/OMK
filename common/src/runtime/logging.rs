@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::boxed::Box;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File, Metadata, OpenOptions};
 use std::io::{self, Write};
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
@@ -36,7 +36,7 @@ pub const DEFAULT_MAX_LOG_SIZE_BYTES: u64 = 4 * 1024 * 1024;
 #[derive(Debug)]
 pub struct LockedRotatingFileAppender {
     path: PathBuf,
-    lock: Mutex<()>,
+    file: Mutex<Option<File>>,
     encoder: Box<dyn Encode>,
     max_size_bytes: u64,
 }
@@ -55,7 +55,7 @@ impl LockedRotatingFileAppender {
         let _ = fs::remove_file(suffixed_path(&path, ".lock"));
         Ok(Self {
             path,
-            lock: Mutex::new(()),
+            file: Mutex::new(None),
             encoder,
             max_size_bytes,
         })
@@ -78,20 +78,21 @@ impl LockedRotatingFileAppender {
             .unwrap_or_else(|| Path::new("."))
     }
 
-    fn rotate_if_needed(&self, next_write_len: usize) -> io::Result<()> {
-        let current_len = match fs::metadata(&self.path) {
-            Ok(metadata) => metadata.len(),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => 0,
+    fn rotate_if_needed(&self, next_write_len: usize) -> io::Result<Option<Metadata>> {
+        let metadata = match fs::metadata(&self.path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error),
         };
 
-        if current_len == 0
-            || current_len.saturating_add(next_write_len as u64) <= self.max_size_bytes
+        if metadata.len() == 0
+            || metadata.len().saturating_add(next_write_len as u64) <= self.max_size_bytes
         {
-            return Ok(());
+            return Ok(Some(metadata));
         }
 
-        rotate_existing_log_file(&self.path)
+        rotate_existing_log_file(&self.path)?;
+        Ok(None)
     }
 }
 
@@ -120,21 +121,41 @@ impl Append for LockedRotatingFileAppender {
             .with_context(|| format!("failed to encode {}", self.path.display()))?;
         let data = encoded.0;
 
-        let _process_guard = self
-            .lock
+        let mut file = self
+            .file
             .lock()
             .map_err(|error| anyhow!("failed to lock log writer: {}", error))?;
         let _file_guard = FileLockGuard::lock_path(&self.path)
             .with_context(|| format!("failed to lock {}", self.path.display()))?;
-        self.rotate_if_needed(data.len())
+        let metadata = self
+            .rotate_if_needed(data.len())
             .with_context(|| format!("failed to rotate {}", self.path.display()))?;
 
-        let mut file = Self::open_log_file(&self.path)
-            .with_context(|| format!("failed to open {}", self.path.display()))?;
-        file.write_all(&data)
-            .with_context(|| format!("failed to write {}", self.path.display()))?;
-        file.flush()
-            .with_context(|| format!("failed to flush {}", self.path.display()))?;
+        let cached_file_matches = match (file.as_ref(), metadata.as_ref()) {
+            (Some(file), Some(metadata)) => file.metadata().is_ok_and(|cached| {
+                cached.dev() == metadata.dev() && cached.ino() == metadata.ino()
+            }),
+            (Some(_), None) => false,
+            (None, _) => true,
+        };
+        if !cached_file_matches {
+            *file = None;
+        }
+        if file.is_none() {
+            *file = Some(
+                Self::open_log_file(&self.path)
+                    .with_context(|| format!("failed to open {}", self.path.display()))?,
+            );
+        }
+
+        if let Err(error) = file.as_mut().unwrap().write_all(&data) {
+            *file = None;
+            return Err(error).with_context(|| format!("failed to write {}", self.path.display()));
+        }
+        if let Err(error) = file.as_mut().unwrap().flush() {
+            *file = None;
+            return Err(error).with_context(|| format!("failed to flush {}", self.path.display()));
+        }
         Ok(())
     }
 
@@ -155,10 +176,15 @@ struct FileLockGuard {
 impl FileLockGuard {
     #[cfg(unix)]
     fn lock_path(path: &Path) -> io::Result<Self> {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let file = File::open(LockedRotatingFileAppender::parent_dir(path))?;
+        let parent = LockedRotatingFileAppender::parent_dir(path);
+        let file = match File::open(parent) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                fs::create_dir_all(parent)?;
+                File::open(parent)?
+            }
+            Err(error) => return Err(error),
+        };
         let fd = file.as_raw_fd();
         let result = unsafe { libc::flock(fd, libc::LOCK_EX) };
         if result == 0 {
@@ -187,13 +213,18 @@ pub fn build_console_file_config<P: AsRef<Path>>(
     level: LevelFilter,
     error_prefix: &str,
 ) -> anyhow::Result<(Config, bool)> {
-    let stdout = ConsoleAppender::builder()
-        .encoder(Box::new(PatternEncoder::new(pattern)))
-        .build();
-
-    let mut builder =
-        Config::builder().appender(Appender::builder().build("stdout", Box::new(stdout)));
-    let mut root = Root::builder().appender("stdout");
+    let mut builder = Config::builder();
+    let mut root = Root::builder();
+    if fs::read_link("/proc/self/fd/1")
+        .map(|target| target != Path::new("/dev/null"))
+        .unwrap_or(true)
+    {
+        let stdout = ConsoleAppender::builder()
+            .encoder(Box::new(PatternEncoder::new(pattern)))
+            .build();
+        builder = builder.appender(Appender::builder().build("stdout", Box::new(stdout)));
+        root = root.appender("stdout");
+    }
     let path = file_path.as_ref();
 
     match FileLockGuard::lock_path(path).and_then(|_guard| rotate_existing_log_file(path)) {
@@ -296,6 +327,32 @@ mod tests {
         assert_eq!(log_lines(&suffixed_path(&path, ".1")), ["abc"]);
         assert_eq!(log_lines(&path), ["defghijkl"]);
         assert!(!suffixed_path(&path, ".lock").exists());
+        let _ = fs::remove_dir_all(parent);
+    }
+
+    #[test]
+    fn appender_reopens_after_another_appender_rotates() {
+        let path = temp_log_path("runtime.log");
+        let parent = path.parent().unwrap();
+        let first = LockedRotatingFileAppender::with_max_size(
+            &path,
+            Box::new(PatternEncoder::new("{m}{n}")),
+            8,
+        )
+        .unwrap();
+        let second = LockedRotatingFileAppender::with_max_size(
+            &path,
+            Box::new(PatternEncoder::new("{m}{n}")),
+            8,
+        )
+        .unwrap();
+
+        append_message(&first, "abc");
+        append_message(&second, "defgh");
+        append_message(&first, "i");
+
+        assert_eq!(log_lines(&suffixed_path(&path, ".1")), ["abc"]);
+        assert_eq!(log_lines(&path), ["defgh", "i"]);
         let _ = fs::remove_dir_all(parent);
     }
 }

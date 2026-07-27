@@ -35,7 +35,7 @@ fn init_logger_inner(configured_level: LevelFilter) -> Result<()> {
         vec![Box::new(android_logger), Box::new(log4rs)],
         log::Level::Trace,
     )?;
-    update_runtime_level(configured_level);
+    log::set_max_level(configured_level);
 
     if file_logging_ready {
         log::info!(
@@ -51,8 +51,4 @@ fn init_logger_inner(configured_level: LevelFilter) -> Result<()> {
     );
 
     Ok(())
-}
-
-pub fn update_runtime_level(level: LevelFilter) {
-    log::set_max_level(level);
 }
