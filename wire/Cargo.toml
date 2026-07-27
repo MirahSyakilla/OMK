@@ -21,12 +21,12 @@ hal_v2 = []
 
 [dependencies]
 ciborium = { version = "^0.2.2", default-features = false }
-ciborium-io = "^0.2.0"
+ciborium-io = "0.2.2"
 coset = "0.4.2"
-enumn = "0.1.4"
+enumn = "0.1.14"
 kmr-derive = { path = "../derive", version = "0.1.0" }
-log = "^0.4"
-zeroize = { version = "^1.5.6", features = ["alloc", "zeroize_derive"] }
+log = "0.4.33"
+zeroize = { version = "1.9.0", features = ["alloc", "zeroize_derive"] }
 
 [dev-dependencies]
 hex = "0.4.3"

@@ -12,8 +12,8 @@ license = "Apache-2.0"
 
 
 [dependencies]
-chrono = "0.4.44"
-log = "0.4.29"
+chrono = "0.4.45"
+log = "0.4.33"
 
 [dev-dependencies]
 hex = "0.4.3"

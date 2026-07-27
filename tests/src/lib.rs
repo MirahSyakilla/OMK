@@ -623,8 +623,8 @@ pub fn test_signing_cert_parse<T: kmr_ta::device::RetrieveCertSigningInfo>(
                 let cert = x509_cert::Certificate::from_der(&cert.encoded_certificate)
                     .expect("failed to parse cert");
 
-                let subject_data = cert.tbs_certificate.subject.to_der().unwrap();
-                let issuer_data = cert.tbs_certificate.issuer.to_der().unwrap();
+                let subject_data = cert.tbs_certificate().subject().to_der().unwrap();
+                let issuer_data = cert.tbs_certificate().issuer().to_der().unwrap();
                 if idx == 0 {
                     // First cert should be self-signed, and so have subject==issuer.
                     assert_eq!(

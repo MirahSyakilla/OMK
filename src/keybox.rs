@@ -415,7 +415,7 @@ fn validate_chain_matches_key(
             )
         })?;
     let certificate_spki =
-        x509_der::Encode::to_der(&certificate.tbs_certificate.subject_public_key_info)
+        x509_der::Encode::to_der(certificate.tbs_certificate().subject_public_key_info())
             .with_context(|| {
                 format!(
                     "failed to encode {} public key info from certificate chain",

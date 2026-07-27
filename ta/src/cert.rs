@@ -41,7 +41,6 @@ use x509_cert::der::asn1::{
     Any as X509Any, BitString as X509BitString, GeneralizedTime as X509GeneralizedTime,
     OctetString as X509OctetString, UtcTime as X509UtcTime,
 };
-use x509_cert::der::oid::AssociatedOid as X509AssociatedOid;
 use x509_cert::serial_number::SerialNumber;
 use x509_cert::spki::{
     AlgorithmIdentifierOwned as X509AlgorithmIdentifierOwned,
@@ -49,11 +48,11 @@ use x509_cert::spki::{
     SubjectPublicKeyInfoOwned as X509SubjectPublicKeyInfoOwned,
 };
 use x509_cert::{
-    certificate::{Certificate, TbsCertificate, Version},
+    certificate::Version,
     ext::pkix::{constraints::BasicConstraints, KeyUsage, KeyUsages},
-    ext::Extension,
-    name::RdnSequence,
-    time::{Time, Validity},
+    ext::{Extension, Extensions},
+    name::Name,
+    time::Time,
 };
 
 /// OID value for the Android Attestation extension.
@@ -61,6 +60,37 @@ pub const ATTESTATION_EXTENSION_OID: ObjectIdentifier =
     ObjectIdentifier::new_unwrap("1.3.6.1.4.1.11129.2.1.17");
 const X509_ATTESTATION_EXTENSION_OID: X509ObjectIdentifier =
     X509ObjectIdentifier::new_unwrap("1.3.6.1.4.1.11129.2.1.17");
+
+#[derive(Sequence)]
+struct Validity {
+    not_before: Time,
+    not_after: Time,
+}
+
+#[derive(Sequence)]
+pub(crate) struct TbsCertificate {
+    #[asn1(context_specific = "0", default = "Default::default")]
+    version: Version,
+    serial_number: SerialNumber,
+    signature: X509AlgorithmIdentifierOwned,
+    issuer: Name,
+    validity: Validity,
+    subject: Name,
+    subject_public_key_info: X509SubjectPublicKeyInfoOwned,
+    #[asn1(context_specific = "1", tag_mode = "IMPLICIT", optional = "true")]
+    issuer_unique_id: Option<X509BitString>,
+    #[asn1(context_specific = "2", tag_mode = "IMPLICIT", optional = "true")]
+    subject_unique_id: Option<X509BitString>,
+    #[asn1(context_specific = "3", tag_mode = "EXPLICIT", optional = "true")]
+    extensions: Option<Extensions>,
+}
+
+#[derive(Sequence)]
+pub(crate) struct Certificate {
+    tbs_certificate: TbsCertificate,
+    signature_algorithm: X509AlgorithmIdentifierOwned,
+    signature: X509BitString,
+}
 
 /// Empty value to use in the `RootOfTrust.verifiedBootKey` field in attestations
 /// if an empty value was passed to the bootloader.
@@ -191,13 +221,13 @@ pub(crate) fn tbs_certificate<'a>(
             oid: sig_alg_oid,
             parameters,
         },
-        issuer: <RdnSequence as x509_der::Decode>::from_der(cert_issuer)
+        issuer: <Name as x509_der::Decode>::from_der(cert_issuer)
             .map_err(|e| x509_der_error(e, format_args!("failed to build issuer")))?,
         validity: Validity {
             not_before: validity_time_from_datetime(not_before)?,
             not_after: validity_time_from_datetime(not_after)?,
         },
-        subject: <RdnSequence as x509_der::Decode>::from_der(cert_subject)
+        subject: <Name as x509_der::Decode>::from_der(cert_subject)
             .map_err(|e| x509_der_error(e, format_args!("failed to build subject")))?,
         subject_public_key_info: spki,
         issuer_unique_id: None,
@@ -210,7 +240,7 @@ pub(crate) fn tbs_certificate<'a>(
 pub(crate) fn extract_subject(cert: &keymint::Certificate) -> Result<Vec<u8>, Error> {
     let cert = <x509_cert::Certificate as x509_der::Decode>::from_der(&cert.encoded_certificate)
         .map_err(|e| km_err!(EncodingError, "failed to parse certificate: {e:?}"))?;
-    let subject_data = x509_der::Encode::to_der(&cert.tbs_certificate.subject)
+    let subject_data = x509_der::Encode::to_der(cert.tbs_certificate().subject())
         .map_err(|e| km_err!(EncodingError, "failed to DER-encode subject: {e:?}"))?;
     Ok(subject_data)
 }
@@ -1573,6 +1603,18 @@ mod tests {
                 x509_der::Encode::to_der(tbs_cert.signature.parameters.as_ref().unwrap()).unwrap()
             ),
             "0500"
+        );
+    }
+
+    #[test]
+    fn test_negative_validity_time_stays_generalized() {
+        let validity = Validity {
+            not_before: validity_time_from_datetime(DateTime { ms_since_epoch: -1 }).unwrap(),
+            not_after: validity_time_from_datetime(DateTime { ms_since_epoch: -1 }).unwrap(),
+        };
+        assert_eq!(
+            hex::encode(x509_der::Encode::to_der(&validity).unwrap()),
+            "3022180f31393730303130313030303030305a180f31393730303130313030303030305a"
         );
     }
 

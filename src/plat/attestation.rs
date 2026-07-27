@@ -137,9 +137,8 @@ pub fn ensure_octet_string(field: Tlv<'_>, label: &str) -> Result<()> {
 
 fn find_attestation_extension(certificate: &Certificate) -> Result<&[u8]> {
     let extensions = certificate
-        .tbs_certificate
-        .extensions
-        .as_ref()
+        .tbs_certificate()
+        .extensions()
         .ok_or_else(|| anyhow!("attestation leaf has no extensions"))?;
     let extension = extensions
         .iter()

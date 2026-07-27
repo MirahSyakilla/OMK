@@ -23,8 +23,8 @@ pub(crate) fn is_decryption_failure(error: &anyhow::Error) -> bool {
 
 pub fn parse_subject_from_certificate(cert_buf: &[u8]) -> Result<Vec<u8>> {
     let cert = Certificate::from_der(cert_buf).context(err!("parsing certificate failed"))?;
-    cert.tbs_certificate
-        .subject
+    cert.tbs_certificate()
+        .subject()
         .to_der()
         .context(err!("encoding certificate subject failed"))
 }
