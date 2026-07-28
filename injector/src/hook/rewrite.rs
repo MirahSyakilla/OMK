@@ -3094,7 +3094,7 @@ pub(super) unsafe fn handle_br_transaction(
             security_level: target_info.security_level,
         };
         if expects_reply && pending.route == RouteTarget::Omk {
-            let reply = match build_omk_security_level_reply(&pending) {
+            let reply = match build_omk_security_level_reply(&pending, true) {
                 Ok(Some(reply)) => reply,
                 Ok(None) => {
                     info!(
@@ -3879,6 +3879,7 @@ fn can_execute_one_way(kind: SyntheticTargetKind, code: u32) -> bool {
             identify::security_level_method_from_code(code),
             Some(
                 SecurityLevelMethod::GenerateKey
+                    | SecurityLevelMethod::CreateOperation
                     | SecurityLevelMethod::ImportKey
                     | SecurityLevelMethod::ImportWrappedKey
                     | SecurityLevelMethod::DeleteKey
@@ -4181,7 +4182,21 @@ fn build_no_carrier_create_operation_reply(
     mut response: crate::android::system::keystore2::CreateOperationResponse::CreateOperationResponse,
     aad_allowed: bool,
     caller: &CallerIdentity,
+    publish_operation_carrier: bool,
 ) -> anyhow::Result<parcel::OwnedReply> {
+    if !publish_operation_carrier {
+        let _guard = BypassGuard::enter();
+        if let Some(operation) = response.r#iOperation.take() {
+            if let Err(status) = operation.r#abort() {
+                warn!(
+                    "event=synthetic failed to abort OMK operation discarded after one-way createOperation: {}",
+                    status
+                );
+            }
+        }
+        return parcel::build_void_reply();
+    }
+
     let Some(operation) = response.r#iOperation.take() else {
         return parcel::build_create_operation_reply(response);
     };
@@ -4769,11 +4784,12 @@ unsafe fn build_security_level_reply_rewrite(
         return observe_system_security_level_reply(tr, pending);
     }
 
-    build_omk_security_level_reply(pending)
+    build_omk_security_level_reply(pending, (tr.flags & super::binder::TF_ONE_WAY) == 0)
 }
 
 fn build_omk_security_level_reply(
     pending: &PendingSecurityLevelCall,
+    publish_operation_carrier: bool,
 ) -> anyhow::Result<Option<OutboundReply>> {
     if let Err(error) = ensure_mirror_state_recovered() {
         warn!(
@@ -4814,6 +4830,7 @@ fn build_omk_security_level_reply(
                 omk_response,
                 operation_allows_aad(operation_parameters),
                 &pending.caller,
+                publish_operation_carrier,
             )?))
         }
         ParsedSecurityLevelRequest::GenerateKey {
@@ -8404,6 +8421,7 @@ mod tests {
             },
             true,
             &caller,
+            true,
         )
         .expect("no-carrier createOperation reply should serialize");
 
@@ -8522,6 +8540,56 @@ mod tests {
             stale_status.service_specific_error(),
             crate::android::hardware::security::keymint::ErrorCode::ErrorCode::INVALID_OPERATION_HANDLE.0
         );
+    }
+
+    #[test]
+    fn one_way_create_operation_aborts_without_publishing_carrier() {
+        ensure_binder_process_state();
+        let _guard = route_state_test_guard();
+        clear_operation_state_for_tests();
+
+        let aborts = Arc::new(AtomicUsize::new(0));
+        let backend = BnKeystoreOperation::new_binder(TestOperationBackend {
+            update_output: Vec::new(),
+            aborts: aborts.clone(),
+            update_aad_status: None,
+        });
+        let reply = build_no_carrier_create_operation_reply(
+            CreateOperationResponse {
+                r#iOperation: Some(backend),
+                r#operationChallenge: None,
+                r#parameters: None,
+                r#upgradedBlob: None,
+            },
+            false,
+            &CallerIdentity::new(10002, 2000),
+            false,
+        )
+        .expect("one-way createOperation should execute and discard its operation");
+
+        assert_eq!(aborts.load(Ordering::SeqCst), 1);
+        assert!(reply.native_operation.is_none());
+        assert_eq!(reply.offsets_size(), 0);
+        assert!(OPERATION_TARGETS
+            .lock()
+            .expect("operation target map poisoned")
+            .is_empty());
+        assert!(SYNTHETIC_TARGETS
+            .lock()
+            .expect("synthetic target map poisoned")
+            .is_empty());
+        assert!(NATIVE_BINDERS
+            .lock()
+            .expect("native binder map poisoned")
+            .is_empty());
+        assert!(OPERATION_PUBLICATIONS
+            .lock()
+            .expect("operation publication map poisoned")
+            .is_empty());
+        assert!(OPERATION_PUBLICATION_PROBES
+            .lock()
+            .expect("operation publication probe queue poisoned")
+            .is_empty());
     }
 
     #[test]
@@ -8967,7 +9035,7 @@ mod tests {
             SyntheticTargetKind::SecurityLevel,
             crate::android::system::keystore2::IKeystoreSecurityLevel::transactions::r#generateKey
         ));
-        assert!(!can_execute_one_way(
+        assert!(can_execute_one_way(
             SyntheticTargetKind::SecurityLevel,
             crate::android::system::keystore2::IKeystoreSecurityLevel::transactions::r#createOperation
         ));
