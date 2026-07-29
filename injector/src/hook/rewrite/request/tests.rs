@@ -34,7 +34,11 @@ fn grant_and_ungrant_preserve_system_only_when_omk_unavailable() {
         grantee_uid: 12345,
         access_vector: 7,
     };
-    let caller = CallerIdentity::new(1000, 2000);
+    let caller = CallerInfo {
+        uid: 1000,
+        sid: String::new(),
+        pid: 2000,
+    };
 
     let result = precompute_omk_grant_service_reply_with(
         &request,
@@ -49,7 +53,11 @@ fn grant_and_ungrant_preserve_system_only_when_omk_unavailable() {
         key: sample_key_descriptor(),
         grantee_uid: 12345,
     };
-    let caller = CallerIdentity::new(1000, 2000);
+    let caller = CallerInfo {
+        uid: 1000,
+        sid: String::new(),
+        pid: 2000,
+    };
 
     let result = precompute_omk_grant_service_reply_with(
         &request,
@@ -68,7 +76,11 @@ fn grant_precompute_returns_reachable_omk_business_error() {
         grantee_uid: 12345,
         access_vector: 7,
     };
-    let caller = CallerIdentity::new(1000, 2000);
+    let caller = CallerInfo {
+        uid: 1000,
+        sid: String::new(),
+        pid: 2000,
+    };
 
     let result = precompute_omk_grant_service_reply_with(
         &request,
@@ -152,7 +164,11 @@ fn unconfirmed_grant_readback_stays_rejected() {
         reason: crate::filter::FilterReason::RejectedNotInScope,
         packages: vec!["com.grantee".to_string()],
     };
-    let caller = CallerIdentity::new(10002, 2000);
+    let caller = CallerInfo {
+        uid: 10002,
+        sid: String::new(),
+        pid: 2000,
+    };
     let grant = KeyDescriptor {
         domain: Domain::GRANT,
         nspace: 123,
@@ -192,7 +208,11 @@ fn soft_rejected_grant_probe_error_is_fail_closed() {
         reason: crate::filter::FilterReason::RejectedUnknownPackage,
         packages: vec![],
     };
-    let caller = CallerIdentity::new(10002, 2000);
+    let caller = CallerInfo {
+        uid: 10002,
+        sid: String::new(),
+        pid: 2000,
+    };
 
     let error = should_allow_omk_grant_service_request_with_probe(
         &ParsedServiceRequest::GetKeyEntry { key: grant },
@@ -219,7 +239,11 @@ fn soft_rejected_grant_positive_probe_works_for_service_and_security_level() {
         reason: crate::filter::FilterReason::RejectedUnknownPackage,
         packages: vec![],
     };
-    let caller = CallerIdentity::new(10002, 2000);
+    let caller = CallerInfo {
+        uid: 10002,
+        sid: String::new(),
+        pid: 2000,
+    };
 
     assert!(should_allow_omk_grant_service_request_with_probe(
         &ParsedServiceRequest::GetKeyEntry { key: grant.clone() },
@@ -276,7 +300,11 @@ fn denylisted_grant_readback_does_not_probe_omk() {
         reason: crate::filter::FilterReason::RejectedByDenylist,
         packages: vec!["com.blocked".to_string()],
     };
-    let caller = CallerIdentity::new(10002, 2000);
+    let caller = CallerInfo {
+        uid: 10002,
+        sid: String::new(),
+        pid: 2000,
+    };
 
     assert!(!should_allow_omk_grant_service_request_with_probe(
         &ParsedServiceRequest::GetKeyEntry { key: grant },

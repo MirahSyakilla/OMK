@@ -3,27 +3,27 @@ use super::*;
 pub(super) struct PendingAuthorizationCall {
     pub(super) request: ParsedAuthorizationRequest,
     pub(super) method: AuthorizationMethod,
-    pub(super) caller: CallerIdentity,
+    pub(super) caller: CallerInfo,
     pub(super) mirror_update: Option<MirrorUpdateReservation>,
 }
 
 pub(super) struct PendingMaintenanceCall {
     pub(super) request: ParsedMaintenanceRequest,
-    pub(super) caller: CallerIdentity,
+    pub(super) caller: CallerInfo,
     pub(super) route: RouteTarget,
     pub(super) mirror_update: Option<MirrorUpdateReservation>,
 }
 
 pub(super) struct PendingServiceCall {
     pub(super) request: ParsedServiceRequest,
-    pub(super) caller: CallerIdentity,
+    pub(super) caller: CallerInfo,
     pub(super) packages: Vec<String>,
     pub(super) route: RouteTarget,
 }
 
 pub(super) struct PendingSecurityLevelCall {
     pub(super) request: ParsedSecurityLevelRequest,
-    pub(super) caller: CallerIdentity,
+    pub(super) caller: CallerInfo,
     pub(super) packages: Vec<String>,
     pub(super) route: RouteTarget,
     pub(super) security_level:
@@ -32,7 +32,7 @@ pub(super) struct PendingSecurityLevelCall {
 
 pub(super) struct PendingOperationCall {
     pub(super) request: ParsedOperationRequest,
-    pub(super) caller: CallerIdentity,
+    pub(super) caller: CallerInfo,
     pub(super) target: LocalBinderTarget,
 }
 
@@ -79,7 +79,7 @@ struct PendingReplyFrame {
 }
 
 impl PendingCall {
-    fn reply_log_context(&self) -> (&'static str, String, u32, i32) {
+    fn reply_log_context(&self) -> (&'static str, String, i64, i64) {
         match self {
             Self::Authorization(call) | Self::PrecomputedAuthorization(call, _) => (
                 "authorization",

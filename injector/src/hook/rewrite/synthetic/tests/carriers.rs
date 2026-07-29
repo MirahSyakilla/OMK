@@ -4,11 +4,15 @@ fn no_carrier_operation_target() -> (
     LocalBinderTarget,
     parcel::OwnedReply,
     Arc<AtomicUsize>,
-    CallerIdentity,
+    CallerInfo,
 ) {
     ensure_binder_process_state();
     let aborts = Arc::new(AtomicUsize::new(0));
-    let caller = CallerIdentity::new(10002, 2000).with_sid("u:r:untrusted_app:s0:c123,c456");
+    let caller = CallerInfo {
+        uid: 10002,
+        sid: "u:r:untrusted_app:s0:c123,c456".into(),
+        pid: 2000,
+    };
     let backend = BnKeystoreOperation::new_binder(TestOperationBackend {
         update_output: vec![9, 9, 9],
         aborts: aborts.clone(),
@@ -53,7 +57,11 @@ fn no_carrier_omk_key_entry_reply_uses_synthetic_security_level_mapping() {
         certificateChain: None,
         modificationTimeMs: 0,
     };
-    let caller = CallerIdentity::new(10002, 2000).with_sid("u:r:untrusted_app:s0:c123,c456");
+    let caller = CallerInfo {
+        uid: 10002,
+        sid: "u:r:untrusted_app:s0:c123,c456".into(),
+        pid: 2000,
+    };
 
     let mut reply = build_no_carrier_omk_key_entry_reply(
         KeyEntryResponse {
@@ -126,7 +134,11 @@ fn synthetic_operation_carrier_forwards_update() {
         request: ParsedOperationRequest::Update {
             input: vec![4, 5, 6],
         },
-        caller: CallerIdentity::new(1000, 2000),
+        caller: CallerInfo {
+            uid: 1000,
+            sid: String::new(),
+            pid: 2000,
+        },
         target,
     })
     .expect("synthetic update rewrite should succeed")
@@ -144,7 +156,11 @@ fn synthetic_operation_abort_keeps_tombstone_returning_invalid_handle() {
     let (target, _reply, aborts, _) = no_carrier_operation_target();
     let mut reply = build_operation_reply_rewrite(&PendingOperationCall {
         request: ParsedOperationRequest::Abort,
-        caller: CallerIdentity::new(1000, 2000),
+        caller: CallerInfo {
+            uid: 1000,
+            sid: String::new(),
+            pid: 2000,
+        },
         target,
     })
     .expect("synthetic abort rewrite should succeed")
@@ -164,7 +180,11 @@ fn synthetic_operation_abort_keeps_tombstone_returning_invalid_handle() {
         request: ParsedOperationRequest::Update {
             input: b"after_abort".to_vec(),
         },
-        caller: CallerIdentity::new(1000, 2000),
+        caller: CallerInfo {
+            uid: 1000,
+            sid: String::new(),
+            pid: 2000,
+        },
         target,
     })
     .expect("stale synthetic update rewrite should succeed")
@@ -202,7 +222,11 @@ fn one_way_create_operation_aborts_without_publishing_carrier() {
             r#upgradedBlob: None,
         },
         false,
-        &CallerIdentity::new(10002, 2000),
+        &CallerInfo {
+            uid: 10002,
+            sid: String::new(),
+            pid: 2000,
+        },
         false,
     )
     .expect("one-way createOperation should execute and discard its operation");
@@ -243,7 +267,11 @@ fn synthetic_operation_release_aborts_once_and_clears_mapping() {
         aborts: aborts.clone(),
         update_aad_status: None,
     });
-    let caller = CallerIdentity::new(10002, 2000).with_sid("u:r:untrusted_app:s0:c123,c456");
+    let caller = CallerInfo {
+        uid: 10002,
+        sid: "u:r:untrusted_app:s0:c123,c456".into(),
+        pid: 2000,
+    };
     let (carrier, _) = register_synthetic_operation_carrier(backend, true, &caller)
         .expect("operation carrier should register");
     let target = carrier_target(&carrier);

@@ -207,17 +207,17 @@ unsafe fn synthetic_base_transaction_reply(
 }
 
 fn synthetic_transaction_caller(
-    fallback: Option<&CallerIdentity>,
+    fallback: Option<&CallerInfo>,
     tr: &binder_transaction_data,
     caller_sid: Option<String>,
-) -> CallerIdentity {
+) -> CallerInfo {
     let uid = if tr.sender_euid >= 0 {
-        tr.sender_euid as u32
+        i64::from(tr.sender_euid)
     } else {
         fallback.map_or(0, |caller| caller.uid)
     };
     let pid = if tr.sender_pid != 0 {
-        tr.sender_pid
+        i64::from(tr.sender_pid)
     } else {
         fallback.map_or(0, |caller| caller.pid)
     };
@@ -225,7 +225,12 @@ fn synthetic_transaction_caller(
         .filter(|sid| !sid.is_empty())
         .or_else(|| fallback.map(|caller| caller.sid.clone()))
         .unwrap_or_default();
-    CallerIdentity::new(uid, pid).with_sid(sid)
+    CallerInfo {
+        uid,
+        sid,
+        pid,
+        keyboxSlot: fallback.map_or(0, |caller| caller.keyboxSlot),
+    }
 }
 
 pub(in crate::hook::rewrite) fn can_execute_one_way(kind: SyntheticTargetKind, code: u32) -> bool {

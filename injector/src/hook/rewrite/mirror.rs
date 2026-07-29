@@ -18,11 +18,11 @@ pub(super) enum MirrorStateKind {
 enum MirrorReplayEvent {
     Authorization {
         request: ParsedAuthorizationRequest,
-        caller: CallerIdentity,
+        caller: CallerInfo,
     },
     Maintenance {
         request: ParsedMaintenanceRequest,
-        caller: CallerIdentity,
+        caller: CallerInfo,
     },
 }
 
@@ -134,7 +134,7 @@ impl MirrorReplayEvent {
         }
     }
 
-    fn caller(&self) -> &CallerIdentity {
+    fn caller(&self) -> &CallerInfo {
         match self {
             Self::Authorization { caller, .. } | Self::Maintenance { caller, .. } => caller,
         }
@@ -538,18 +538,17 @@ pub(super) unsafe fn build_authorization_reply_mirror(
 
 fn execute_authorization_mirror(
     request: &ParsedAuthorizationRequest,
-    caller: &CallerIdentity,
+    caller: &CallerInfo,
 ) -> anyhow::Result<()> {
-    let caller = caller.to_caller_info();
     match request {
         ParsedAuthorizationRequest::AddAuthToken { auth_token } => {
             ipc::with_omk_authorization_once(|auth| {
-                Ok(auth.r#addAuthToken(Some(&caller), auth_token)?)
+                Ok(auth.r#addAuthToken(Some(caller), auth_token)?)
             })
         }
         ParsedAuthorizationRequest::OnDeviceUnlocked { user_id, password } => {
             ipc::with_omk_authorization_once(|auth| {
-                Ok(auth.r#onDeviceUnlocked(Some(&caller), *user_id, password.as_deref())?)
+                Ok(auth.r#onDeviceUnlocked(Some(caller), *user_id, password.as_deref())?)
             })
         }
         ParsedAuthorizationRequest::OnDeviceLocked {
@@ -558,7 +557,7 @@ fn execute_authorization_mirror(
             weak_unlock_enabled,
         } => ipc::with_omk_authorization_once(|auth| {
             Ok(auth.r#onDeviceLocked(
-                Some(&caller),
+                Some(caller),
                 *user_id,
                 unlocking_sids,
                 *weak_unlock_enabled,
@@ -566,17 +565,17 @@ fn execute_authorization_mirror(
         }),
         ParsedAuthorizationRequest::OnUserStorageLocked { user_id } => {
             ipc::with_omk_authorization_once(|auth| {
-                Ok(auth.r#onUserStorageLocked(Some(&caller), *user_id)?)
+                Ok(auth.r#onUserStorageLocked(Some(caller), *user_id)?)
             })
         }
         ParsedAuthorizationRequest::OnWeakUnlockMethodsExpired { user_id } => {
             ipc::with_omk_authorization_once(|auth| {
-                Ok(auth.r#onWeakUnlockMethodsExpired(Some(&caller), *user_id)?)
+                Ok(auth.r#onWeakUnlockMethodsExpired(Some(caller), *user_id)?)
             })
         }
         ParsedAuthorizationRequest::OnNonLskfUnlockMethodsExpired { user_id } => {
             ipc::with_omk_authorization_once(|auth| {
-                Ok(auth.r#onNonLskfUnlockMethodsExpired(Some(&caller), *user_id)?)
+                Ok(auth.r#onNonLskfUnlockMethodsExpired(Some(caller), *user_id)?)
             })
         }
         ParsedAuthorizationRequest::GetAuthTokensForCredStore { .. }
@@ -631,13 +630,12 @@ pub(super) unsafe fn build_maintenance_reply_mirror(
 
 fn execute_maintenance_mirror(
     request: &ParsedMaintenanceRequest,
-    caller: &CallerIdentity,
+    caller: &CallerInfo,
 ) -> anyhow::Result<()> {
-    let caller = caller.to_caller_info();
     match request {
         ParsedMaintenanceRequest::OnUserAdded { user_id } => {
             ipc::with_omk_maintenance_once(|maintenance| {
-                Ok(maintenance.r#onUserAdded(Some(&caller), *user_id)?)
+                Ok(maintenance.r#onUserAdded(Some(caller), *user_id)?)
             })
         }
         ParsedMaintenanceRequest::InitUserSuperKeys {
@@ -646,7 +644,7 @@ fn execute_maintenance_mirror(
             allow_existing,
         } => ipc::with_omk_maintenance_once(|maintenance| {
             Ok(maintenance.r#initUserSuperKeys(
-                Some(&caller),
+                Some(caller),
                 *user_id,
                 password,
                 *allow_existing,
@@ -654,32 +652,32 @@ fn execute_maintenance_mirror(
         }),
         ParsedMaintenanceRequest::OnUserRemoved { user_id } => {
             ipc::with_omk_maintenance_once(|maintenance| {
-                Ok(maintenance.r#onUserRemoved(Some(&caller), *user_id)?)
+                Ok(maintenance.r#onUserRemoved(Some(caller), *user_id)?)
             })
         }
         ParsedMaintenanceRequest::OnUserLskfRemoved { user_id } => {
             ipc::with_omk_maintenance_once(|maintenance| {
-                Ok(maintenance.r#onUserLskfRemoved(Some(&caller), *user_id)?)
+                Ok(maintenance.r#onUserLskfRemoved(Some(caller), *user_id)?)
             })
         }
         ParsedMaintenanceRequest::ClearNamespace { domain, nspace } => {
             ipc::with_omk_maintenance_once(|maintenance| {
-                Ok(maintenance.r#clearNamespace(Some(&caller), *domain, *nspace)?)
+                Ok(maintenance.r#clearNamespace(Some(caller), *domain, *nspace)?)
             })
         }
         ParsedMaintenanceRequest::EarlyBootEnded => ipc::with_omk_maintenance_once(|maintenance| {
-            Ok(maintenance.r#earlyBootEnded(Some(&caller))?)
+            Ok(maintenance.r#earlyBootEnded(Some(caller))?)
         }),
         ParsedMaintenanceRequest::MigrateKeyNamespace { .. } => {
             unreachable!("migrateKeyNamespace is handled before maintenance mirroring")
         }
         ParsedMaintenanceRequest::DeleteAllKeys => ipc::with_omk_maintenance_once(|maintenance| {
-            Ok(maintenance.r#deleteAllKeys(Some(&caller))?)
+            Ok(maintenance.r#deleteAllKeys(Some(caller))?)
         }),
         ParsedMaintenanceRequest::OnUserPasswordChanged { user_id, password } => {
             ipc::with_omk_maintenance_once(|maintenance| {
                 Ok(maintenance.r#onUserPasswordChanged(
-                    Some(&caller),
+                    Some(caller),
                     *user_id,
                     password.as_deref(),
                 )?)

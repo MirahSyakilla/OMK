@@ -140,9 +140,16 @@ fn persistent_node_query_errors_back_off_without_retiring_backend() {
         aborts: aborts.clone(),
         update_aad_status: None,
     });
-    let (_, retirement) =
-        register_synthetic_operation_carrier(backend, false, &CallerIdentity::new(10002, 2000))
-            .expect("synthetic operation carrier should register");
+    let (_, retirement) = register_synthetic_operation_carrier(
+        backend,
+        false,
+        &CallerInfo {
+            uid: 10002,
+            sid: String::new(),
+            pid: 2000,
+        },
+    )
+    .expect("synthetic operation carrier should register");
     mark_operation_publication_completed(retirement, binder_token(26));
     let mut attempt_at = Instant::now() + OPERATION_PUBLICATION_PROBE_GRACE;
 

@@ -80,7 +80,11 @@ fn pending_reply_queue_consumes_nested_requests_from_the_top() {
             request: ParsedServiceRequest::GetSecurityLevel {
                 security_level: SecurityLevel::TRUSTED_ENVIRONMENT,
             },
-            caller: CallerIdentity::new(1000, 2000),
+            caller: CallerInfo {
+                uid: 1000,
+                sid: String::new(),
+                pid: 2000,
+            },
             packages: vec!["com.example".to_string()],
             route: RouteTarget::Omk,
         }),
@@ -93,7 +97,11 @@ fn pending_reply_queue_consumes_nested_requests_from_the_top() {
             request: ParsedServiceRequest::GetKeyEntry {
                 key: sample_key_descriptor(),
             },
-            caller: CallerIdentity::new(1000, 2000),
+            caller: CallerInfo {
+                uid: 1000,
+                sid: String::new(),
+                pid: 2000,
+            },
             packages: vec!["com.example".to_string()],
             route: RouteTarget::Omk,
         }),
@@ -116,7 +124,11 @@ fn pending_reply_queue_consumes_nested_requests_from_the_top() {
             password: None,
         },
         method: AuthorizationMethod::LegacyOnLockScreenEvent,
-        caller: CallerIdentity::new(1000, 2000),
+        caller: CallerInfo {
+            uid: 1000,
+            sid: String::new(),
+            pid: 2000,
+        },
         mirror_update: None,
     });
     assert_eq!(legacy.reply_log_context().1, "LegacyOnLockScreenEvent");

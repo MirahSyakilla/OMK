@@ -4,7 +4,11 @@ use crate::hook::rewrite::tests::{raw_parts, route_state_test_guard};
 #[test]
 fn mirror_recovery_retries_sensitive_events_in_global_sequence() {
     let _guard = route_state_test_guard();
-    let caller = CallerIdentity::new(1000, 2000).with_sid("u:r:keystore:s0");
+    let caller = CallerInfo {
+        uid: 1000,
+        sid: "u:r:keystore:s0".into(),
+        pid: 2000,
+    };
 
     reserve_mirror_update(MirrorStateKind::Maintenance)
         .expect("onUserAdded should reserve")
@@ -112,7 +116,11 @@ fn mirror_recovery_retries_sensitive_events_in_global_sequence() {
 #[test]
 fn mirror_reservation_holds_global_order_and_lost_reply_fails_closed() {
     let _guard = route_state_test_guard();
-    let caller = CallerIdentity::new(1000, 2000);
+    let caller = CallerInfo {
+        uid: 1000,
+        sid: String::new(),
+        pid: 2000,
+    };
     let earlier = reserve_mirror_update(MirrorStateKind::Authorization)
         .expect("authorization update should reserve");
     reserve_mirror_update(MirrorStateKind::Maintenance)
@@ -163,7 +171,11 @@ fn mirror_reservation_holds_global_order_and_lost_reply_fails_closed() {
 #[test]
 fn full_mirror_queue_rejects_only_the_new_system_mutation() {
     let _guard = route_state_test_guard();
-    let caller = CallerIdentity::new(1000, 2000);
+    let caller = CallerInfo {
+        uid: 1000,
+        sid: String::new(),
+        pid: 2000,
+    };
     for _ in 0..MAX_PENDING_MIRROR_REPLAYS {
         reserve_mirror_update(MirrorStateKind::Authorization)
             .expect("queue slot should reserve")
@@ -213,7 +225,11 @@ fn non_ok_system_reply_cancels_mirror_reservation() {
             auth_token: Default::default(),
         },
         method: AuthorizationMethod::AddAuthToken,
-        caller: CallerIdentity::new(1000, 2000),
+        caller: CallerInfo {
+            uid: 1000,
+            sid: String::new(),
+            pid: 2000,
+        },
         mirror_update: Some(
             reserve_mirror_update(MirrorStateKind::Authorization)
                 .expect("authorization update should reserve"),
@@ -234,7 +250,11 @@ fn mirror_business_error_preserves_event_and_blocks_routes() {
         .expect("onUserRemoved should reserve")
         .enqueue(MirrorReplayEvent::Maintenance {
             request: ParsedMaintenanceRequest::OnUserRemoved { user_id: 11 },
-            caller: CallerIdentity::new(1000, 2000),
+            caller: CallerInfo {
+                uid: 1000,
+                sid: String::new(),
+                pid: 2000,
+            },
         })
         .expect("onUserRemoved should queue");
 

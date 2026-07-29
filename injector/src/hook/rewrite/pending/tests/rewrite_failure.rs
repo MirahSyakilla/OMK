@@ -2,7 +2,11 @@ use super::*;
 
 #[test]
 fn service_rewrite_failure_preserves_only_system_route() {
-    let caller = CallerIdentity::new(1000, 2000);
+    let caller = CallerInfo {
+        uid: 1000,
+        sid: String::new(),
+        pid: 2000,
+    };
     let pending = |route| {
         PendingCall::Service(PendingServiceCall {
             request: ParsedServiceRequest::GetKeyEntry {
@@ -24,7 +28,11 @@ fn service_rewrite_failure_preserves_only_system_route() {
 
 #[test]
 fn security_level_rewrite_failure_preserves_only_system_route() {
-    let caller = CallerIdentity::new(1000, 2000);
+    let caller = CallerInfo {
+        uid: 1000,
+        sid: String::new(),
+        pid: 2000,
+    };
     let pending = |route| {
         PendingCall::SecurityLevel(PendingSecurityLevelCall {
             request: ParsedSecurityLevelRequest::CreateOperation {
@@ -50,7 +58,11 @@ fn security_level_rewrite_failure_preserves_only_system_route() {
 #[test]
 fn operation_rewrite_failure_preserves_only_system_route() {
     let _guard = route_state_test_guard();
-    let caller = CallerIdentity::new(1000, 2000);
+    let caller = CallerInfo {
+        uid: 1000,
+        sid: String::new(),
+        pid: 2000,
+    };
     let omk_target = LocalBinderTarget {
         ptr: 0x1111,
         cookie: 0x2222,
@@ -95,7 +107,11 @@ fn operation_rewrite_failure_preserves_only_system_route() {
 
 #[test]
 fn authorization_and_ordinary_maintenance_rewrite_failures_preserve_system() {
-    let caller = CallerIdentity::new(1000, 2000);
+    let caller = CallerInfo {
+        uid: 1000,
+        sid: String::new(),
+        pid: 2000,
+    };
     let authorization = PendingCall::Authorization(PendingAuthorizationCall {
         request: ParsedAuthorizationRequest::AddAuthToken {
             auth_token: Default::default(),
@@ -117,7 +133,11 @@ fn authorization_and_ordinary_maintenance_rewrite_failures_preserve_system() {
 
 #[test]
 fn migration_rewrite_failure_preserves_only_system_route() {
-    let caller = CallerIdentity::new(1000, 2000);
+    let caller = CallerInfo {
+        uid: 1000,
+        sid: String::new(),
+        pid: 2000,
+    };
     let request = ParsedMaintenanceRequest::MigrateKeyNamespace {
         source: sample_key_descriptor(),
         destination: sample_key_descriptor(),

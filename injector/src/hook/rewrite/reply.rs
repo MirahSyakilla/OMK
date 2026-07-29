@@ -109,7 +109,7 @@ fn build_omk_status_reply_or_preserve_system(
 
 fn omk_error_reply_for_method(
     method: &str,
-    caller: &CallerIdentity,
+    caller: &CallerInfo,
     error: &anyhow::Error,
 ) -> anyhow::Result<Option<OutboundReply>> {
     match build_omk_error_reply_or_preserve_system(error)? {
@@ -132,7 +132,7 @@ fn omk_error_reply_for_method(
 
 fn omk_status_reply_for_method(
     method: &str,
-    caller: &CallerIdentity,
+    caller: &CallerInfo,
     status: &Status,
 ) -> anyhow::Result<Option<OutboundReply>> {
     match build_omk_status_reply_or_preserve_system(status)? {
@@ -218,7 +218,7 @@ pub(super) fn build_precomputed_maintenance_reply(
 
 pub(super) fn build_no_carrier_omk_key_entry_reply(
     entry: KeyEntryResponse,
-    caller: &CallerIdentity,
+    caller: &CallerInfo,
 ) -> anyhow::Result<parcel::OwnedReply> {
     if entry.r#iSecurityLevel.is_none() {
         return parcel::build_key_entry_reply(entry);
@@ -349,7 +349,7 @@ pub(super) unsafe fn build_service_reply_rewrite(
         return Ok(Some(synthetic_fallback_reply()));
     }
 
-    let caller = pending.caller.to_caller_info();
+    let caller = &pending.caller;
     let _guard = BypassGuard::enter();
 
     match &pending.request {
@@ -357,8 +357,7 @@ pub(super) unsafe fn build_service_reply_rewrite(
             build_direct_omk_security_level_reply(*security_level, pending)
         }
         ParsedServiceRequest::GetKeyEntry { key } => {
-            let entry = match ipc::with_omk_retry(|omk| Ok(omk.r#getKeyEntry(Some(&caller), key)?))
-            {
+            let entry = match ipc::with_omk_retry(|omk| Ok(omk.r#getKeyEntry(Some(caller), key)?)) {
                 Ok(entry) => entry,
                 Err(error) => {
                     return omk_error_reply_for_method("getKeyEntry", &pending.caller, &error);
@@ -376,7 +375,7 @@ pub(super) unsafe fn build_service_reply_rewrite(
         } => {
             match ipc::with_omk_once(|omk| {
                 Ok(omk.r#updateSubcomponent(
-                    Some(&caller),
+                    Some(caller),
                     key,
                     public_cert.as_deref(),
                     certificate_chain.as_deref(),
@@ -390,7 +389,7 @@ pub(super) unsafe fn build_service_reply_rewrite(
         }
         ParsedServiceRequest::ListEntries { domain, nspace } => {
             match ipc::with_omk_retry(|omk| {
-                Ok(omk.r#listEntries(Some(&caller), *domain, *nspace)?)
+                Ok(omk.r#listEntries(Some(caller), *domain, *nspace)?)
             }) {
                 Ok(entries) => Ok(Some(parcel::build_plain_reply(&entries)?)),
                 Err(error) => omk_error_reply_for_method("listEntries", &pending.caller, &error),
@@ -402,7 +401,7 @@ pub(super) unsafe fn build_service_reply_rewrite(
             access_vector,
         } => {
             let omk_grant = match ipc::with_omk_once(|omk| {
-                Ok(omk.r#grant(Some(&caller), key, *grantee_uid, *access_vector)?)
+                Ok(omk.r#grant(Some(caller), key, *grantee_uid, *access_vector)?)
             }) {
                 Ok(omk_grant) => omk_grant,
                 Err(error) => return omk_error_reply_for_method("grant", &pending.caller, &error),
@@ -410,14 +409,14 @@ pub(super) unsafe fn build_service_reply_rewrite(
             Ok(Some(parcel::build_plain_reply(&omk_grant)?))
         }
         ParsedServiceRequest::Ungrant { key, grantee_uid } => {
-            match ipc::with_omk_once(|omk| Ok(omk.r#ungrant(Some(&caller), key, *grantee_uid)?)) {
+            match ipc::with_omk_once(|omk| Ok(omk.r#ungrant(Some(caller), key, *grantee_uid)?)) {
                 Ok(()) => Ok(Some(parcel::build_void_reply()?)),
                 Err(error) => omk_error_reply_for_method("ungrant", &pending.caller, &error),
             }
         }
         ParsedServiceRequest::GetNumberOfEntries { domain, nspace } => {
             match ipc::with_omk_retry(|omk| {
-                Ok(omk.r#getNumberOfEntries(Some(&caller), *domain, *nspace)?)
+                Ok(omk.r#getNumberOfEntries(Some(caller), *domain, *nspace)?)
             }) {
                 Ok(count) => Ok(Some(parcel::build_plain_reply(&count)?)),
                 Err(error) => {
@@ -432,7 +431,7 @@ pub(super) unsafe fn build_service_reply_rewrite(
         } => {
             match ipc::with_omk_retry(|omk| {
                 Ok(omk.r#listEntriesBatched(
-                    Some(&caller),
+                    Some(caller),
                     *domain,
                     *nspace,
                     starting_past_alias.as_deref(),
@@ -455,7 +454,7 @@ pub(super) unsafe fn build_service_reply_rewrite(
             }
         }
         ParsedServiceRequest::DeleteKey { key } => {
-            match ipc::with_omk_once(|omk| Ok(omk.r#deleteKey(Some(&caller), key)?)) {
+            match ipc::with_omk_once(|omk| Ok(omk.r#deleteKey(Some(caller), key)?)) {
                 Ok(()) => Ok(Some(parcel::build_void_reply()?)),
                 Err(error) => omk_error_reply_for_method("deleteKey", &pending.caller, &error),
             }
@@ -514,7 +513,7 @@ pub(super) fn build_omk_security_level_reply(
         );
         return Ok(Some(synthetic_fallback_reply()));
     }
-    let caller = pending.caller.to_caller_info();
+    let caller = &pending.caller;
     let _guard = BypassGuard::enter();
     let omk_level =
         match ipc::with_omk_retry(|omk| Ok(omk.r#getOhMySecurityLevel(pending.security_level)?)) {
@@ -531,17 +530,18 @@ pub(super) fn build_omk_security_level_reply(
             operation_parameters,
             forced,
         } => {
-            let omk_response = match omk_level.r#createOperation(
-                Some(&caller),
-                key,
-                operation_parameters,
-                *forced,
-            ) {
-                Ok(response) => response,
-                Err(error) => {
-                    return omk_status_reply_for_method("createOperation", &pending.caller, &error);
-                }
-            };
+            let omk_response =
+                match omk_level.r#createOperation(Some(caller), key, operation_parameters, *forced)
+                {
+                    Ok(response) => response,
+                    Err(error) => {
+                        return omk_status_reply_for_method(
+                            "createOperation",
+                            &pending.caller,
+                            &error,
+                        );
+                    }
+                };
             Ok(Some(build_no_carrier_create_operation_reply(
                 omk_response,
                 operation_allows_aad(operation_parameters),
@@ -557,7 +557,7 @@ pub(super) fn build_omk_security_level_reply(
             entropy,
         } => {
             match omk_level.r#generateKey(
-                Some(&caller),
+                Some(caller),
                 key,
                 attestation_key.as_ref(),
                 params,
@@ -576,7 +576,7 @@ pub(super) fn build_omk_security_level_reply(
             key_data,
         } => {
             match omk_level.r#importKey(
-                Some(&caller),
+                Some(caller),
                 key,
                 attestation_key.as_ref(),
                 params,
@@ -595,7 +595,7 @@ pub(super) fn build_omk_security_level_reply(
             authenticators,
         } => {
             match omk_level.r#importWrappedKey(
-                Some(&caller),
+                Some(caller),
                 key,
                 wrapping_key,
                 masking_key.as_deref(),
@@ -609,7 +609,7 @@ pub(super) fn build_omk_security_level_reply(
             }
         }
         ParsedSecurityLevelRequest::ConvertStorageKeyToEphemeral { storage_key } => match omk_level
-            .r#convertStorageKeyToEphemeral(Some(&caller), storage_key)
+            .r#convertStorageKeyToEphemeral(Some(caller), storage_key)
         {
             Ok(response) => Ok(Some(parcel::build_plain_reply(&response)?)),
             Err(error) => {
@@ -617,7 +617,7 @@ pub(super) fn build_omk_security_level_reply(
             }
         },
         ParsedSecurityLevelRequest::DeleteKey { key } => {
-            match omk_level.r#deleteKey(Some(&caller), key) {
+            match omk_level.r#deleteKey(Some(caller), key) {
                 Ok(()) => Ok(Some(parcel::build_void_reply()?)),
                 Err(error) => omk_status_reply_for_method("deleteKey", &pending.caller, &error),
             }

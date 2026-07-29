@@ -28,7 +28,11 @@ fn omk_route_finish_rejects_late_cleanup_abort() {
             input: Some(vec![1, 2, 3]),
             signature: None,
         },
-        caller: CallerIdentity::new(1000, 2000),
+        caller: CallerInfo {
+            uid: 1000,
+            sid: String::new(),
+            pid: 2000,
+        },
         target,
     })
     .expect("finish rewrite should succeed")
@@ -48,7 +52,11 @@ fn omk_route_finish_rejects_late_cleanup_abort() {
 
     let cleanup_reply = build_operation_reply_rewrite(&PendingOperationCall {
         request: ParsedOperationRequest::Abort,
-        caller: CallerIdentity::new(1000, 2000),
+        caller: CallerInfo {
+            uid: 1000,
+            sid: String::new(),
+            pid: 2000,
+        },
         target,
     })
     .expect("cleanup abort rewrite should succeed")
@@ -112,7 +120,11 @@ fn omk_route_abort_clears_operation_mapping() {
 
     let reply = build_operation_reply_rewrite(&PendingOperationCall {
         request: ParsedOperationRequest::Abort,
-        caller: CallerIdentity::new(1000, 2000),
+        caller: CallerInfo {
+            uid: 1000,
+            sid: String::new(),
+            pid: 2000,
+        },
         target,
     })
     .expect("abort rewrite should succeed")

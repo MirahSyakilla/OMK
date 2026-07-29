@@ -80,8 +80,12 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
     if !is_known_keystore_interface(&request_interface) {
         return false;
     }
-    let caller = CallerIdentity::new(tr.sender_euid.max(0) as u32, tr.sender_pid)
-        .with_sid(caller_sid.unwrap_or_default());
+    let caller = CallerInfo {
+        uid: i64::from(tr.sender_euid.max(0)),
+        sid: caller_sid.unwrap_or_default(),
+        pid: i64::from(tr.sender_pid),
+        keyboxSlot: 0,
+    };
     let caller_uid = caller.uid;
     // Authorization events are emitted by system auth components, not by the
     // app that later uses an auth-bound key. Mirror this global keystore state

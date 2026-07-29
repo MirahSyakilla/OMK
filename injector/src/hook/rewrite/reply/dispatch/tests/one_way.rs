@@ -10,7 +10,11 @@ fn one_way_synthetic_operation_abort_finalizes_mapping() {
         aborts: aborts.clone(),
         update_aad_status: None,
     });
-    let caller = CallerIdentity::new(10002, 2000).with_sid("u:r:untrusted_app:s0:c123,c456");
+    let caller = CallerInfo {
+        uid: 10002,
+        sid: "u:r:untrusted_app:s0:c123,c456".into(),
+        pid: 2000,
+    };
     let (carrier, _) = register_synthetic_operation_carrier(backend, true, &caller)
         .expect("operation carrier should register");
     let target = carrier_target(&carrier);

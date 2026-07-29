@@ -3,7 +3,11 @@ use super::*;
 fn operation_info() -> SyntheticTargetInfo {
     SyntheticTargetInfo {
         kind: SyntheticTargetKind::Operation,
-        caller: Some(CallerIdentity::new(10002, 2000)),
+        caller: Some(CallerInfo {
+            uid: 10002,
+            sid: String::new(),
+            pid: 2000,
+        }),
         native_generation: None,
     }
 }

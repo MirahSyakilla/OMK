@@ -56,7 +56,7 @@ pub(in crate::hook) enum SyntheticReply {
 #[derive(Clone, Debug)]
 pub(super) struct SyntheticTargetInfo {
     pub(super) kind: SyntheticTargetKind,
-    pub(super) caller: Option<CallerIdentity>,
+    pub(super) caller: Option<CallerInfo>,
     pub(super) native_generation: Option<u64>,
 }
 
@@ -456,7 +456,7 @@ pub(in crate::hook) fn lookup_native_binder_for(
 pub(in crate::hook::rewrite) fn register_synthetic_operation_carrier(
     backend: AospOperationBinder,
     aad_allowed: bool,
-    caller: &CallerIdentity,
+    caller: &CallerInfo,
 ) -> anyhow::Result<(parcel::ReplyBinderCarrier, NativeBinderRetirement)> {
     let native = Arc::new(create_native_operation_binder()?);
     let target = native.target();
@@ -535,7 +535,7 @@ pub(in crate::hook::rewrite) fn register_synthetic_operation_carrier(
 pub(in crate::hook::rewrite) fn register_synthetic_security_level_carrier(
     security_level: crate::android::hardware::security::keymint::SecurityLevel::SecurityLevel,
     source_method: ServiceMethod,
-    caller: &CallerIdentity,
+    caller: &CallerInfo,
 ) -> anyhow::Result<parcel::ReplyBinderCarrier> {
     let (target, carrier) = {
         let mut targets = SYNTHETIC_SECURITY_LEVEL_TARGETS

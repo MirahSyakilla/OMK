@@ -140,9 +140,16 @@ fn intercepted_operation_transaction_does_not_replace_acquire_ack() {
         aborts: aborts.clone(),
         update_aad_status: None,
     });
-    let (_, retirement) =
-        register_synthetic_operation_carrier(backend, false, &CallerIdentity::new(10002, 2000))
-            .expect("synthetic operation carrier should register");
+    let (_, retirement) = register_synthetic_operation_carrier(
+        backend,
+        false,
+        &CallerInfo {
+            uid: 10002,
+            sid: String::new(),
+            pid: 2000,
+        },
+    )
+    .expect("synthetic operation carrier should register");
     let target = retirement.target;
     bind_operation_publication_connection(retirement, 26);
     mark_operation_publication_completed(retirement, binder_token(26));
@@ -194,9 +201,16 @@ fn local_operation_publication_handoff_releases_initial_strong() {
         aborts: aborts.clone(),
         update_aad_status: None,
     });
-    let (_, retirement) =
-        register_synthetic_operation_carrier(backend, false, &CallerIdentity::new(10002, 2000))
-            .expect("synthetic operation carrier should register");
+    let (_, retirement) = register_synthetic_operation_carrier(
+        backend,
+        false,
+        &CallerInfo {
+            uid: 10002,
+            sid: String::new(),
+            pid: 2000,
+        },
+    )
+    .expect("synthetic operation carrier should register");
     let target = retirement.target;
     assert!(OPERATION_PUBLICATIONS
         .lock()
@@ -277,9 +291,16 @@ fn native_retirement_releases_unfinished_publication() {
         aborts: aborts.clone(),
         update_aad_status: None,
     });
-    let (_, retirement) =
-        register_synthetic_operation_carrier(backend, false, &CallerIdentity::new(10002, 2000))
-            .expect("synthetic operation carrier should register");
+    let (_, retirement) = register_synthetic_operation_carrier(
+        backend,
+        false,
+        &CallerInfo {
+            uid: 10002,
+            sid: String::new(),
+            pid: 2000,
+        },
+    )
+    .expect("synthetic operation carrier should register");
     let target = retirement.target;
     bind_operation_publication_connection(retirement, 27);
     mark_operation_publication_completed(retirement, binder_token(27));
@@ -309,9 +330,16 @@ fn terminal_reply_retires_backend_before_native_publication() {
         aborts: aborts.clone(),
         update_aad_status: None,
     });
-    let (_, retirement) =
-        register_synthetic_operation_carrier(backend, false, &CallerIdentity::new(10002, 2000))
-            .expect("synthetic operation carrier should register");
+    let (_, retirement) = register_synthetic_operation_carrier(
+        backend,
+        false,
+        &CallerInfo {
+            uid: 10002,
+            sid: String::new(),
+            pid: 2000,
+        },
+    )
+    .expect("synthetic operation carrier should register");
     let target = retirement.target;
     bind_operation_publication_connection(retirement, 29);
     mark_operation_publication_completed(retirement, binder_token(29));

@@ -21,7 +21,11 @@ fn system_invalid_update_aad_preserves_native_reply() {
         request: ParsedOperationRequest::UpdateAad {
             aad_input: vec![1, 2, 3],
         },
-        caller: CallerIdentity::new(1000, 2000),
+        caller: CallerInfo {
+            uid: 1000,
+            sid: String::new(),
+            pid: 2000,
+        },
         target,
     })
     .expect("updateAad rewrite should succeed");
@@ -63,7 +67,11 @@ fn omk_invalid_update_aad_returns_business_error() {
         request: ParsedOperationRequest::UpdateAad {
             aad_input: vec![1, 2, 3],
         },
-        caller: CallerIdentity::new(1000, 2000),
+        caller: CallerInfo {
+            uid: 1000,
+            sid: String::new(),
+            pid: 2000,
+        },
         target,
     })
     .expect("updateAad rewrite should succeed")
@@ -110,7 +118,11 @@ fn omk_route_operation_transaction_error_uses_omk_status_mapping() {
         request: ParsedOperationRequest::UpdateAad {
             aad_input: vec![1, 2, 3],
         },
-        caller: CallerIdentity::new(1000, 2000),
+        caller: CallerInfo {
+            uid: 1000,
+            sid: String::new(),
+            pid: 2000,
+        },
         target,
     })
     .expect("transaction status should be normalized into a reply")

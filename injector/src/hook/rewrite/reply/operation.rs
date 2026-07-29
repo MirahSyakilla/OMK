@@ -64,7 +64,7 @@ fn invalid_operation_handle_reply() -> anyhow::Result<parcel::OwnedReply> {
 pub(in crate::hook::rewrite) fn build_no_carrier_create_operation_reply(
     mut response: crate::android::system::keystore2::CreateOperationResponse::CreateOperationResponse,
     aad_allowed: bool,
-    caller: &CallerIdentity,
+    caller: &CallerInfo,
     publish_operation_carrier: bool,
 ) -> anyhow::Result<parcel::OwnedReply> {
     if !publish_operation_carrier {

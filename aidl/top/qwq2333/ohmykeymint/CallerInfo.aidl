@@ -1,8 +1,9 @@
 package top.qwq2333.ohmykeymint;
 
+@RustDerive(Clone=true)
 parcelable CallerInfo {
-     long callingUid;
-     String callingSid;
-     long callingPid;
+     long uid;
+     String sid;
+     long pid;
      long keyboxSlot;
 }

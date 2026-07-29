@@ -17,7 +17,7 @@ use crate::keymaster::error::{into_logged_binder, map_km_error, KsError};
 use crate::keymaster::keymint_device::{get_keymint_wrapper, KeyMintWrapper};
 use crate::keymaster::permission::{
     check_forwarded_context, check_key_permission, check_keystore_permission,
-    check_manage_users_permission, require_omk_ctx, CallerCtx, KeyPerm, KeystorePerm,
+    check_manage_users_permission, require_omk_ctx, resolve_caller_info, KeyPerm, KeystorePerm,
 };
 use crate::keymaster::utils::{AndroidUserId, AppUid, SecureUserId};
 use crate::top::qwq2333::ohmykeymint::{
@@ -148,10 +148,10 @@ impl MaintenanceManager {
             }
         };
 
-        let caller = CallerCtx::from_caller_info(ctx);
-        let destination = normalize_migration_destination(destination, caller.uid)?;
+        let caller = resolve_caller_info(ctx);
+        let destination = normalize_migration_destination(destination, caller.uid as u32)?;
 
-        let caller_uid = AppUid(caller.uid as i64);
+        let caller_uid = AppUid(caller.uid as u32 as i64);
         let key_id_guard = DB
             .with(|db| {
                 db.borrow_mut()

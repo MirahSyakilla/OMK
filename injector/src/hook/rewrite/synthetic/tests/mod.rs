@@ -19,7 +19,6 @@ use crate::{
     android::system::keystore2::KeyEntryResponse::KeyEntryResponse,
     android::system::keystore2::KeyMetadata::KeyMetadata,
     hook::rewrite::tests::*,
-    route,
 };
 
 mod carriers;
@@ -88,7 +87,7 @@ impl AospKeystoreSecurityLevel for FakeAospSecurityLevel {
     }
 }
 
-fn fake_system_security_level_backend() -> route::AospSecurityLevelBinder {
+fn fake_system_security_level_backend() -> rsbinder::Strong<dyn AospKeystoreSecurityLevel> {
     ensure_binder_process_state();
     BnKeystoreSecurityLevel::new_binder(FakeAospSecurityLevel)
 }

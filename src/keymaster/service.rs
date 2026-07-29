@@ -621,7 +621,7 @@ impl KeystoreService {
     }
 
     fn enforce_keybox_admin(&self, ctx: &CallerInfo) -> Result<()> {
-        match ctx.callingUid as u32 {
+        match ctx.uid as u32 {
             AID_ROOT | AID_SYSTEM | AID_KEYSTORE => Ok(()),
             uid => Err(Error::perm()).context(err!(
                 "keybox update requires root/system/keystore caller, got uid={uid}"
@@ -632,7 +632,7 @@ impl KeystoreService {
 
 fn calling_uid(ctx: Option<&CallerInfo>) -> AppUid {
     AppUid(
-        ctx.map(|ctx| ctx.callingUid)
+        ctx.map(|ctx| ctx.uid)
             .unwrap_or(CallingContext::default().uid.into()),
     )
 }

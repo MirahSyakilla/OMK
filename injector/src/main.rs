@@ -13,7 +13,6 @@ pub mod ipc;
 pub mod legacy;
 pub mod logging;
 pub mod parcel;
-pub mod route;
 pub mod sys;
 pub mod tracker;
 pub mod utils;

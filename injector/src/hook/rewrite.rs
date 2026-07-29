@@ -13,6 +13,7 @@ use super::binder::{
 };
 use super::{BinderFdToken, BinderStateKey};
 use crate::android::system::keystore2::Domain::Domain;
+use crate::android::system::keystore2::IKeystoreOperation::IKeystoreOperation as AospKeystoreOperation;
 use crate::android::system::keystore2::KeyDescriptor::KeyDescriptor;
 use crate::android::system::keystore2::KeyEntryResponse::KeyEntryResponse;
 use crate::android::system::keystore2::ResponseCode::ResponseCode;
@@ -28,11 +29,10 @@ use crate::parcel::{
     self, ParsedAuthorizationRequest, ParsedMaintenanceRequest, ParsedOperationRequest,
     ParsedSecurityLevelRequest, ParsedServiceRequest,
 };
-use crate::route::{AospOperationBinder, CallerIdentity, RouteTarget};
 use crate::top::qwq2333::ohmykeymint::CallerInfo::CallerInfo;
 use crate::tracker::{self, SecurityLevelTargetInfo};
 use log::{debug, info, warn};
-use rsbinder::{ExceptionCode, Status, StatusCode};
+use rsbinder::{ExceptionCode, Status, StatusCode, Strong};
 
 mod mirror;
 mod pending;
@@ -79,25 +79,36 @@ pub(super) use request::handle_br_transaction;
 
 type OutboundReply = parcel::OwnedReply;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RouteTarget {
+    System,
+    Omk,
+}
+
+type AospOperationBinder = Strong<dyn AospKeystoreOperation>;
+
+impl CallerInfo {
+    fn with_keybox_slot(mut self, keybox_slot: u32) -> Self {
+        self.keyboxSlot = i64::from(keybox_slot);
+        self
+    }
+}
+
 fn evaluate_caller(
-    caller: &CallerIdentity,
+    caller: &CallerInfo,
     cfg: &config::InjectorConfig,
 ) -> crate::filter::FilterDecision {
-    let preflight = filter::evaluate(
-        &cfg.scoop,
-        &cfg.filter,
-        caller.uid,
-        PackageResolution::Unknown,
-    );
+    let uid = caller.uid as u32;
+    let preflight = filter::evaluate(&cfg.scoop, &cfg.filter, uid, PackageResolution::Unknown);
     if preflight.reason == FilterReason::RejectedAndroidPackage {
         return preflight;
     }
 
     let package_resolution = {
         let _guard = BypassGuard::enter();
-        ipc::resolve_packages_for_uid(caller.uid)
+        ipc::resolve_packages_for_uid(uid)
     };
-    let decision = filter::evaluate(&cfg.scoop, &cfg.filter, caller.uid, package_resolution);
+    let decision = filter::evaluate(&cfg.scoop, &cfg.filter, uid, package_resolution);
     if decision.reason == FilterReason::Disabled {
         debug!(
             "event=decision package filter disabled; routing still follows per-method intercept settings"
@@ -137,8 +148,8 @@ fn security_level_request_key(request: &ParsedSecurityLevelRequest) -> Option<&K
 fn should_allow_omk_grant_descriptor_with_probe(
     grant: &KeyDescriptor,
     decision: &filter::FilterDecision,
-    caller: &CallerIdentity,
-    mut probe: impl FnMut(&CallerIdentity, &KeyDescriptor) -> anyhow::Result<bool>,
+    caller: &CallerInfo,
+    mut probe: impl FnMut(&CallerInfo, &KeyDescriptor) -> anyhow::Result<bool>,
 ) -> anyhow::Result<bool> {
     if decision.allowed
         || !matches!(
@@ -157,10 +168,9 @@ fn should_allow_omk_grant_descriptor_with_probe(
     probe(caller, grant)
 }
 
-fn probe_omk_grant(caller: &CallerIdentity, grant: &KeyDescriptor) -> anyhow::Result<bool> {
-    let caller_info = caller.to_caller_info();
+fn probe_omk_grant(caller: &CallerInfo, grant: &KeyDescriptor) -> anyhow::Result<bool> {
     let _guard = BypassGuard::enter();
-    match ipc::with_omk_retry(|omk| Ok(omk.r#isOmkGrant(Some(&caller_info), grant)?)) {
+    match ipc::with_omk_retry(|omk| Ok(omk.r#isOmkGrant(Some(caller), grant)?)) {
         Ok(owned) => Ok(owned),
         Err(error) if omk_unavailable_error(&error) => {
             debug!(
@@ -176,8 +186,8 @@ fn probe_omk_grant(caller: &CallerIdentity, grant: &KeyDescriptor) -> anyhow::Re
 fn should_allow_omk_grant_service_request_with_probe(
     request: &ParsedServiceRequest,
     decision: &filter::FilterDecision,
-    caller: &CallerIdentity,
-    mut probe: impl FnMut(&CallerIdentity, &KeyDescriptor) -> anyhow::Result<bool>,
+    caller: &CallerInfo,
+    mut probe: impl FnMut(&CallerInfo, &KeyDescriptor) -> anyhow::Result<bool>,
 ) -> anyhow::Result<bool> {
     let Some(grant) = service_request_key(request) else {
         return Ok(false);
@@ -189,8 +199,8 @@ fn should_allow_omk_grant_service_request_with_probe(
 fn should_allow_omk_grant_security_level_request_with_probe(
     request: &ParsedSecurityLevelRequest,
     decision: &filter::FilterDecision,
-    caller: &CallerIdentity,
-    mut probe: impl FnMut(&CallerIdentity, &KeyDescriptor) -> anyhow::Result<bool>,
+    caller: &CallerInfo,
+    mut probe: impl FnMut(&CallerInfo, &KeyDescriptor) -> anyhow::Result<bool>,
 ) -> anyhow::Result<bool> {
     let Some(grant) = security_level_request_key(request) else {
         return Ok(false);
@@ -201,7 +211,7 @@ fn should_allow_omk_grant_security_level_request_with_probe(
 
 fn precompute_omk_service_mutator_reply(
     request: &ParsedServiceRequest,
-    caller: &CallerIdentity,
+    caller: &CallerInfo,
 ) -> OmkServicePrecompute {
     if let Err(error) = ensure_mirror_state_recovered() {
         warn!(
@@ -212,7 +222,6 @@ fn precompute_omk_service_mutator_reply(
             Status::new_service_specific_error(ResponseCode::SYSTEM_ERROR.0, None),
         ));
     }
-    let caller_info = caller.to_caller_info();
     match request {
         ParsedServiceRequest::UpdateSubcomponent {
             key,
@@ -221,7 +230,7 @@ fn precompute_omk_service_mutator_reply(
         } => {
             match ipc::with_omk_once(|omk| {
                 Ok(omk.r#updateSubcomponent(
-                    Some(&caller_info),
+                    Some(caller),
                     key,
                     public_cert.as_deref(),
                     certificate_chain.as_deref(),
@@ -243,7 +252,7 @@ fn precompute_omk_service_mutator_reply(
             }
         }
         ParsedServiceRequest::DeleteKey { key } => {
-            match ipc::with_omk_once(|omk| Ok(omk.r#deleteKey(Some(&caller_info), key)?)) {
+            match ipc::with_omk_once(|omk| Ok(omk.r#deleteKey(Some(caller), key)?)) {
                 Ok(()) => OmkServicePrecompute::Reply(PrecomputedServiceReply::DeleteKeySuccess),
                 Err(error) if omk_unavailable_error(&error) => {
                     warn!(
@@ -279,17 +288,16 @@ fn precompute_omk_service_mutator_reply(
 
 fn precompute_omk_grant_service_reply_with(
     request: &ParsedServiceRequest,
-    caller: &CallerIdentity,
+    caller: &CallerInfo,
     mut grant: impl FnMut(&CallerInfo, &KeyDescriptor, i32, i32) -> anyhow::Result<KeyDescriptor>,
     mut ungrant: impl FnMut(&CallerInfo, &KeyDescriptor, i32) -> anyhow::Result<()>,
 ) -> OmkServicePrecompute {
-    let caller_info = caller.to_caller_info();
     match request {
         ParsedServiceRequest::Grant {
             key,
             grantee_uid,
             access_vector,
-        } => match grant(&caller_info, key, *grantee_uid, *access_vector) {
+        } => match grant(caller, key, *grantee_uid, *access_vector) {
             Ok(omk_grant) => {
                 OmkServicePrecompute::Reply(PrecomputedServiceReply::GrantSuccess(omk_grant))
             }
@@ -311,7 +319,7 @@ fn precompute_omk_grant_service_reply_with(
             }
         },
         ParsedServiceRequest::Ungrant { key, grantee_uid } => {
-            match ungrant(&caller_info, key, *grantee_uid) {
+            match ungrant(caller, key, *grantee_uid) {
                 Ok(()) => OmkServicePrecompute::Reply(PrecomputedServiceReply::UngrantSuccess),
                 Err(error) if omk_unavailable_error(&error) => {
                     warn!(
@@ -406,9 +414,8 @@ fn precompute_omk_migrate_reply(call: &PendingMaintenanceCall) -> OmkMigratePrec
     }
 
     let method = call.request.method();
-    let caller = call.caller.to_caller_info();
     let result = ipc::with_omk_maintenance_once(|maintenance| {
-        Ok(maintenance.r#migrateKeyNamespace(Some(&caller), source, destination)?)
+        Ok(maintenance.r#migrateKeyNamespace(Some(&call.caller), source, destination)?)
     });
     match result {
         Ok(()) => {

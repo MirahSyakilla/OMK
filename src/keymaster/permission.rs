@@ -313,33 +313,19 @@ impl IntoIterator for KeyPermSet {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CallerCtx {
-    pub uid: u32,
-    pub pid: i32,
-    pub sid: Option<CString>,
-}
-
-impl CallerCtx {
-    pub fn from_caller_info(ctx: Option<&CallerInfo>) -> Self {
-        if let Some(ctx) = ctx {
-            let sid = (!ctx.callingSid.is_empty())
-                .then(|| CString::new(ctx.callingSid.clone()).ok())
-                .flatten();
-            return Self {
-                uid: ctx.callingUid as u32,
-                pid: ctx.callingPid as i32,
-                sid,
-            };
-        }
-
+pub(crate) fn resolve_caller_info(ctx: Option<&CallerInfo>) -> CallerInfo {
+    ctx.cloned().unwrap_or_else(|| {
         let calling = CallingContext::default();
-        Self {
-            uid: calling.uid,
-            pid: calling.pid,
-            sid: calling.sid,
+        CallerInfo {
+            uid: i64::from(calling.uid),
+            sid: calling
+                .sid
+                .map(|sid| sid.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            pid: i64::from(calling.pid),
+            keyboxSlot: 0,
         }
-    }
+    })
 }
 
 const PERMISSION_MANAGER_SERVICE: &str = "permissionmgr";
@@ -515,10 +501,10 @@ pub fn check_keystore_permission(
     perm: KeystorePerm,
     caller: Option<&CallerInfo>,
 ) -> anyhow::Result<()> {
-    let caller = CallerCtx::from_caller_info(caller);
-    let sid = caller
-        .sid
-        .as_ref()
+    let caller = resolve_caller_info(caller);
+    let sid = (!caller.sid.is_empty())
+        .then(|| CString::new(caller.sid.as_str()).ok())
+        .flatten()
         .ok_or_else(KsError::sys)
         .context("caller SID unavailable for keystore permission check")?;
     check_keystore_permission_raw(sid.as_c_str(), perm)
@@ -529,13 +515,18 @@ pub fn check_grant_permission(
     key: &KeyDescriptor,
     caller: Option<&CallerInfo>,
 ) -> anyhow::Result<()> {
-    let caller = CallerCtx::from_caller_info(caller);
-    let sid = caller
-        .sid
-        .as_ref()
+    let caller = resolve_caller_info(caller);
+    let sid = (!caller.sid.is_empty())
+        .then(|| CString::new(caller.sid.as_str()).ok())
+        .flatten()
         .ok_or_else(KsError::sys)
         .context("caller SID unavailable for grant permission check")?;
-    check_grant_permission_raw(AppUid(caller.uid as i64), sid.as_c_str(), access_vec, key)
+    check_grant_permission_raw(
+        AppUid(caller.uid as u32 as i64),
+        sid.as_c_str(),
+        access_vec,
+        key,
+    )
 }
 
 pub fn check_key_permission(
@@ -544,14 +535,14 @@ pub fn check_key_permission(
     access_vector: Option<&KeyPermSet>,
     caller: Option<&CallerInfo>,
 ) -> anyhow::Result<()> {
-    let caller = CallerCtx::from_caller_info(caller);
-    let sid = caller
-        .sid
-        .as_ref()
+    let caller = resolve_caller_info(caller);
+    let sid = (!caller.sid.is_empty())
+        .then(|| CString::new(caller.sid.as_str()).ok())
+        .flatten()
         .ok_or_else(KsError::sys)
         .context("caller SID unavailable for key permission check")?;
     check_key_permission_raw(
-        AppUid(caller.uid as i64),
+        AppUid(caller.uid as u32 as i64),
         sid.as_c_str(),
         perm,
         key,
@@ -609,21 +600,21 @@ pub(crate) fn require_omk_ctx<'a>(
 }
 
 fn validate_forwarded_context(ctx: &CallerInfo, label: &str) -> anyhow::Result<()> {
-    if ctx.callingUid < 0 {
+    if ctx.uid < 0 {
         return Err(KsError::perm())
             .context(format!("{label} forwarded CallerInfo has invalid uid"));
     }
-    if ctx.callingSid.is_empty() {
+    if ctx.sid.is_empty() {
         return Err(KsError::perm()).context(format!("{label} forwarded CallerInfo has empty sid"));
     }
-    CString::new(ctx.callingSid.as_str())
+    CString::new(ctx.sid.as_str())
         .map_err(|_| KsError::perm())
         .context(format!("{label} forwarded CallerInfo has invalid sid"))?;
     Ok(())
 }
 
 fn check_android_permission(
-    caller: &CallerCtx,
+    caller: &CallerInfo,
     permission: &str,
     permission_denied: KsError,
 ) -> anyhow::Result<()> {
@@ -632,13 +623,13 @@ fn check_android_permission(
             check_android_permission_with_controller(caller, permission, permission_denied)
         }
         AndroidPermissionCheckPath::PermissionManager => {
-            check_android_permission_with_manager(caller.uid, permission, permission_denied)
+            check_android_permission_with_manager(caller.uid as u32, permission, permission_denied)
         }
     }
 }
 
 fn check_android_permission_with_controller(
-    caller: &CallerCtx,
+    caller: &CallerInfo,
     permission: &str,
     permission_denied: KsError,
 ) -> anyhow::Result<()> {
@@ -647,7 +638,7 @@ fn check_android_permission_with_controller(
             "service {PERMISSION_CONTROLLER_SERVICE} unavailable"
         ))?;
     let has_permission = controller
-        .checkPermission(permission, caller.pid, caller.uid as i32)
+        .checkPermission(permission, caller.pid as i32, caller.uid as i32)
         .map_err(anyhow::Error::new)
         .context("permission controller checkPermission failed")?;
     if has_permission {
@@ -712,7 +703,7 @@ fn check_android_permission_with_manager(
 }
 
 pub fn check_device_attestation_permissions(caller: Option<&CallerInfo>) -> anyhow::Result<()> {
-    let caller = CallerCtx::from_caller_info(caller);
+    let caller = resolve_caller_info(caller);
     check_android_permission(
         &caller,
         READ_PRIVILEGED_PHONE_STATE,
@@ -721,7 +712,7 @@ pub fn check_device_attestation_permissions(caller: Option<&CallerInfo>) -> anyh
 }
 
 pub fn check_unique_id_attestation_permissions(caller: Option<&CallerInfo>) -> anyhow::Result<()> {
-    let caller = CallerCtx::from_caller_info(caller);
+    let caller = resolve_caller_info(caller);
     check_android_permission(
         &caller,
         REQUEST_UNIQUE_ID_ATTESTATION,
@@ -730,7 +721,7 @@ pub fn check_unique_id_attestation_permissions(caller: Option<&CallerInfo>) -> a
 }
 
 pub fn check_manage_users_permission(caller: Option<&CallerInfo>) -> anyhow::Result<()> {
-    let caller = CallerCtx::from_caller_info(caller);
+    let caller = resolve_caller_info(caller);
     check_android_permission(&caller, MANAGE_USERS, KsError::perm())
 }
 
