@@ -56,7 +56,6 @@ fn install_hooks() -> Result<()> {
     }
 
     let _ = config::get();
-    rewrite::init_mirror_recovery();
     info!("initializing binder ioctl hook");
     ipc::ensure_process_state();
 

@@ -35,8 +35,6 @@
 - Do not support key or descriptor continuity between System and OMK. Pass old, externally
   supplied, and System-created descriptors to the selected backend unchanged; an OMK business
   error for such a descriptor is authoritative.
-- Do not maintain a persistent route ledger, virtual descriptor namespace, descriptor-owner cache,
-  or cross-restart provenance state. Non-`scoop` requests retain the existing System/filter path.
 - Return OMK business errors as-is. Reachable transport, boundary, or injector failures that are
   not OMK-unavailable must not fall back to a successful system reply; normalize them to the
   existing AOSP-compatible error path, such as `SYSTEM_ERROR` where applicable.
@@ -44,6 +42,12 @@
   missing service/backend, connection failure, and stale or dead RPC transport failures such as
   `DeadObject`, `RpcError`, and `NotEnoughData`. Reuse the existing classifiers instead of
   maintaining another status list.
+
+### Persistent and Temporary Files
+
+- Obtain the user's explicit approval before creating any file that requires permanent storage.
+- Delete every temporary probe artifact immediately after the probe completes.
+- All persistent data should be in `/data/misc/keystore/omk/data/`
 
 ### Telephony Attestation IDs
 
