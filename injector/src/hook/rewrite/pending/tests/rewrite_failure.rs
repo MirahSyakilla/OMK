@@ -6,6 +6,7 @@ fn service_rewrite_failure_preserves_only_system_route() {
         uid: 1000,
         sid: String::new(),
         pid: 2000,
+        keyboxSlot: 0,
     };
     let pending = |route| {
         PendingCall::Service(PendingServiceCall {
@@ -32,6 +33,7 @@ fn security_level_rewrite_failure_preserves_only_system_route() {
         uid: 1000,
         sid: String::new(),
         pid: 2000,
+        keyboxSlot: 0,
     };
     let pending = |route| {
         PendingCall::SecurityLevel(PendingSecurityLevelCall {
@@ -62,6 +64,7 @@ fn operation_rewrite_failure_preserves_only_system_route() {
         uid: 1000,
         sid: String::new(),
         pid: 2000,
+        keyboxSlot: 0,
     };
     let omk_target = LocalBinderTarget {
         ptr: 0x1111,
@@ -111,6 +114,7 @@ fn authorization_and_ordinary_maintenance_rewrite_failures_preserve_system() {
         uid: 1000,
         sid: String::new(),
         pid: 2000,
+        keyboxSlot: 0,
     };
     let authorization = PendingCall::Authorization(PendingAuthorizationCall {
         request: ParsedAuthorizationRequest::AddAuthToken {
@@ -137,6 +141,7 @@ fn migration_rewrite_failure_preserves_only_system_route() {
         uid: 1000,
         sid: String::new(),
         pid: 2000,
+        keyboxSlot: 0,
     };
     let request = ParsedMaintenanceRequest::MigrateKeyNamespace {
         source: sample_key_descriptor(),

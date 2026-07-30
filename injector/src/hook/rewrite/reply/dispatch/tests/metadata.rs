@@ -7,6 +7,7 @@ fn operation_info() -> SyntheticTargetInfo {
             uid: 10002,
             sid: String::new(),
             pid: 2000,
+            keyboxSlot: 0,
         }),
         native_generation: None,
     }

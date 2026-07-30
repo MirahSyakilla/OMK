@@ -8,6 +8,7 @@ fn mirror_recovery_retries_sensitive_events_in_global_sequence() {
         uid: 1000,
         sid: "u:r:keystore:s0".into(),
         pid: 2000,
+        keyboxSlot: 0,
     };
 
     reserve_mirror_update(MirrorStateKind::Maintenance)
@@ -120,6 +121,7 @@ fn mirror_reservation_holds_global_order_and_lost_reply_fails_closed() {
         uid: 1000,
         sid: String::new(),
         pid: 2000,
+        keyboxSlot: 0,
     };
     let earlier = reserve_mirror_update(MirrorStateKind::Authorization)
         .expect("authorization update should reserve");
@@ -175,6 +177,7 @@ fn full_mirror_queue_rejects_only_the_new_system_mutation() {
         uid: 1000,
         sid: String::new(),
         pid: 2000,
+        keyboxSlot: 0,
     };
     for _ in 0..MAX_PENDING_MIRROR_REPLAYS {
         reserve_mirror_update(MirrorStateKind::Authorization)
@@ -229,6 +232,7 @@ fn non_ok_system_reply_cancels_mirror_reservation() {
             uid: 1000,
             sid: String::new(),
             pid: 2000,
+            keyboxSlot: 0,
         },
         mirror_update: Some(
             reserve_mirror_update(MirrorStateKind::Authorization)
@@ -254,6 +258,7 @@ fn mirror_business_error_preserves_event_and_blocks_routes() {
                 uid: 1000,
                 sid: String::new(),
                 pid: 2000,
+                keyboxSlot: 0,
             },
         })
         .expect("onUserRemoved should queue");

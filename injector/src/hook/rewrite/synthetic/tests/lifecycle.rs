@@ -147,6 +147,7 @@ fn intercepted_operation_transaction_does_not_replace_acquire_ack() {
             uid: 10002,
             sid: String::new(),
             pid: 2000,
+            keyboxSlot: 0,
         },
     )
     .expect("synthetic operation carrier should register");
@@ -208,6 +209,7 @@ fn local_operation_publication_handoff_releases_initial_strong() {
             uid: 10002,
             sid: String::new(),
             pid: 2000,
+            keyboxSlot: 0,
         },
     )
     .expect("synthetic operation carrier should register");
@@ -298,6 +300,7 @@ fn native_retirement_releases_unfinished_publication() {
             uid: 10002,
             sid: String::new(),
             pid: 2000,
+            keyboxSlot: 0,
         },
     )
     .expect("synthetic operation carrier should register");
@@ -337,6 +340,7 @@ fn terminal_reply_retires_backend_before_native_publication() {
             uid: 10002,
             sid: String::new(),
             pid: 2000,
+            keyboxSlot: 0,
         },
     )
     .expect("synthetic operation carrier should register");

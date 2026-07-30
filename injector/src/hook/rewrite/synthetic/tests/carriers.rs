@@ -12,6 +12,7 @@ fn no_carrier_operation_target() -> (
         uid: 10002,
         sid: "u:r:untrusted_app:s0:c123,c456".into(),
         pid: 2000,
+        keyboxSlot: 0,
     };
     let backend = BnKeystoreOperation::new_binder(TestOperationBackend {
         update_output: vec![9, 9, 9],
@@ -61,6 +62,7 @@ fn no_carrier_omk_key_entry_reply_uses_synthetic_security_level_mapping() {
         uid: 10002,
         sid: "u:r:untrusted_app:s0:c123,c456".into(),
         pid: 2000,
+        keyboxSlot: 0,
     };
 
     let mut reply = build_no_carrier_omk_key_entry_reply(
@@ -138,6 +140,7 @@ fn synthetic_operation_carrier_forwards_update() {
             uid: 1000,
             sid: String::new(),
             pid: 2000,
+            keyboxSlot: 0,
         },
         target,
     })
@@ -160,6 +163,7 @@ fn synthetic_operation_abort_keeps_tombstone_returning_invalid_handle() {
             uid: 1000,
             sid: String::new(),
             pid: 2000,
+            keyboxSlot: 0,
         },
         target,
     })
@@ -184,6 +188,7 @@ fn synthetic_operation_abort_keeps_tombstone_returning_invalid_handle() {
             uid: 1000,
             sid: String::new(),
             pid: 2000,
+            keyboxSlot: 0,
         },
         target,
     })
@@ -226,6 +231,7 @@ fn one_way_create_operation_aborts_without_publishing_carrier() {
             uid: 10002,
             sid: String::new(),
             pid: 2000,
+            keyboxSlot: 0,
         },
         false,
     )
@@ -271,6 +277,7 @@ fn synthetic_operation_release_aborts_once_and_clears_mapping() {
         uid: 10002,
         sid: "u:r:untrusted_app:s0:c123,c456".into(),
         pid: 2000,
+        keyboxSlot: 0,
     };
     let (carrier, _) = register_synthetic_operation_carrier(backend, true, &caller)
         .expect("operation carrier should register");

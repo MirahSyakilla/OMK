@@ -25,6 +25,7 @@ fn system_invalid_update_aad_preserves_native_reply() {
             uid: 1000,
             sid: String::new(),
             pid: 2000,
+            keyboxSlot: 0,
         },
         target,
     })
@@ -71,6 +72,7 @@ fn omk_invalid_update_aad_returns_business_error() {
             uid: 1000,
             sid: String::new(),
             pid: 2000,
+            keyboxSlot: 0,
         },
         target,
     })
@@ -122,6 +124,7 @@ fn omk_route_operation_transaction_error_uses_omk_status_mapping() {
             uid: 1000,
             sid: String::new(),
             pid: 2000,
+            keyboxSlot: 0,
         },
         target,
     })

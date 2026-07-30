@@ -32,6 +32,7 @@ fn omk_route_finish_rejects_late_cleanup_abort() {
             uid: 1000,
             sid: String::new(),
             pid: 2000,
+            keyboxSlot: 0,
         },
         target,
     })
@@ -56,6 +57,7 @@ fn omk_route_finish_rejects_late_cleanup_abort() {
             uid: 1000,
             sid: String::new(),
             pid: 2000,
+            keyboxSlot: 0,
         },
         target,
     })
@@ -124,6 +126,7 @@ fn omk_route_abort_clears_operation_mapping() {
             uid: 1000,
             sid: String::new(),
             pid: 2000,
+            keyboxSlot: 0,
         },
         target,
     })

@@ -567,4 +567,5 @@ impl InjectorConfig {
     }
 }
 
+#[cfg(test)]
 mod tests;

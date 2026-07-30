@@ -46,6 +46,7 @@ fn synthetic_operation_missing_args_keep_not_enough_data_status() {
                 uid: 10002,
                 sid: String::new(),
                 pid: 2000,
+                keyboxSlot: 0,
             }),
             native_generation: None,
         };
@@ -100,6 +101,7 @@ fn synthetic_operation_trailing_abort_finalizes_operation() {
             uid: 10002,
             sid: String::new(),
             pid: 2000,
+            keyboxSlot: 0,
         }),
         native_generation: None,
     };
@@ -151,6 +153,7 @@ fn synthetic_operation_bad_interface_marker_rejects_abort() {
             uid: 10002,
             sid: String::new(),
             pid: 2000,
+            keyboxSlot: 0,
         }),
         native_generation: None,
     };
@@ -231,6 +234,7 @@ fn synthetic_operation_dispatch_uses_registered_caller_identity() {
                 uid: 10002,
                 sid: String::new(),
                 pid: 2000,
+                keyboxSlot: 0,
             }),
             native_generation: None,
         };
@@ -307,6 +311,7 @@ fn synthetic_unexpected_null_parse_errors_are_status_replies() {
             uid: 10002,
             sid: String::new(),
             pid: 2000,
+            keyboxSlot: 0,
         }),
         native_generation: None,
     };
@@ -379,6 +384,7 @@ fn synthetic_operation_unexpected_interface_returns_bad_type_status() {
             uid: 10002,
             sid: String::new(),
             pid: 2000,
+            keyboxSlot: 0,
         }),
         native_generation: None,
     };
@@ -395,6 +401,7 @@ fn synthetic_transaction_caller_uses_registered_sid_when_secctx_is_absent() {
         uid: 10002,
         sid: "u:r:untrusted_app:s0:c123,c456".into(),
         pid: 2000,
+        keyboxSlot: 0,
     };
     let mut tr: binder_transaction_data = unsafe { std::mem::zeroed() };
     tr.sender_euid = 10002;
