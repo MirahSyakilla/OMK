@@ -22,7 +22,7 @@ export class AboutDialog {
           </div>
           <div id="module_name_line2">Built-in WebUI</div>
           <div id="module-version"></div>
-          <div id="author">by James Clef</div>
+          <div id="author">by James Clef, MirahSyakilla</div>
         </div>
         <div slot="content">
           <p>Manage OMK scoop targets, trust policy, injector settings, device props, crypto seeds, and keyboxes without a separate addon module.</p>
