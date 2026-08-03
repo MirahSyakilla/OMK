@@ -1,5 +1,6 @@
 use super::*;
 use std::ops::Deref;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 struct TempConfigPath(PathBuf);
@@ -15,7 +16,14 @@ impl Deref for TempConfigPath {
 impl Drop for TempConfigPath {
     fn drop(&mut self) {
         let _ = fs::remove_file(&self.0);
-        let _ = fs::remove_file(format!("{}.bak", self.0.display()));
+        if let (Some(parent), Some(file_name)) = (self.0.parent(), self.0.file_name()) {
+            let temp = parent.join(format!(
+                ".{}.tmp-{}",
+                file_name.to_string_lossy(),
+                std::process::id()
+            ));
+            let _ = fs::remove_file(temp);
+        }
     }
 }
 
@@ -166,32 +174,89 @@ fn rendered_config_uses_new_scoop_format() {
 }
 
 #[test]
-fn missing_and_invalid_config_recover_safely() {
+fn missing_config_is_seeded_but_invalid_startup_config_is_untouched() {
     let path = temp_config_path("missing");
 
-    let loaded = load_or_seed(&path, LoadContext::Startup);
+    let loaded = load_or_seed(&path, LoadContext::Startup).unwrap();
     assert!(path.exists(), "missing config should be written to disk");
+    assert_eq!(loaded.version, CURRENT_CONFIG_VERSION);
 
     let on_disk = fs::read_to_string(&*path).expect("written config should be readable");
     let reparsed = parse_config(&on_disk).expect("written config should parse");
     assert_eq!(reparsed.scoop, loaded.scoop);
 
     let path = temp_config_path("invalid");
-    let backup = PathBuf::from(format!("{}.bak", path.display()));
-    fs::write(&*path, "[main\nbroken").expect("invalid config should be written");
+    let invalid = "[main\nbroken";
+    fs::write(&*path, invalid).expect("invalid config should be written");
 
-    let loaded = load_or_seed(&path, LoadContext::Startup);
-    assert!(backup.exists(), "invalid config should be backed up");
-
-    let rewritten = fs::read_to_string(&*path).expect("rewritten config should be readable");
-    let reparsed = parse_config(&rewritten).expect("rewritten config should parse");
-    assert_eq!(reparsed.scoop, loaded.scoop);
-
-    let backup_contents = fs::read_to_string(&backup).expect("backup config should be readable");
+    let loaded = load_or_seed(&path, LoadContext::Startup).unwrap();
     assert!(
-        backup_contents.contains("# injector config recovery reason:"),
-        "backup should contain the appended error reason"
+        !loaded.main.enabled,
+        "invalid startup config must disable injection"
     );
+    assert_eq!(fs::read_to_string(&*path).unwrap(), invalid);
+    assert!(!PathBuf::from(format!("{}.bak", path.display())).exists());
+}
+
+#[test]
+fn v0_config_migrates_through_public_scoop_syntax_and_preserves_mode() {
+    let path = temp_config_path("v0-migration");
+    let v0 = "\u{feff}scoop = [\"com.example.app\"]\r\n\r\n\
+              [scoop.com.example.app]\r\nmode = \"strict\"\r\n";
+    fs::write(&*path, v0).unwrap();
+    fs::set_permissions(&*path, fs::Permissions::from_mode(0o640)).unwrap();
+
+    let loaded = load_from_path(&path, true).expect("v0 config should migrate");
+    assert_eq!(loaded.version, CURRENT_CONFIG_VERSION);
+    assert_eq!(
+        loaded
+            .scoop_details
+            .get("com.example.app")
+            .and_then(|table| table.get("mode"))
+            .and_then(toml::Value::as_str),
+        Some("strict")
+    );
+
+    let migrated = fs::read_to_string(&*path).unwrap();
+    assert_eq!(
+        migrated,
+        v0.replacen('\u{feff}', "\u{feff}version = 1\r\n", 1)
+    );
+    assert_eq!(fs::metadata(&*path).unwrap().mode() & 0o777, 0o640);
+}
+
+#[test]
+fn explicit_v0_migration_only_replaces_the_version_value() {
+    let v0 = "# keep this comment\nversion = 0 # and this one\nscoop = [\"com.example.app\"]\n";
+    let (_, migrated) = parse_versioned_config(v0, true).expect("v0 config should migrate");
+    assert_eq!(
+        migrated.as_deref(),
+        Some("# keep this comment\nversion = 1 # and this one\nscoop = [\"com.example.app\"]\n")
+    );
+}
+
+#[test]
+fn reload_rejects_v0_without_rewriting() {
+    let path = temp_config_path("reload-v0");
+    let v0 = "scoop = [\"com.example.app\"]\n";
+    fs::write(&*path, v0).unwrap();
+
+    assert!(load_or_seed(&path, LoadContext::Reload(WatchTrigger::CloseWrite)).is_none());
+    assert_eq!(fs::read_to_string(&*path).unwrap(), v0);
+}
+
+#[test]
+fn unsupported_versions_are_rejected_without_rewriting() {
+    for contents in ["version = -1\n", "version = 2\n", "version = \"1\"\n"] {
+        assert!(parse_config(contents).is_err());
+    }
+
+    let path = temp_config_path("future-version");
+    let future = "version = 2\n";
+    fs::write(&*path, future).unwrap();
+    let loaded = load_or_seed(&path, LoadContext::Startup).unwrap();
+    assert!(!loaded.main.enabled);
+    assert_eq!(fs::read_to_string(&*path).unwrap(), future);
 }
 
 #[test]

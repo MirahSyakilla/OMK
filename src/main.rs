@@ -9,7 +9,7 @@ use std::{ffi::CString, os::unix::fs::PermissionsExt, path::Path};
 use kmr_common::consts::{KEYSTORE_GID, KEYSTORE_UID};
 use kmr_common::rpc;
 use kmr_common::selinux::{clear_sockcreate_con, set_sockcreate_con};
-use log::{debug, error, info, warn};
+use log::{debug, error, info, warn, LevelFilter};
 use rsbinder::rpc::{PeerIdentity, RpcServer};
 
 use crate::{
@@ -229,8 +229,8 @@ fn install_module_info_bundle_if_available() -> Result<()> {
 }
 
 fn main() {
-    prepare_android_storage();
     logging::init_logger();
+    prepare_android_storage();
     panic::set_hook(Box::new(|panic_info| {
         error!("{}", panic_info);
     }));
@@ -242,6 +242,15 @@ fn main() {
 }
 
 fn run() -> Result<()> {
+    let config_file = config::bootstrap_config_file().context("failed to bootstrap config")?;
+    let level = config_file
+        .main
+        .log_level
+        .trim()
+        .parse()
+        .unwrap_or(LevelFilter::Debug);
+    log::set_max_level(level);
+
     info!("starting OhMyKeymint");
     crate::keymaster::permission::initialize_runtime_service_context();
 
@@ -252,11 +261,8 @@ fn run() -> Result<()> {
     info!("initial process state");
     let _ = rsbinder::ProcessState::init_default();
 
-    info!("bootstrapping config");
-    let mut config_file = config::bootstrap_config_file().context("failed to bootstrap config")?;
     let resolved_trust =
-        plat::vbmeta::bootstrap_vbmeta(&mut config_file).context("failed to bootstrap vbmeta")?;
-    config::persist_config_file(&config_file).context("failed to persist config")?;
+        plat::vbmeta::bootstrap_vbmeta(&config_file).context("failed to bootstrap vbmeta")?;
     prepare_android_storage();
     config::install_runtime_config(config_file, resolved_trust)
         .context("failed to install runtime config")?;

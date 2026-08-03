@@ -1567,6 +1567,9 @@ mod tests {
                 ResolvedTrust {
                     os_version: 16,
                     security_patch: "2025-06-05".to_string(),
+                    os_patchlevel: "2025-06-05".to_string(),
+                    vendor_patchlevel: "2025-06-05".to_string(),
+                    boot_patchlevel: "2025-06-05".to_string(),
                     vb_key: [0; 32],
                     vb_hash: [0; 32],
                     vb_key_source: TrustValueSource::ExplicitHex,

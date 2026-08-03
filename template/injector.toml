@@ -7,6 +7,8 @@
 # mode = "strict"
 # keybox_slot = 1
 
+version = 1
+
 scoop = [
   "io.github.vvb2060.keyattestation",
   "com.google.android.gsf",

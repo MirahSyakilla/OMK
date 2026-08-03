@@ -679,6 +679,41 @@ impl KeyMintTa {
         }
     }
 
+    /// Indicate whether all patch-level inputs have been initialized.
+    pub fn patchlevels_are_set(&self) -> bool {
+        self.hal_info.is_some() && self.boot_info.is_some()
+    }
+
+    /// Update patch levels without discarding per-boot or in-flight operation state.
+    pub fn update_patchlevels(
+        &mut self,
+        os_patchlevel: u32,
+        vendor_patchlevel: u32,
+        boot_patchlevel: u32,
+    ) -> Result<(), Error> {
+        let hal_info = self
+            .hal_info
+            .as_mut()
+            .ok_or_else(|| km_err!(HardwareNotYetAvailable, "no HAL info available"))?;
+        let boot_info = self
+            .boot_info
+            .as_mut()
+            .ok_or_else(|| km_err!(HardwareNotYetAvailable, "no boot info available"))?;
+        info!(
+            "Updating patch levels: OS {} -> {}, vendor {} -> {}, boot {} -> {}",
+            hal_info.os_patchlevel,
+            os_patchlevel,
+            hal_info.vendor_patchlevel,
+            vendor_patchlevel,
+            boot_info.boot_patchlevel,
+            boot_patchlevel
+        );
+        hal_info.os_patchlevel = os_patchlevel;
+        hal_info.vendor_patchlevel = vendor_patchlevel;
+        boot_info.boot_patchlevel = boot_patchlevel;
+        Ok(())
+    }
+
     /// Configure the version of the HAL that this TA should act as.
     pub fn set_hal_version(&mut self, aidl_version: u32) -> Result<(), Error> {
         let aidl_version = match aidl_version {

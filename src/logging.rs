@@ -10,21 +10,15 @@ static LOGGER_INIT: OnceLock<()> = OnceLock::new();
 
 pub fn init_logger() {
     let _ = LOGGER_INIT.get_or_init(|| {
-        if let Err(error) = init_logger_inner(
-            std::fs::read_to_string(crate::config::config_path())
-                .ok()
-                .and_then(|contents| toml::from_str::<crate::config::ConfigFile>(&contents).ok())
-                .and_then(|config| config.main.log_level.trim().parse().ok())
-                .unwrap_or(LevelFilter::Debug),
-        ) {
+        if let Err(error) = init_logger_inner() {
             eprintln!("keymint logging failed to initialize: {error:#}");
         }
     });
 }
 
-fn init_logger_inner(level: LevelFilter) -> Result<()> {
+fn init_logger_inner() -> Result<()> {
     let config = android_logger::Config::default()
-        .with_max_level(level)
+        .with_max_level(LevelFilter::Trace)
         .with_tag("OhMyKeymint");
 
     let android_logger = android_logger::AndroidLogger::new(config);
@@ -32,22 +26,22 @@ fn init_logger_inner(level: LevelFilter) -> Result<()> {
     let (config, file_logging_ready) = kmr_common::runtime::logging::build_console_file_config(
         DEFAULT_LOG_PATH,
         PATTERN,
-        level,
+        LevelFilter::Trace,
         "keymint logging",
     )?;
     let log4rs = log4rs::Logger::new(config);
 
     multi_log::MultiLogger::init(
         vec![Box::new(android_logger), Box::new(log4rs)],
-        level.to_level().unwrap_or(log::Level::Error),
+        log::Level::Trace,
     )?;
-    log::set_max_level(level);
+    log::set_max_level(LevelFilter::Debug);
 
     if file_logging_ready {
         log::info!(
             "file logging enabled at {} with level {:?}",
             DEFAULT_LOG_PATH,
-            level
+            LevelFilter::Debug
         );
     }
 

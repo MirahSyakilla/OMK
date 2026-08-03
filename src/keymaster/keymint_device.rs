@@ -14,7 +14,10 @@
 
 //! Provide the [`KeyMintDevice`] wrapper for operating directly on a KeyMint device.
 
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex, OnceLock, RwLock,
+};
 
 use crate::android::hardware::security::keymint::IKeyMintOperation::BnKeyMintOperation;
 use crate::android::hardware::security::keymint::{
@@ -27,7 +30,7 @@ use crate::android::hardware::security::keymint::{
 use crate::android::system::keystore2::{
     Domain::Domain, KeyDescriptor::KeyDescriptor, ResponseCode::ResponseCode,
 };
-use crate::config::{config, CryptoConfig};
+use crate::config::{config, Config, CryptoConfig};
 use crate::global::DB;
 use crate::keymaster::db::Uuid;
 use crate::keymaster::error::{map_km_error, map_ks_error};
@@ -50,7 +53,7 @@ use crate::{
     },
     watchdog as wd,
 };
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use kmr_common::consts::AID_KEYSTORE;
 use kmr_crypto_boring::ec::BoringEc;
 use kmr_crypto_boring::hmac::BoringHmac;
@@ -62,7 +65,98 @@ use kmr_wire::keymint::{AttestationKey, KeyParam};
 use kmr_wire::rpc::MINIMUM_SUPPORTED_KEYS_IN_CSR;
 use kmr_wire::*;
 use log::{error, info, warn};
+use regex::Regex;
 use rsbinder::{ExceptionCode, Interface, Status, Strong};
+
+// The OS version property is of form "12" or "12.1" or "12.1.3".
+const OS_VERSION_REGEX: &str = r"^(?P<major>\d{1,2})(\.(?P<minor>\d{1,2}))?(\.(?P<sub>\d{1,2}))?$";
+
+// The patchlevel properties are of form "YYYY-MM-DD".
+const PATCHLEVEL_REGEX: &str = r"^(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})$";
+
+// Just use [`String`] for errors here.
+type HalInfoError = String;
+
+/// Retrieve a numeric value from a possible match.
+fn extract_u32(value: Option<regex::Match>) -> std::result::Result<u32, HalInfoError> {
+    match value {
+        Some(m) => {
+            let s = m.as_str();
+            match s.parse::<u32>() {
+                Ok(v) => Ok(v),
+                Err(e) => Err(format!("failed to parse integer: {e:?}")),
+            }
+        }
+        None => Err("failed to find match".to_string()),
+    }
+}
+
+/// Extract a patchlevel in form YYYYMM from a "YYYY-MM-DD" property value.
+fn extract_truncated_patchlevel(prop_value: &str) -> std::result::Result<u32, HalInfoError> {
+    let patchlevel_regex = Regex::new(PATCHLEVEL_REGEX)
+        .map_err(|e| format!("failed to compile patchlevel regexp: {e:?}"))?;
+
+    let captures = patchlevel_regex
+        .captures(prop_value)
+        .ok_or_else(|| "failed to match patchlevel regex".to_string())?;
+    let year = extract_u32(captures.name("year"))?;
+    let month = extract_u32(captures.name("month"))?;
+    if !(1..=12).contains(&month) {
+        return Err(format!("month out of range: {month}"));
+    }
+    // no day
+    Ok(year * 100 + month)
+}
+
+/// Extract a patchlevel in form YYYYMMDD from a "YYYY-MM-DD" property value.
+pub(crate) fn extract_patchlevel(prop_value: &str) -> std::result::Result<u32, HalInfoError> {
+    let patchlevel_regex = Regex::new(PATCHLEVEL_REGEX)
+        .map_err(|e| format!("failed to compile patchlevel regexp: {e:?}"))?;
+
+    let captures = patchlevel_regex
+        .captures(prop_value)
+        .ok_or_else(|| "failed to match patchlevel regex".to_string())?;
+    let year = extract_u32(captures.name("year"))?;
+    let month = extract_u32(captures.name("month"))?;
+    if !(1..=12).contains(&month) {
+        return Err(format!("month out of range: {month}"));
+    }
+    let day = extract_u32(captures.name("day"))?;
+    if !(1..=31).contains(&day) {
+        return Err(format!("day out of range: {day}"));
+    }
+    Ok(year * 10000 + month * 100 + day)
+}
+
+/// Extract the boot patchlevel as either its raw wire value or YYYYMMDD.
+pub(crate) fn extract_boot_patchlevel(prop_value: &str) -> std::result::Result<u32, HalInfoError> {
+    prop_value
+        .parse::<u32>()
+        .or_else(|_| extract_patchlevel(prop_value))
+}
+
+/// Generate HAL information from property values.
+fn populate_hal_info_from(
+    os_version_prop: &str,
+    os_patchlevel_prop: &str,
+    vendor_patchlevel_prop: &str,
+) -> std::result::Result<SetHalInfoRequest, HalInfoError> {
+    let os_version_regex = Regex::new(OS_VERSION_REGEX)
+        .map_err(|e| format!("failed to compile version regexp: {e:?}"))?;
+    let captures = os_version_regex
+        .captures(os_version_prop)
+        .ok_or_else(|| "failed to match OS version regex".to_string())?;
+    let major = extract_u32(captures.name("major"))?;
+    let minor = extract_u32(captures.name("minor")).unwrap_or(0u32);
+    let sub = extract_u32(captures.name("sub")).unwrap_or(0u32);
+    let os_version = (major * 10000) + (minor * 100) + sub;
+
+    Ok(SetHalInfoRequest {
+        os_version,
+        os_patchlevel: extract_truncated_patchlevel(os_patchlevel_prop)?,
+        vendor_patchlevel: extract_patchlevel(vendor_patchlevel_prop)?,
+    })
+}
 
 /// Wrapper for operating directly on a KeyMint device.
 /// These methods often mirror methods in [`crate::security_level`]. However
@@ -402,6 +496,9 @@ static KM_WRAPPER_STRONGBOX: OnceLock<Arc<KeyMintWrapperInner>> = OnceLock::new(
 
 static KM_WRAPPER_TEE: OnceLock<Arc<KeyMintWrapperInner>> = OnceLock::new();
 
+static KM_WRAPPER_LIFECYCLE: Mutex<()> = Mutex::new(());
+static EARLY_BOOT_ENDED: AtomicBool = AtomicBool::new(false);
+
 #[derive(Clone)]
 pub struct KeyMintWrapper {
     security_level: SecurityLevel,
@@ -709,6 +806,7 @@ impl IKeyMintDevice for KeyMintWrapper {
     }
 
     fn earlyBootEnded(&self) -> rsbinder::status::Result<()> {
+        EARLY_BOOT_ENDED.store(true, Ordering::Release);
         let req = PerformOpReq::DeviceEarlyBootEnded(EarlyBootEndedRequest {});
         self.process_status_only(req).map_err(map_ks_error)
     }
@@ -834,12 +932,6 @@ impl KeyMintWrapper {
             security_level,
             inner: shared_keymint_wrapper_inner(security_level)?,
         })
-    }
-
-    pub fn reset_keymint_ta(&self) -> Result<()> {
-        let mut keymint = self.inner.keymint.lock().unwrap();
-        *keymint = init_keymint_ta(self.security_level)?;
-        Ok(())
     }
 
     pub fn clear_attestation_cache(&self) {
@@ -1127,8 +1219,7 @@ fn bootstrap_auth_token_hmac(ta: &mut KeyMintTa, crypto: &CryptoConfig) -> Resul
     }
 }
 
-fn init_keymint_ta(security_level: SecurityLevel) -> Result<KeyMintTa> {
-    let config = config().read().unwrap();
+fn init_keymint_ta(security_level: SecurityLevel, config: &Config) -> Result<KeyMintTa> {
     let security_level = get_keymint_security_level(security_level)?;
     let profile = resolve_hardware_profile(get_keymaster_security_level(security_level)?);
 
@@ -1221,14 +1312,16 @@ fn init_keymint_ta(security_level: SecurityLevel) -> Result<KeyMintTa> {
     );
     bootstrap_auth_token_hmac(&mut ta, &config.crypto)?;
 
-    let patch_level = config
-        .trust
-        .security_patch
-        .replace('-', "")
-        .parse::<u32>()
-        .unwrap_or(20250605);
-    let boot_patchlevel = patch_level;
-    let os_patchlevel = patch_level / 100;
+    let hal_info = populate_hal_info_from(
+        &config.trust.os_version.to_string(),
+        &config.trust.os_patchlevel,
+        &config.trust.vendor_patchlevel,
+    )
+    .map_err(anyhow::Error::msg)
+    .context(err!("Failed to populate HAL patch levels"))?;
+    let boot_patchlevel = extract_boot_patchlevel(&config.trust.boot_patchlevel)
+        .map_err(anyhow::Error::msg)
+        .context(err!("Failed to parse boot patch level"))?;
 
     let resp = ta.process_req(PerformOpReq::SetBootInfo(kmr_wire::SetBootInfoRequest {
         verified_boot_state: if config.trust.verified_boot_state {
@@ -1245,11 +1338,7 @@ fn init_keymint_ta(security_level: SecurityLevel) -> Result<KeyMintTa> {
         return Err(Error::Km(ErrorCode::UNKNOWN_ERROR)).context(err!("Failed to set boot info"));
     }
 
-    let resp = ta.process_req(PerformOpReq::SetHalInfo(kmr_wire::SetHalInfoRequest {
-        os_version: config.trust.os_version as u32 * 10_000,
-        os_patchlevel,
-        vendor_patchlevel: boot_patchlevel,
-    }));
+    let resp = ta.process_req(PerformOpReq::SetHalInfo(hal_info));
     if resp.error_code != 0 {
         return Err(Error::Km(ErrorCode::UNKNOWN_ERROR)).context(err!("Failed to set HAL info"));
     }
@@ -1284,6 +1373,14 @@ fn init_keymint_ta(security_level: SecurityLevel) -> Result<KeyMintTa> {
         );
     }
 
+    if EARLY_BOOT_ENDED.load(Ordering::Acquire) {
+        let resp = ta.process_req(PerformOpReq::DeviceEarlyBootEnded(EarlyBootEndedRequest {}));
+        if resp.error_code != 0 {
+            return Err(Error::Km(ErrorCode::UNKNOWN_ERROR))
+                .context(err!("Failed to restore early-boot-ended state"));
+        }
+    }
+
     Ok(ta)
 }
 
@@ -1295,27 +1392,75 @@ pub fn localize_auth_token_for_omk(auth_token: &HardwareAuthToken) -> Result<Har
     get_keymint_wrapper(SecurityLevel::TRUSTED_ENVIRONMENT)?.localize_auth_token(auth_token)
 }
 
-pub fn reset_initialized_keymint_wrappers() -> Result<()> {
-    if let Some(wrapper) = KM_WRAPPER_TEE.get() {
-        let keymint = KeyMintWrapper {
-            security_level: SecurityLevel::TRUSTED_ENVIRONMENT,
-            inner: wrapper.clone(),
-        };
-        keymint
-            .reset_keymint_ta()
-            .context(err!("Failed to reset TEE keymint wrapper"))?;
+pub fn apply_runtime_config_update(
+    candidate: Config,
+    update_patchlevels: bool,
+    security_patch_update: Option<(String, Option<String>)>,
+) -> Result<()> {
+    let patchlevels = if update_patchlevels {
+        let hal_info = populate_hal_info_from(
+            &candidate.trust.os_version.to_string(),
+            &candidate.trust.os_patchlevel,
+            &candidate.trust.vendor_patchlevel,
+        )
+        .map_err(anyhow::Error::msg)
+        .context(err!("Failed to populate HAL patch levels"))?;
+        let boot_patchlevel = extract_boot_patchlevel(&candidate.trust.boot_patchlevel)
+            .map_err(anyhow::Error::msg)
+            .context(err!("Failed to parse boot patch level"))?;
+        Some((
+            hal_info.os_patchlevel,
+            hal_info.vendor_patchlevel,
+            boot_patchlevel,
+        ))
+    } else {
+        None
+    };
+    let _lifecycle = KM_WRAPPER_LIFECYCLE
+        .lock()
+        .map_err(|_| anyhow!("keymint wrapper lifecycle lock poisoned"))?;
+    let mut tee = if patchlevels.is_some() {
+        KM_WRAPPER_TEE
+            .get()
+            .map(|wrapper| wrapper.keymint.lock().unwrap())
+    } else {
+        None
+    };
+    let mut strongbox = if patchlevels.is_some() {
+        KM_WRAPPER_STRONGBOX
+            .get()
+            .map(|wrapper| wrapper.keymint.lock().unwrap())
+    } else {
+        None
+    };
+    if tee.as_ref().is_some_and(|live| !live.patchlevels_are_set()) {
+        return Err(anyhow!("TEE patch levels are not initialized"));
     }
-
-    if let Some(wrapper) = KM_WRAPPER_STRONGBOX.get() {
-        let keymint = KeyMintWrapper {
-            security_level: SecurityLevel::STRONGBOX,
-            inner: wrapper.clone(),
-        };
-        if let Err(error) = keymint.reset_keymint_ta() {
-            log::warn!("failed to reset optional StrongBox keymint wrapper: {error:#}");
+    if strongbox
+        .as_ref()
+        .is_some_and(|live| !live.patchlevels_are_set())
+    {
+        return Err(anyhow!("StrongBox patch levels are not initialized"));
+    }
+    let mut runtime = config()
+        .write()
+        .map_err(|_| anyhow!("config lock poisoned while applying config change"))?;
+    if let Some((desired, previous)) = security_patch_update {
+        crate::plat::vbmeta::write_runtime_security_patch(&desired, previous.as_deref())?;
+    }
+    if let Some((os_patchlevel, vendor_patchlevel, boot_patchlevel)) = patchlevels {
+        if let Some(live) = tee.as_mut() {
+            live.update_patchlevels(os_patchlevel, vendor_patchlevel, boot_patchlevel)
+                .map_err(|error| anyhow!("{error:?}"))
+                .context(err!("Failed to update TEE patch levels"))?;
+        }
+        if let Some(live) = strongbox.as_mut() {
+            live.update_patchlevels(os_patchlevel, vendor_patchlevel, boot_patchlevel)
+                .map_err(|error| anyhow!("{error:?}"))
+                .context(err!("Failed to update StrongBox patch levels"))?;
         }
     }
-
+    *runtime = candidate;
     Ok(())
 }
 
@@ -1350,10 +1495,20 @@ fn shared_keymint_wrapper_inner(security_level: SecurityLevel) -> Result<Arc<Key
                 .context(err!("Unknown security level"))
         }
     };
+    if let Some(wrapper) = wrapper.get() {
+        return Ok(wrapper.clone());
+    }
+    let _lifecycle = KM_WRAPPER_LIFECYCLE
+        .lock()
+        .map_err(|_| anyhow!("keymint wrapper lifecycle lock poisoned"))?;
+    let snapshot = config()
+        .read()
+        .map_err(|_| anyhow!("config lock poisoned while initializing keymint wrapper"))?
+        .clone();
     wrapper
         .get_or_try_init(|| {
             Ok(Arc::new(KeyMintWrapperInner {
-                keymint: Mutex::new(init_keymint_ta(security_level)?),
+                keymint: Mutex::new(init_keymint_ta(security_level, &snapshot)?),
             }))
         })
         .map(Arc::clone)
@@ -1365,6 +1520,110 @@ mod tests {
 
     fn param(tag: Tag, value: KeyParameterValue) -> KeyParameter {
         KeyParameter { tag, value }
+    }
+
+    #[test]
+    fn hal_info_matches_aosp_encoding() {
+        let tests = vec![
+            (
+                "12",
+                "2021-02-02",
+                "2022-03-04",
+                SetHalInfoRequest {
+                    os_version: 120000,
+                    os_patchlevel: 202102,
+                    vendor_patchlevel: 20220304,
+                },
+            ),
+            (
+                "12.5",
+                "2021-02-02",
+                "2022-03-04",
+                SetHalInfoRequest {
+                    os_version: 120500,
+                    os_patchlevel: 202102,
+                    vendor_patchlevel: 20220304,
+                },
+            ),
+            (
+                "12.5.7",
+                "2021-02-02",
+                "2022-03-04",
+                SetHalInfoRequest {
+                    os_version: 120507,
+                    os_patchlevel: 202102,
+                    vendor_patchlevel: 20220304,
+                },
+            ),
+        ];
+        for (os_version, os_patch, vendor_patch, want) in tests {
+            let got = populate_hal_info_from(os_version, os_patch, vendor_patch).unwrap();
+            assert_eq!(
+                got, want,
+                "Mismatch for input ({os_version}, {os_patch}, {vendor_patch})"
+            );
+        }
+    }
+
+    #[test]
+    fn boot_patchlevel_accepts_wire_value_or_date() {
+        assert_eq!(extract_boot_patchlevel("2025-06-05").unwrap(), 20250605);
+        assert_eq!(extract_boot_patchlevel("20000000").unwrap(), 20000000);
+        assert!(extract_boot_patchlevel("unavailable").is_err());
+    }
+
+    #[test]
+    fn invalid_hal_info_matches_aosp_rejections() {
+        let tests = vec![
+            (
+                "xx",
+                "2021-02-02",
+                "2022-03-04",
+                "failed to match OS version",
+            ),
+            (
+                "12.xx",
+                "2021-02-02",
+                "2022-03-04",
+                "failed to match OS version",
+            ),
+            (
+                "12.5.xx",
+                "2021-02-02",
+                "2022-03-04",
+                "failed to match OS version",
+            ),
+            (
+                "12",
+                "20212-02-02",
+                "2022-03-04",
+                "failed to match patchlevel regex",
+            ),
+            (
+                "12",
+                "2021-xx-02",
+                "2022-03-04",
+                "failed to match patchlevel",
+            ),
+            ("12", "2021-13-02", "2022-03-04", "month out of range"),
+            (
+                "12",
+                "2022-03-04",
+                "2021-xx-02",
+                "failed to match patchlevel",
+            ),
+            ("12", "2022-03-04", "2021-13-02", "month out of range"),
+            ("12", "2022-03-04", "2021-03-32", "day out of range"),
+        ];
+        for (os_version, os_patch, vendor_patch, want_err) in tests {
+            let result = populate_hal_info_from(os_version, os_patch, vendor_patch);
+            assert!(result.is_err());
+            let err = result.unwrap_err();
+            assert!(
+                err.contains(want_err),
+                "Mismatch for input ({os_version}, {os_patch}, {vendor_patch}), got error '{err}', want '{want_err}'"
+            );
+        }
     }
 
     #[test]
@@ -1487,5 +1746,79 @@ mod tests {
         assert_eq!(resp.error_code, 0);
 
         assert_eq!(set_boot_info(&mut ta), ErrorCode::EARLY_BOOT_ENDED.0);
+    }
+
+    #[test]
+    fn patchlevel_update_preserves_operations_and_use_counts() {
+        let mut ta = test_ta();
+        assert_eq!(set_boot_info(&mut ta), 0);
+        assert_eq!(
+            ta.process_req(PerformOpReq::SetHalInfo(SetHalInfoRequest {
+                os_version: 160000,
+                os_patchlevel: 202506,
+                vendor_patchlevel: 20250605,
+            }))
+            .error_code,
+            0
+        );
+
+        let generated = ta.process_req(PerformOpReq::DeviceGenerateKey(GenerateKeyRequest {
+            key_params: vec![
+                KeyParam::Purpose(kmr_wire::keymint::KeyPurpose::Sign),
+                KeyParam::Algorithm(kmr_wire::keymint::Algorithm::Hmac),
+                KeyParam::KeySize(KeySizeInBits(256)),
+                KeyParam::Digest(kmr_wire::keymint::Digest::Sha256),
+                KeyParam::MinMacLength(128),
+                KeyParam::NoAuthRequired,
+                KeyParam::MaxUsesPerBoot(1),
+            ],
+            attestation_key: None,
+        }));
+        assert_eq!(generated.error_code, 0);
+        let key_blob = match generated.rsp {
+            Some(PerformOpRsp::DeviceGenerateKey(response)) => response.ret.key_blob,
+            response => panic!("unexpected generate response: {response:?}"),
+        };
+
+        let begin = ta.process_req(PerformOpReq::DeviceBegin(BeginRequest {
+            purpose: kmr_wire::keymint::KeyPurpose::Sign,
+            key_blob: key_blob.clone(),
+            params: vec![
+                KeyParam::Digest(kmr_wire::keymint::Digest::Sha256),
+                KeyParam::MacLength(128),
+            ],
+            auth_token: None,
+        }));
+        assert_eq!(begin.error_code, 0);
+        let op_handle = match begin.rsp {
+            Some(PerformOpRsp::DeviceBegin(response)) => response.ret.op_handle,
+            response => panic!("unexpected begin response: {response:?}"),
+        };
+
+        ta.update_patchlevels(202507, 20250705, 20250705).unwrap();
+        assert_eq!(
+            ta.process_req(PerformOpReq::OperationFinish(FinishRequest {
+                op_handle,
+                input: Some(b"message".to_vec()),
+                signature: None,
+                auth_token: None,
+                timestamp_token: None,
+                confirmation_token: None,
+            }))
+            .error_code,
+            0
+        );
+        ta.update_patchlevels(202506, 20250605, 20250605).unwrap();
+
+        let second_begin = ta.process_req(PerformOpReq::DeviceBegin(BeginRequest {
+            purpose: kmr_wire::keymint::KeyPurpose::Sign,
+            key_blob,
+            params: vec![
+                KeyParam::Digest(kmr_wire::keymint::Digest::Sha256),
+                KeyParam::MacLength(128),
+            ],
+            auth_token: None,
+        }));
+        assert_eq!(second_begin.error_code, ErrorCode::KEY_MAX_OPS_EXCEEDED.0);
     }
 }
