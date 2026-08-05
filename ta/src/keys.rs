@@ -822,14 +822,17 @@ impl crate::KeyMintTa {
                 }
                 Ordering::Equal => Ok(false),
                 Ordering::Greater => {
-                    error!("refusing to downgrade {name} from {v} to {curr}");
-                    Err(km_err!(
-                        InvalidArgument,
-                        "keyblob with future {} {} (current {})",
-                        name,
-                        v,
-                        curr
-                    ))
+                    // We allow patchlevel downgrades.
+                    // error!("refusing to downgrade {name} from {v} to {curr}");
+                    // Err(km_err!(
+                    //     InvalidArgument,
+                    //     "keyblob with future {} {} (current {})",
+                    //     name,
+                    //     v,
+                    //     curr
+                    // ))
+                    *v = curr;
+                    Ok(true)
                 }
             }
         }

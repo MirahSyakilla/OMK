@@ -1017,9 +1017,13 @@ pub struct SupersededBlob {
 
 impl KeystoreDB {
     const UNASSIGNED_KEY_ID: i64 = -1i64;
-    const CURRENT_DB_VERSION: u32 = 3;
-    const UPGRADERS: &'static [fn(&Transaction) -> Result<u32>] =
-        &[Self::from_0_to_1, Self::from_1_to_2, Self::from_2_to_3];
+    const CURRENT_DB_VERSION: u32 = 4;
+    const UPGRADERS: &'static [fn(&Transaction) -> Result<u32>] = &[
+        Self::from_0_to_1,
+        Self::from_1_to_2,
+        Self::from_2_to_3,
+        Self::from_3_to_4,
+    ];
 
     /// Name of the file that holds the cross-boot persistent database.
     pub const PERSISTENT_DB_FILENAME: &'static str = "keymaster.db";
@@ -1253,6 +1257,22 @@ impl KeystoreDB {
 
         // DB version is now 3.
         Ok(3)
+    }
+
+    // Normalize legacy OS versions cached from KeyMint key characteristics.
+    fn from_3_to_4(tx: &Transaction) -> Result<u32> {
+        let updated = tx
+            .execute(
+                "UPDATE persistent.keyparameter
+                 SET data = data * 10000
+                 WHERE tag = ? AND data >= 0 AND data < 100;",
+                params![Tag::OS_VERSION.0],
+            )
+            .context(ks_err!("Failed to normalize legacy OS versions"))?;
+        info!("normalized {updated} legacy OS version key parameters");
+
+        // DB version is now 4.
+        Ok(4)
     }
 
     fn init_tables(tx: &Transaction) -> Result<()> {
@@ -3877,6 +3897,18 @@ mod tests {
                 VALUES (10, 0, 1, X'01'), (11, 0, 1, X'02');"
         ))
         .unwrap();
+        conn.execute(
+            "INSERT INTO persistent.keyparameter
+             (keyentryid, tag, data, security_level)
+             VALUES (1, ?, 16, ?), (1, ?, 16, ?);",
+            params![
+                Tag::OS_VERSION.0,
+                SecurityLevel::TRUSTED_ENVIRONMENT.0,
+                Tag::OS_PATCHLEVEL.0,
+                SecurityLevel::TRUSTED_ENVIRONMENT.0,
+            ],
+        )
+        .unwrap();
         conn
     }
 
@@ -4064,7 +4096,7 @@ mod tests {
             }
 
             assert_eq!(
-                3,
+                4,
                 conn.query_row(
                     "SELECT version FROM persistent.version WHERE id = 0;",
                     [],
@@ -4087,6 +4119,24 @@ mod tests {
                     "SELECT state FROM persistent.blobentry WHERE id = 11;",
                     [],
                     |row| row.get::<_, BlobState>(0),
+                )
+                .unwrap()
+            );
+            assert_eq!(
+                160000,
+                conn.query_row(
+                    "SELECT data FROM persistent.keyparameter WHERE tag = ?;",
+                    params![Tag::OS_VERSION.0],
+                    |row| row.get::<_, i32>(0),
+                )
+                .unwrap()
+            );
+            assert_eq!(
+                16,
+                conn.query_row(
+                    "SELECT data FROM persistent.keyparameter WHERE tag = ?;",
+                    params![Tag::OS_PATCHLEVEL.0],
+                    |row| row.get::<_, i32>(0),
                 )
                 .unwrap()
             );
