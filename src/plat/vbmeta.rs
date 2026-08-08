@@ -23,7 +23,9 @@ use crate::{
             KeyDescriptor::KeyDescriptor, KeyMetadata::KeyMetadata,
         },
     },
-    config::{ConfigFile, OsVersionSpec, RawTrustConfig, ResolvedTrust, TrustValueSource, TrustValueSpec},
+    config::{
+        ConfigFile, OsVersionSpec, RawTrustConfig, ResolvedTrust, TrustValueSource, TrustValueSpec,
+    },
     plat::{attestation, resetprop, utils::get_keystore_service},
 };
 
