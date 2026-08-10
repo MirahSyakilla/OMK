@@ -14,7 +14,10 @@
 
 //! Tests
 
-use crate::{error_rsp, invalid_cbor_rsp_data, keys::SecureKeyWrapper, split_rsp};
+use crate::{
+    check_keyblob_version_component, error_rsp, invalid_cbor_rsp_data, keys::SecureKeyWrapper,
+    split_rsp,
+};
 use der::{Decode, Encode};
 use kmr_common::ErrorKind;
 use kmr_wire::{
@@ -32,6 +35,16 @@ fn test_invalid_data() {
     let rsp = error_rsp(ErrorCode::UnknownError as i32);
     let rsp_data = rsp.into_vec().unwrap();
     assert_eq!(rsp_data, invalid_cbor_rsp_data());
+}
+
+#[test]
+fn future_patchlevel_requests_upgrade() {
+    let err = check_keyblob_version_component(20260801, 20231101, "vendor patchlevel")
+        .expect_err("future vendor patchlevel should trigger upgrade");
+    assert!(matches!(
+        err.kind(),
+        ErrorKind::Hal(ErrorCode::KeyRequiresUpgrade, _)
+    ));
 }
 
 #[test]

@@ -316,6 +316,31 @@ struct KeyBlobDecryptionResult {
     kek_context_is_outdated: bool,
 }
 
+fn check_keyblob_version_component(v: u32, curr: u32, name: &str) -> Result<(), Error> {
+    match v.cmp(&curr) {
+        Ordering::Less => Err(km_err!(
+            KeyRequiresUpgrade,
+            "keyblob with old {} {} needs upgrade to current {}",
+            name,
+            v,
+            curr
+        )),
+        Ordering::Equal => Ok(()),
+        Ordering::Greater => {
+            // Allow the HAL upgrade path to normalize blobs whose stored version or patchlevel is
+            // ahead of the current runtime value. `upgrade_key()` will clamp the stored value back
+            // to the current HAL / boot info and rewrap the blob.
+            Err(km_err!(
+                KeyRequiresUpgrade,
+                "keyblob with future {} {} needs normalization to current {}",
+                name,
+                v,
+                curr
+            ))
+        }
+    }
+}
+
 impl KeyMintTa {
     /// Create a new [`KeyMintTa`] instance.
     pub fn new(
@@ -482,27 +507,6 @@ impl KeyMintTa {
             ));
         }
 
-        // Check all of the patchlevels and versions to see if key upgrade is required.
-        fn check(v: &u32, curr: u32, name: &str) -> Result<(), Error> {
-            match (*v).cmp(&curr) {
-                Ordering::Less => Err(km_err!(
-                    KeyRequiresUpgrade,
-                    "keyblob with old {} {} needs upgrade to current {}",
-                    name,
-                    v,
-                    curr
-                )),
-                Ordering::Equal => Ok(()),
-                Ordering::Greater => Err(km_err!(
-                    InvalidKeyBlob,
-                    "keyblob with future {} {} (current {})",
-                    name,
-                    v,
-                    curr
-                )),
-            }
-        }
-
         let key_chars = keyblob.characteristics_at(self.hw_info.security_level)?;
         for param in key_chars {
             match param {
@@ -519,7 +523,7 @@ impl KeyMintTa {
                                 ));
                             }
                         } else {
-                            check(v, hal_info.os_version, "OS version")?;
+                            check_keyblob_version_component(*v, hal_info.os_version, "OS version")?;
                         }
                     } else {
                         error!("OS version not available, can't check for upgrade from {v}");
@@ -527,21 +531,33 @@ impl KeyMintTa {
                 }
                 KeyParam::OsPatchlevel(v) => {
                     if let Some(hal_info) = &self.hal_info {
-                        check(v, hal_info.os_patchlevel, "OS patchlevel")?;
+                        check_keyblob_version_component(
+                            *v,
+                            hal_info.os_patchlevel,
+                            "OS patchlevel",
+                        )?;
                     } else {
                         error!("OS patchlevel not available, can't check for upgrade from {v}");
                     }
                 }
                 KeyParam::VendorPatchlevel(v) => {
                     if let Some(hal_info) = &self.hal_info {
-                        check(v, hal_info.vendor_patchlevel, "vendor patchlevel")?;
+                        check_keyblob_version_component(
+                            *v,
+                            hal_info.vendor_patchlevel,
+                            "vendor patchlevel",
+                        )?;
                     } else {
                         error!("vendor patchlevel not available, can't check for upgrade from {v}");
                     }
                 }
                 KeyParam::BootPatchlevel(v) => {
                     if let Some(boot_info) = &self.boot_info {
-                        check(v, boot_info.boot_patchlevel, "boot patchlevel")?;
+                        check_keyblob_version_component(
+                            *v,
+                            boot_info.boot_patchlevel,
+                            "boot patchlevel",
+                        )?;
                     } else {
                         error!("boot patchlevel not available, can't check for upgrade from {v}");
                     }
