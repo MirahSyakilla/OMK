@@ -229,6 +229,9 @@ name in the same folder, then rename it to `keybox.xml` in one step.
 OMK reloads the file automatically. Check `keymint.log` afterward. A missing
 file is replaced with the bundled template. An invalid file is left on disk;
 keymint keeps the last valid box, or the bundled template, in memory.
+Replacing the keybox preserves ordinary application signing keys, including
+passkey credentials; only dedicated `ATTEST_KEY` entries tied to the previous
+keybox are retired.
 
 ### Why does a detector say that the certificate is expired or revoked?
 

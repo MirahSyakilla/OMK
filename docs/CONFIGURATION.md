@@ -63,6 +63,8 @@ an already-open operation with the new route. If a process restart is needed
 for a clean boundary, restart the injector only. An injector-only setting
 change does not require a keymint restart.
 
+Replacing `keybox.xml` retires only dedicated `ATTEST_KEY` entries tied to the previous keybox. Ordinary application signing keys, including passkey credentials, stay.
+
 ## `config.toml`
 
 ### Complete annotated example
