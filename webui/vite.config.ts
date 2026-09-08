@@ -6,5 +6,6 @@ export default defineConfig({
     outDir: '../template/webroot',
     emptyOutDir: true,
     cssCodeSplit: false,
+    chunkSizeWarningLimit: 1000,
   },
 })
