@@ -84,6 +84,8 @@ fn default_scoop() -> Vec<String> {
         "com.google.android.gms",
         "com.android.vending",
         "com.eltavine.duckdetector",
+        "net.one97.paytm",
+        "my.com.tngdigital.ewallet",
     ]
     .into_iter()
     .map(str::to_string)
