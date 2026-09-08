@@ -14,6 +14,12 @@ pub(super) enum MirrorStateKind {
     Maintenance,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum MirrorFailurePolicy {
+    BestEffort,
+    FailClosed,
+}
+
 #[derive(Clone)]
 enum MirrorReplayEvent {
     Authorization {
@@ -36,6 +42,7 @@ struct SequencedMirrorReplay {
 
 pub(super) struct MirrorUpdateReservation {
     kind: MirrorStateKind,
+    failure_policy: MirrorFailurePolicy,
     sequence: u64,
     active: bool,
 }
@@ -140,6 +147,13 @@ impl MirrorReplayEvent {
         }
     }
 
+    fn failure_policy(&self) -> MirrorFailurePolicy {
+        match self {
+            Self::Authorization { request, .. } => authorization_mirror_failure_policy(request),
+            Self::Maintenance { .. } => MirrorFailurePolicy::FailClosed,
+        }
+    }
+
     fn execute(&self) -> anyhow::Result<()> {
         match self {
             Self::Authorization { request, caller } => {
@@ -156,6 +170,18 @@ pub(super) fn authorization_requires_mirror(request: &ParsedAuthorizationRequest
         ParsedAuthorizationRequest::GetAuthTokensForCredStore { .. }
             | ParsedAuthorizationRequest::GetLastAuthTime { .. }
     )
+}
+
+pub(super) fn authorization_mirror_failure_policy(
+    request: &ParsedAuthorizationRequest,
+) -> MirrorFailurePolicy {
+    // AddAuthToken only feeds per-boot cached state and a later authentication replenishes it.
+    // Lock and user-state notifications must remain ordered and fail-closed.
+    if matches!(request, ParsedAuthorizationRequest::AddAuthToken { .. }) {
+        MirrorFailurePolicy::BestEffort
+    } else {
+        MirrorFailurePolicy::FailClosed
+    }
 }
 
 pub(super) fn maintenance_requires_mirror(request: &ParsedMaintenanceRequest) -> bool {
@@ -204,6 +230,7 @@ fn remove_reserved_mirror_update(
 
 pub(super) fn reserve_mirror_update(
     kind: MirrorStateKind,
+    failure_policy: MirrorFailurePolicy,
 ) -> anyhow::Result<MirrorUpdateReservation> {
     let mut state = MIRROR_RECOVERY_STATE
         .lock()
@@ -232,6 +259,7 @@ pub(super) fn reserve_mirror_update(
         });
     Ok(MirrorUpdateReservation {
         kind,
+        failure_policy,
         sequence,
         active: true,
     })
@@ -240,31 +268,43 @@ pub(super) fn reserve_mirror_update(
 impl MirrorUpdateReservation {
     fn enqueue(mut self, event: MirrorReplayEvent) -> anyhow::Result<()> {
         debug_assert_eq!(event.kind(), self.kind);
+        debug_assert_eq!(event.failure_policy(), self.failure_policy);
         let method = event.method();
         let caller_uid = event.caller().uid;
         let caller_pid = event.caller().pid;
         let mut state = MIRROR_RECOVERY_STATE
             .lock()
             .expect("mirror recovery state poisoned");
-        let Some(pending) = state
-            .lane_mut(self.kind)
+        let Some(position) = state
+            .lane(self.kind)
             .pending
-            .iter_mut()
-            .find(|pending| pending.sequence == self.sequence)
+            .iter()
+            .position(|pending| pending.sequence == self.sequence)
         else {
-            poison_mirror_state(&mut state, self.kind);
+            if self.failure_policy == MirrorFailurePolicy::FailClosed {
+                poison_mirror_state(&mut state, self.kind);
+            }
             self.active = false;
             drop(state);
             wake_mirror_recovery_worker();
             anyhow::bail!("mirror update reservation disappeared");
         };
-        if pending.kind != self.kind || pending.event.is_some() {
-            poison_mirror_state(&mut state, self.kind);
+        let reservation_changed = {
+            let pending = &state.lane(self.kind).pending[position];
+            pending.kind != self.kind || pending.event.is_some()
+        };
+        if reservation_changed {
+            if self.failure_policy == MirrorFailurePolicy::FailClosed {
+                poison_mirror_state(&mut state, self.kind);
+            } else {
+                remove_reserved_mirror_update(&mut state, self.kind, self.sequence);
+            }
             self.active = false;
             drop(state);
             wake_mirror_recovery_worker();
             anyhow::bail!("mirror update reservation changed unexpectedly");
         }
+        let pending = &mut state.lane_mut(self.kind).pending[position];
         pending.event = Some(event);
         pending.retry_not_before = None;
         let pending = state.pending_len();
@@ -303,13 +343,22 @@ impl Drop for MirrorUpdateReservation {
             .lock()
             .expect("mirror recovery state poisoned");
         remove_reserved_mirror_update(&mut state, self.kind, self.sequence);
-        poison_mirror_state(&mut state, self.kind);
+        if self.failure_policy == MirrorFailurePolicy::FailClosed {
+            poison_mirror_state(&mut state, self.kind);
+        }
         self.active = false;
         drop(state);
-        warn!(
-            "event=mirror {} update lost its System reply; OMK routes are fail-closed until process restart",
-            self.kind.label()
-        );
+        if self.failure_policy == MirrorFailurePolicy::FailClosed {
+            warn!(
+                "event=mirror {} update lost its System reply; OMK routes are fail-closed until process restart",
+                self.kind.label()
+            );
+        } else {
+            warn!(
+                "event=mirror {} best-effort update lost its System reply; dropping the mirror without blocking OMK routes",
+                self.kind.label()
+            );
+        }
         wake_mirror_recovery_worker();
     }
 }
@@ -370,6 +419,7 @@ fn recover_mirror_state_with(
             .as_ref()
             .expect("ready mirror replay lost its event");
         let method = event.method();
+        let failure_policy = event.failure_policy();
         let result = execute(event);
         let mut state = MIRROR_RECOVERY_STATE
             .lock()
@@ -402,6 +452,22 @@ fn recover_mirror_state_with(
                     pending.sequence,
                     pending.kind.label(),
                     method,
+                    remaining
+                );
+                wake_mirror_recovery_worker();
+            }
+            Err(error) if failure_policy == MirrorFailurePolicy::BestEffort => {
+                let lane = state.lane_mut(pending.kind);
+                lane.pending.pop_front();
+                lane.draining = false;
+                let remaining = state.pending_len();
+                drop(state);
+                warn!(
+                    "event=mirror replay sequence={} domain={} method={} failed: {:#}; dropping best-effort event and continuing; pending={}",
+                    pending.sequence,
+                    pending.kind.label(),
+                    method,
+                    error,
                     remaining
                 );
                 wake_mirror_recovery_worker();
@@ -520,12 +586,26 @@ pub(super) unsafe fn build_authorization_reply_mirror(
         request: call.request.clone(),
         caller: call.caller.clone(),
     };
-    let reservation = call
-        .mirror_update
-        .take()
-        .ok_or_else(|| anyhow::anyhow!("authorization mirror reservation is missing"))?;
+    let failure_policy = event.failure_policy();
+    let Some(reservation) = call.mirror_update.take() else {
+        if failure_policy == MirrorFailurePolicy::BestEffort {
+            warn!(
+                "event=mirror domain=authorization no queue reservation for best-effort {:?} uid={} pid={}; preserving System success without an OMK mirror",
+                method, call.caller.uid, call.caller.pid
+            );
+            return Ok(None);
+        }
+        anyhow::bail!("authorization mirror reservation is missing");
+    };
     match reservation.enqueue(event) {
         Ok(()) => Ok(None),
+        Err(error) if failure_policy == MirrorFailurePolicy::BestEffort => {
+            warn!(
+                "event=mirror domain=authorization failed to queue best-effort {:?} for OMK for uid={} pid={}: {:#}; preserving System success",
+                method, call.caller.uid, call.caller.pid, error
+            );
+            Ok(None)
+        }
         Err(error) => {
             warn!(
                 "event=mirror domain=authorization failed to queue {:?} for OMK for uid={} pid={}: {:#}",

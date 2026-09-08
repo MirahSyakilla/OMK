@@ -120,6 +120,7 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
         );
 
         let requires_mirror = authorization_requires_mirror(&request);
+        let failure_policy = authorization_mirror_failure_policy(&request);
         let mut pending = PendingAuthorizationCall {
             request,
             method,
@@ -127,6 +128,13 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
             mirror_update: None,
         };
         if requires_mirror && !expects_reply {
+            if failure_policy == MirrorFailurePolicy::BestEffort {
+                warn!(
+                    "event=mirror cannot confirm one-way best-effort authorization {:?} for uid={} pid={}; preserving System mutation without an OMK mirror",
+                    method, caller_uid, pending.caller.pid
+                );
+                return false;
+            }
             warn!(
                 "event=mirror cannot confirm one-way authorization {:?} for uid={} pid={}; blocking System mutation",
                 method, caller_uid, pending.caller.pid
@@ -135,8 +143,14 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
             return true;
         }
         if requires_mirror {
-            match reserve_mirror_update(MirrorStateKind::Authorization) {
+            match reserve_mirror_update(MirrorStateKind::Authorization, failure_policy) {
                 Ok(reservation) => pending.mirror_update = Some(reservation),
+                Err(error) if failure_policy == MirrorFailurePolicy::BestEffort => {
+                    warn!(
+                        "event=mirror failed to reserve in-memory best-effort authorization {:?} update for uid={} pid={}: {:#}; preserving System mutation without an OMK mirror",
+                        method, caller_uid, pending.caller.pid, error
+                    );
+                }
                 Err(error) => {
                     warn!(
                         "event=mirror failed to reserve in-memory authorization {:?} update for uid={} pid={}: {:#}; blocking System mutation",
@@ -257,7 +271,10 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
             return true;
         }
         if requires_mirror {
-            match reserve_mirror_update(MirrorStateKind::Maintenance) {
+            match reserve_mirror_update(
+                MirrorStateKind::Maintenance,
+                MirrorFailurePolicy::FailClosed,
+            ) {
                 Ok(reservation) => pending.mirror_update = Some(reservation),
                 Err(error) => {
                     warn!(

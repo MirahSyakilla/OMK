@@ -310,10 +310,20 @@ impl AuthorizationManager {
             auth_token.timestamp.milliSeconds,
         );
         if auth_token.userId == 0 {
-            error!("Auth token has zero GK SID, indicating an authenticator problem");
+            if ctx.is_some() {
+                log::debug!(
+                    "mirrored auth token has zero GK SID, indicating an authenticator problem"
+                );
+            } else {
+                error!("Auth token has zero GK SID, indicating an authenticator problem");
+            }
         }
 
-        validate_auth_token_shape(auth_token)?;
+        // Android keystore2 accepts HAT contents at the addAuthToken ingestion boundary. Mirrored
+        // calls only arrive after System returned success, so preserve that result and attempt to
+        // localize the token without applying OMK-only shape or MAC checks. Direct service calls
+        // retain the stricter OMK boundary checks.
+        validate_auth_token_shape_for_source(ctx, auth_token)?;
         if should_skip_system_auth_token_verification(ctx) {
             log::debug!(
                 "system auth token MAC verification skipped for mirrored/config fallback authType={:#x} challengeTag={:04x}",
@@ -325,9 +335,11 @@ impl AuthorizationManager {
                 .context(ks_err!("system KeyMint did not verify the auth token MAC"))?;
         }
 
-        let localized = localize_auth_token_for_omk(auth_token)
-            .context(ks_err!("localizing trusted auth token for OMK"))?;
-        ENFORCEMENTS.add_auth_token(localized);
+        if let Some(localized) =
+            localize_auth_token_for_source(ctx, auth_token, localize_auth_token_for_omk)?
+        {
+            ENFORCEMENTS.add_auth_token(localized);
+        }
         Ok(())
     }
 
@@ -391,6 +403,36 @@ fn check_omk_keystore_permission(
     permission::check_keystore_permission(perm, Some(ctx))
         .context(label.to_string())
         .map_err(into_logged_binder)
+}
+
+fn validate_auth_token_shape_for_source(
+    ctx: Option<&CallerInfo>,
+    auth_token: &HardwareAuthToken,
+) -> Result<()> {
+    if ctx.is_some() {
+        Ok(())
+    } else {
+        validate_auth_token_shape(auth_token)
+    }
+}
+
+fn localize_auth_token_for_source(
+    ctx: Option<&CallerInfo>,
+    auth_token: &HardwareAuthToken,
+    localize: impl FnOnce(&HardwareAuthToken) -> Result<HardwareAuthToken>,
+) -> Result<Option<HardwareAuthToken>> {
+    match localize(auth_token).context(ks_err!("localizing trusted auth token for OMK")) {
+        Ok(localized) => Ok(Some(localized)),
+        Err(error) if ctx.is_some() => {
+            log::warn!(
+                "dropping auth token mirrored after System success because OMK localization failed authType={:#x} challengeTag={:04x}: {error:#}",
+                auth_token.authenticatorType.0,
+                challenge_tag(auth_token.challenge),
+            );
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn validate_auth_token_shape(auth_token: &HardwareAuthToken) -> Result<()> {
@@ -1016,5 +1058,164 @@ impl IOhMyAuthorizationService for AuthorizationManager {
         let sid = SecureUserId(secure_user_id);
         self.get_last_auth_time(sid, auth_types)
             .map_err(into_logged_binder)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mirrored_caller() -> CallerInfo {
+        CallerInfo {
+            uid: 1000,
+            sid: "u:r:system_server:s0".to_string(),
+            pid: 2000,
+        }
+    }
+
+    fn valid_auth_token() -> HardwareAuthToken {
+        HardwareAuthToken {
+            challenge: 7,
+            userId: 11,
+            authenticatorId: 13,
+            authenticatorType: HardwareAuthenticatorType::PASSWORD,
+            mac: vec![0; AUTH_TOKEN_MAC_LEN],
+            ..Default::default()
+        }
+    }
+
+    fn combined_authenticator_type() -> HardwareAuthenticatorType {
+        HardwareAuthenticatorType(
+            HardwareAuthenticatorType::PASSWORD.0 | HardwareAuthenticatorType::FINGERPRINT.0,
+        )
+    }
+
+    #[test]
+    fn mirrored_auth_token_shapes_match_aosp_ingestion() {
+        let caller = mirrored_caller();
+        let mut variants = Vec::new();
+
+        let mut token = valid_auth_token();
+        token.mac.pop();
+        variants.push(("non-32-byte MAC", token));
+
+        variants.push((
+            "all-zero authorization fields",
+            HardwareAuthToken {
+                mac: vec![0; AUTH_TOKEN_MAC_LEN],
+                ..Default::default()
+            },
+        ));
+
+        let mut token = valid_auth_token();
+        token.userId = 0;
+        token.authenticatorId = 0;
+        token.timestamp.milliSeconds = 1;
+        variants.push(("zero SIDs with timestamp", token));
+
+        let mut token = valid_auth_token();
+        token.userId = 0;
+        token.authenticatorId = 0;
+        variants.push(("zero SIDs with challenge and auth type", token));
+
+        let mut token = valid_auth_token();
+        token.authenticatorType = HardwareAuthenticatorType::NONE;
+        variants.push(("nonzero SID with NONE", token));
+
+        let mut token = valid_auth_token();
+        token.authenticatorType = HardwareAuthenticatorType::ANY;
+        variants.push(("ANY authenticator type", token));
+
+        let mut token = valid_auth_token();
+        token.authenticatorType = combined_authenticator_type();
+        variants.push(("combined authenticator type", token));
+
+        let mut token = valid_auth_token();
+        token.authenticatorType = HardwareAuthenticatorType(4);
+        variants.push(("unknown authenticator type", token));
+
+        for (label, token) in variants {
+            assert!(
+                validate_auth_token_shape_for_source(Some(&caller), &token).is_ok(),
+                "mirror rejected {label}"
+            );
+        }
+    }
+
+    #[test]
+    fn direct_auth_token_shape_validation_remains_strict() {
+        assert!(validate_auth_token_shape_for_source(None, &valid_auth_token()).is_ok());
+
+        let mut combined = valid_auth_token();
+        combined.authenticatorType = combined_authenticator_type();
+        assert!(validate_auth_token_shape_for_source(None, &combined).is_ok());
+
+        let mut variants = Vec::new();
+
+        let mut token = valid_auth_token();
+        token.mac.pop();
+        variants.push(("non-32-byte MAC", token));
+
+        let mut token = valid_auth_token();
+        token.userId = 0;
+        token.authenticatorId = 0;
+        variants.push(("zero SIDs", token));
+
+        let mut token = valid_auth_token();
+        token.authenticatorType = HardwareAuthenticatorType::NONE;
+        variants.push(("NONE authenticator type", token));
+
+        let mut token = valid_auth_token();
+        token.authenticatorType = HardwareAuthenticatorType::ANY;
+        variants.push(("ANY authenticator type", token));
+
+        let mut token = valid_auth_token();
+        token.authenticatorType = HardwareAuthenticatorType(4);
+        variants.push(("unknown authenticator type", token));
+
+        for (label, token) in variants {
+            assert!(
+                validate_auth_token_shape_for_source(None, &token).is_err(),
+                "direct validation accepted {label}"
+            );
+        }
+    }
+
+    #[test]
+    fn mirrored_localization_failures_are_dropped() {
+        let caller = mirrored_caller();
+        let mut token = valid_auth_token();
+        token.authenticatorType = HardwareAuthenticatorType(4);
+
+        assert!(localize_auth_token_for_source(Some(&caller), &token, |token| {
+            token.to_km()?;
+            Ok(token.clone())
+        })
+        .expect("unknown mirror auth type should preserve System success")
+        .is_none());
+
+        let token = valid_auth_token();
+        assert!(localize_auth_token_for_source(Some(&caller), &token, |_| {
+            Err(anyhow::anyhow!("auth-token HMAC key is not initialized"))
+        })
+        .expect("unavailable mirror HMAC key should preserve System success")
+        .is_none());
+    }
+
+    #[test]
+    fn direct_localization_failures_are_propagated() {
+        assert!(localize_auth_token_for_source(None, &valid_auth_token(), |_| {
+            Err(anyhow::anyhow!("auth-token HMAC key is not initialized"))
+        })
+        .is_err());
+    }
+
+    #[test]
+    fn combined_authenticator_type_is_rejected_by_wire_conversion() {
+        let mut token = valid_auth_token();
+        token.authenticatorType = combined_authenticator_type();
+
+        assert!(validate_auth_token_shape_for_source(None, &token).is_ok());
+        assert!(token.to_km().is_err());
     }
 }
