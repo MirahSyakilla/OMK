@@ -84,6 +84,7 @@ fn default_scoop() -> Vec<String> {
         "com.google.android.gms",
         "com.android.vending",
         "com.eltavine.duckdetector",
+        "com.tencent.soter.soterserver",
         "net.one97.paytm",
         "my.com.tngdigital.ewallet",
     ]

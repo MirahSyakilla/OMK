@@ -429,6 +429,7 @@ scoop = [
   "com.google.android.gms",
   "com.android.vending",
   "com.eltavine.duckdetector",
+  "com.tencent.soter.soterserver",
 ]
 
 [main]
