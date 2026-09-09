@@ -282,6 +282,7 @@ fn best_effort_add_auth_token_failures_do_not_block_later_events() {
         uid: 1000,
         sid: String::new(),
         pid: 2000,
+        keyboxSlot: 0,
     };
 
     for _ in 0..2 {
@@ -342,6 +343,7 @@ fn lost_best_effort_reply_does_not_poison_mirror_state() {
         uid: 1000,
         sid: String::new(),
         pid: 2000,
+        keyboxSlot: 0,
     };
     let lost = reserve_mirror_update(
         MirrorStateKind::Authorization,
@@ -392,6 +394,7 @@ fn missing_best_effort_reservation_preserves_system_success() {
             uid: 1000,
             sid: String::new(),
             pid: 2000,
+            keyboxSlot: 0,
         },
         mirror_update: None,
     };
