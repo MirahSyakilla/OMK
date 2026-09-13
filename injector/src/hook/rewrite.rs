@@ -101,7 +101,8 @@ fn evaluate_caller(
     let cache_key = (
         caller.uid,
         caller.pid,
-        Arc::as_ptr(cfg) as usize,
+        config::generation(),
+        ipc::pm_generation(),
         caller.sid.clone(),
     );
     if let Ok(cache) = CALLER_FILTER_CACHE.lock() {
@@ -120,23 +121,29 @@ fn evaluate_caller(
         let _guard = BypassGuard::enter();
         ipc::resolve_packages_for_uid(uid)
     };
+    let cacheable = matches!(&package_resolution, PackageResolution::Known(_));
     let decision = filter::evaluate(&cfg.scoop, &cfg.filter, uid, package_resolution);
     if decision.reason == FilterReason::Disabled {
         debug!(
             "event=decision package filter disabled; routing still follows per-method intercept settings"
         );
     }
-    if let Ok(mut cache) = CALLER_FILTER_CACHE.lock() {
-        if cache.len() >= CALLER_FILTER_CACHE_LIMIT {
-            cache.retain(|key, _| key.2 == cache_key.2);
+    if cacheable {
+        if let Ok(mut cache) = CALLER_FILTER_CACHE.lock() {
+            cache.retain(|key, _| key.2 == cache_key.2 && key.3 == cache_key.3);
+            if cache.len() >= CALLER_FILTER_CACHE_LIMIT {
+                if let Some(key) = cache.keys().next().cloned() {
+                    cache.remove(&key);
+                }
+            }
+            cache.insert(cache_key, decision.clone());
         }
-        cache.insert(cache_key, decision.clone());
     }
     decision
 }
 
 const CALLER_FILTER_CACHE_LIMIT: usize = 1024;
-type CallerFilterCacheKey = (i64, i64, usize, String);
+type CallerFilterCacheKey = (i64, i64, u64, u64, String);
 type CallerFilterCache = HashMap<CallerFilterCacheKey, crate::filter::FilterDecision>;
 
 static CALLER_FILTER_CACHE: LazyLock<Mutex<CallerFilterCache>> =

@@ -480,6 +480,31 @@ unsafe fn build_synthetic_br_transaction_reply_inner(
         return Ok(synthetic_reply_from_outbound(reply));
     }
 
+    let decision = evaluate_caller(&caller, &cfg);
+    let creator_uid = lookup_synthetic_target_info(target)
+        .and_then(|info| info.caller.map(|creator| creator.uid));
+    if creator_uid.is_some_and(|uid| uid != caller.uid) {
+        info!(
+            "event=synthetic rejected {} operation uid={} pid={} creator_uid={}",
+            command_name,
+            caller.uid,
+            caller.pid,
+            creator_uid.expect("checked above"),
+        );
+        return Ok(synthetic_parcel_reply(build_service_specific_reply(
+            ResponseCode::PERMISSION_DENIED.0,
+        )?));
+    }
+    if !decision.allowed && !creator_uid.is_some_and(|uid| uid == caller.uid) {
+        info!(
+            "event=synthetic rejected {} operation uid={} pid={} reason={:?}",
+            command_name, caller.uid, caller.pid, decision.reason,
+        );
+        return Ok(synthetic_parcel_reply(build_service_specific_reply(
+            ResponseCode::PERMISSION_DENIED.0,
+        )?));
+    }
+
     let request = match parcel::parse_operation_request(
         data,
         data_size,
@@ -498,15 +523,6 @@ unsafe fn build_synthetic_br_transaction_reply_inner(
         }
     };
     let method = request.method();
-
-    let decision = evaluate_caller(&caller, &cfg);
-    if !decision.allowed {
-        info!(
-            "event=synthetic rejected {} operation {:?} uid={} pid={} reason={:?}",
-            command_name, method, caller.uid, caller.pid, decision.reason,
-        );
-        return Ok(SyntheticReply::Status(StatusCode::PermissionDenied.into()));
-    }
 
     info!(
         "event=synthetic handling {} operation {:?} uid={} pid={} target=ptr:0x{:x}/cookie:0x{:x}",

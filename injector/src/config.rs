@@ -10,7 +10,10 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, Mutex, OnceLock, RwLock,
+};
 use std::time::Duration;
 
 pub const DEFAULT_CONFIG_PATH: &str = "/data/misc/keystore/omk/injector.toml";
@@ -174,6 +177,11 @@ struct WritableConfig<'a> {
 static CONFIG: OnceLock<RwLock<Arc<InjectorConfig>>> = OnceLock::new();
 static WATCHER_STARTED: OnceLock<()> = OnceLock::new();
 static CONFIG_FILE_WRITE_LOCK: Mutex<()> = Mutex::new(());
+static CONFIG_GENERATION: AtomicU64 = AtomicU64::new(1);
+
+pub fn generation() -> u64 {
+    CONFIG_GENERATION.load(Ordering::Acquire)
+}
 
 impl LoadContext {
     fn label(self) -> &'static str {
@@ -556,6 +564,7 @@ fn reload_runtime_config(path: &Path, trigger: WatchTrigger) {
             Ok(mut guard) => {
                 let level = config.main.log_level_filter();
                 *guard = Arc::new(config);
+                CONFIG_GENERATION.fetch_add(1, Ordering::AcqRel);
                 log::set_max_level(level);
                 log::info!(
                     "reloaded config from {} via {}",

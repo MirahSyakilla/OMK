@@ -1,7 +1,10 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::{Arc, Condvar, Mutex, Once};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, Condvar, Mutex, Once,
+};
 use std::time::{Duration, Instant};
 use std::{cmp, thread};
 
@@ -29,6 +32,7 @@ thread_local! {
 }
 
 static PROCESS_STATE_INIT: Once = Once::new();
+static PM_GENERATION: AtomicU64 = AtomicU64::new(1);
 static RPC_CACHE: Mutex<RpcCacheState> = Mutex::new(RpcCacheState {
     generation: 0,
     cache: None,
@@ -522,6 +526,11 @@ fn is_dead_object_status(status: &Status) -> bool {
 fn clear_pm_cache() {
     PM.with(|slot| *slot.borrow_mut() = None);
     PM_DEATH.with(|slot| *slot.borrow_mut() = None);
+    PM_GENERATION.fetch_add(1, Ordering::AcqRel);
+}
+
+pub(crate) fn pm_generation() -> u64 {
+    PM_GENERATION.load(Ordering::Acquire)
 }
 
 fn clear_rpc_cache_if(service_name: &'static str, failed: &SIBinder) {

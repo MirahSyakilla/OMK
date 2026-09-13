@@ -1,4 +1,5 @@
 use super::*;
+use log::trace;
 
 pub(super) struct PendingAuthorizationCall {
     pub(super) request: ParsedAuthorizationRequest,
@@ -69,6 +70,10 @@ pub(super) enum PendingCall {
     SecurityLevel(PendingSecurityLevelCall),
     PrecomputedSecurityLevel(PendingSecurityLevelCall, Box<Option<OutboundReply>>),
     Operation(PendingOperationCall),
+    SystemOperation {
+        target: LocalBinderTarget,
+        method: OperationMethod,
+    },
 }
 
 struct PendingReplyFrame {
@@ -111,6 +116,7 @@ impl PendingCall {
                 call.caller.uid,
                 call.caller.pid,
             ),
+            Self::SystemOperation { method, .. } => ("operation", format!("{:?}", method), 0, 0),
         }
     }
 }
@@ -224,6 +230,13 @@ pub(in crate::hook) unsafe fn handle_bc_reply(
             );
             build_operation_reply_rewrite(call)
         }
+        PendingCall::SystemOperation { target, method } => {
+            trace!("event=reply observing System operation {:?}", method);
+            if matches!(method, OperationMethod::Finish | OperationMethod::Abort) {
+                forget_operation_target(*target);
+            }
+            Ok(None)
+        }
     };
 
     match result {
@@ -297,6 +310,7 @@ fn pending_preserves_system_on_rewrite_failure(pending: &PendingCall) -> bool {
         PendingCall::PrecomputedSecurityLevel(_, _) => false,
         PendingCall::Operation(call) => lookup_operation_target(call.target)
             .is_some_and(|target| target.route == RouteTarget::System),
+        PendingCall::SystemOperation { .. } => true,
     }
 }
 

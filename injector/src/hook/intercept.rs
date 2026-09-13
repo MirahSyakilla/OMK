@@ -8,18 +8,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, LazyLock, Mutex, MutexGuard, OnceLock};
 use std::time::Instant;
 
-use log::{debug, trace, warn};
+use log::{debug, warn};
 use nix::unistd::Pid;
 
 use super::binder::{
     _ioc_dir, _ioc_nr, _ioc_size, binder_node_debug_info, binder_ptr_cookie,
     binder_transaction_data, binder_transaction_data_secctx, binder_transaction_data_sg,
-    binder_version, binder_write_read, format_target, log_write_transaction,
-    preview_transaction_parcel, BC_ACQUIRE_DONE_CMD, BC_FREE_BUFFER_NR, BC_REPLY_NR,
-    BC_REPLY_SG_NR, BC_TRANSACTION_NR, BC_TRANSACTION_SG_NR, BINDER_GET_NODE_DEBUG_INFO,
-    BINDER_VERSION, BINDER_WRITE_READ, BR_ACQUIRE_NR, BR_DEAD_REPLY_NR, BR_FAILED_REPLY_NR,
-    BR_FROZEN_REPLY_NR, BR_ONEWAY_SPAM_SUSPECT_NR, BR_REPLY_NR, BR_TRANSACTION_COMPLETE_CMD,
-    BR_TRANSACTION_NR, BR_TRANSACTION_PENDING_FROZEN_NR, TF_ONE_WAY,
+    binder_version, binder_write_read, log_write_transaction, BC_ACQUIRE_DONE_CMD,
+    BC_FREE_BUFFER_NR, BC_REPLY_NR, BC_REPLY_SG_NR, BC_TRANSACTION_NR, BC_TRANSACTION_SG_NR,
+    BINDER_GET_NODE_DEBUG_INFO, BINDER_VERSION, BINDER_WRITE_READ, BR_ACQUIRE_NR, BR_DEAD_REPLY_NR,
+    BR_FAILED_REPLY_NR, BR_FROZEN_REPLY_NR, BR_ONEWAY_SPAM_SUSPECT_NR, BR_REPLY_NR,
+    BR_TRANSACTION_COMPLETE_CMD, BR_TRANSACTION_NR, BR_TRANSACTION_PENDING_FROZEN_NR, TF_ONE_WAY,
 };
 #[cfg(test)]
 use super::binder::{BC_FREE_BUFFER_CMD, BC_REPLY_CMD, BR_NOOP_CMD, BR_TRANSACTION_CMD};

@@ -447,7 +447,16 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
             packages: decision.packages,
             route,
         };
-        if pending.route == RouteTarget::System && precomputed_service_reply.is_none() {
+        let needs_system_observation = decision.allowed
+            && matches!(
+                &pending.request,
+                ParsedServiceRequest::GetSecurityLevel { .. }
+                    | ParsedServiceRequest::GetKeyEntry { .. }
+            );
+        if pending.route == RouteTarget::System
+            && precomputed_service_reply.is_none()
+            && !needs_system_observation
+        {
             return false;
         }
         if !expects_reply {
@@ -651,6 +660,16 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
         };
 
         if operation_target.route == RouteTarget::System {
+            if expects_reply {
+                if let Some(method) = identify::operation_method_from_code(tr.code) {
+                    if matches!(method, OperationMethod::Finish | OperationMethod::Abort) {
+                        replace_top_pending(
+                            connection,
+                            PendingCall::SystemOperation { target, method },
+                        );
+                    }
+                }
+            }
             return false;
         }
 
