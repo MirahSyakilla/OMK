@@ -29,6 +29,7 @@ fn stale_operation_retirement_does_not_remove_reused_target_generation() {
                 aad_allowed: false,
                 backend: None,
                 finalized: false,
+                call_gate: Arc::new(Mutex::new(())),
             },
         );
     SYNTHETIC_TARGETS

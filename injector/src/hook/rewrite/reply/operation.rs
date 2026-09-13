@@ -42,6 +42,7 @@ pub(super) unsafe fn register_operation_target_from_reply(
             aad_allowed,
             backend,
             finalized: false,
+            call_gate: Arc::new(Mutex::new(())),
         },
     );
     if config::debug_logging() {
@@ -147,6 +148,28 @@ pub(in crate::hook::rewrite) fn build_operation_reply_rewrite(
         return Ok(None);
     }
 
+    // Observe overlap at the client-facing carrier, before RPC transport can
+    // serialize calls and hide it from the backend's operation lock. Sharing
+    // this gate with the target state also ties its lifetime to the carrier.
+    let _call_guard = match target.call_gate.try_lock() {
+        Ok(guard) => guard,
+        Err(std::sync::TryLockError::WouldBlock) => {
+            return Ok(Some(build_service_specific_reply(
+                ResponseCode::OPERATION_BUSY.0,
+            )?));
+        }
+        Err(std::sync::TryLockError::Poisoned(_)) => {
+            return Ok(Some(synthetic_fallback_reply()));
+        }
+    };
+    // A previous call may have finished between lookup and acquiring the
+    // gate. Read its current lifecycle state before forwarding another call.
+    let Some(current) = lookup_operation_target(pending.target)
+        .filter(|current| Arc::ptr_eq(&current.call_gate, &target.call_gate))
+    else {
+        return Ok(Some(invalid_operation_handle_reply()?));
+    };
+
     if let Err(error) = ensure_mirror_state_recovered() {
         warn!(
             "event=route OMK operation {:?} blocked by unresolved mirror recovery for uid={} pid={}: {:#}",
@@ -155,8 +178,8 @@ pub(in crate::hook::rewrite) fn build_operation_reply_rewrite(
         return Ok(Some(synthetic_fallback_reply()));
     }
 
-    let Some(backend) = target.backend else {
-        if target.finalized {
+    let Some(backend) = current.backend else {
+        if current.finalized {
             if matches!(pending.request, ParsedOperationRequest::Abort) {
                 debug!(
                     "event=reply cleanup abort for finalized OMK operation carrier ptr=0x{:x} cookie=0x{:x}; returning INVALID_OPERATION_HANDLE",

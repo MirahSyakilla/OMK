@@ -14,6 +14,7 @@ fn system_invalid_update_aad_preserves_native_reply() {
             aad_allowed: false,
             backend: None,
             finalized: false,
+            call_gate: Arc::new(Mutex::new(())),
         },
     );
 
@@ -62,6 +63,7 @@ fn omk_invalid_update_aad_returns_business_error() {
             aad_allowed: false,
             backend: Some(backend),
             finalized: false,
+            call_gate: Arc::new(Mutex::new(())),
         },
     );
 
@@ -115,6 +117,7 @@ fn omk_route_operation_transaction_error_uses_omk_status_mapping() {
             aad_allowed: false,
             backend: Some(backend),
             finalized: false,
+            call_gate: Arc::new(Mutex::new(())),
         },
     );
 

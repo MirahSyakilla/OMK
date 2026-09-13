@@ -21,6 +21,7 @@ pub(super) struct OperationTargetInfo {
     pub(super) aad_allowed: bool,
     pub(super) backend: Option<AospOperationBinder>,
     pub(super) finalized: bool,
+    pub(super) call_gate: Arc<Mutex<()>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -508,6 +509,7 @@ pub(in crate::hook::rewrite) fn register_synthetic_operation_carrier(
             aad_allowed,
             backend: Some(backend),
             finalized: false,
+            call_gate: Arc::new(Mutex::new(())),
         },
     );
     synthetic.insert(

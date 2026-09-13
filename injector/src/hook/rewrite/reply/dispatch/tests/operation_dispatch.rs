@@ -21,6 +21,7 @@ fn synthetic_operation_missing_args_keep_not_enough_data_status() {
             aad_allowed: true,
             backend: Some(backend),
             finalized: false,
+            call_gate: Arc::new(Mutex::new(())),
         },
     );
 
@@ -86,6 +87,7 @@ fn synthetic_operation_trailing_abort_finalizes_operation() {
             aad_allowed: true,
             backend: Some(backend),
             finalized: false,
+            call_gate: Arc::new(Mutex::new(())),
         },
     );
 
@@ -140,6 +142,7 @@ fn synthetic_operation_bad_interface_marker_rejects_abort() {
             aad_allowed: true,
             backend: Some(backend),
             finalized: false,
+            call_gate: Arc::new(Mutex::new(())),
         },
     );
 
@@ -215,6 +218,7 @@ fn synthetic_operation_dispatch_uses_registered_caller_identity() {
                 aad_allowed: true,
                 backend: Some(backend),
                 finalized: false,
+                call_gate: Arc::new(Mutex::new(())),
             },
         );
 
@@ -274,6 +278,7 @@ fn tracked_operation_pending_call_uses_transaction_caller_identity() {
             aad_allowed: true,
             backend: None,
             finalized: false,
+            call_gate: Arc::new(Mutex::new(())),
         },
     );
 

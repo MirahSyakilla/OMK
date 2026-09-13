@@ -80,6 +80,7 @@ fn operation_rewrite_failure_preserves_only_system_route() {
             aad_allowed: true,
             backend: None,
             finalized: false,
+            call_gate: Arc::new(Mutex::new(())),
         },
     );
     let system_target = LocalBinderTarget {
@@ -93,6 +94,7 @@ fn operation_rewrite_failure_preserves_only_system_route() {
             aad_allowed: true,
             backend: None,
             finalized: false,
+            call_gate: Arc::new(Mutex::new(())),
         },
     );
 

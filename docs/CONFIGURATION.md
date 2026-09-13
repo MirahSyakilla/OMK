@@ -619,6 +619,12 @@ Keep all switches `true` for normal use. Mixing System and OMK operations for
 the same app can cause missing-key errors, inconsistent lists, or failed
 follow-up operations.
 
+Calls on an OMK operation handle follow the Keystore2 concurrency contract.
+Overlapping `updateAad`, `update`, `finish`, or `abort` calls on the same handle
+return `OPERATION_BUSY` (19) while another call is in progress. A busy response
+leaves that operation usable. Each operation has its own concurrency guard,
+so calls on different handles do not contend on this guard.
+
 #### `get_security_level`
 
 Controls the request for a TEE or StrongBox KeyStore security-level handle.
