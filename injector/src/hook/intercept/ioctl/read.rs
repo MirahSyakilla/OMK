@@ -130,7 +130,7 @@ pub(in crate::hook::intercept) unsafe fn parse_read_buffer(
                             std::ptr::read_unaligned(payload as *const binder_transaction_data);
                         if let Some(mut shadow) = TransactionPayloadShadow::read(&tr) {
                             shadow.install(&mut tr);
-                            debug!(
+                            trace!(
                                 ">>> BR_REPLY | target: {}, code: 0x{:x}, sender_euid: {}, sender_pid: {}, flags: 0x{:x}{}, parcel_size: {}, offsets_size: {}, parcel: {}",
                                 format_target(&tr),
                                 tr.code,
@@ -205,7 +205,7 @@ pub(super) fn record_transaction_completion(
                 .push(SyncTransactionState::PendingCompletion);
         });
     }
-    debug!(
+    trace!(
         "event=synthetic registered BR_TRANSACTION_COMPLETE for fd={} thread={:?} reply={} expects_reply={} pending={}",
         fd,
         std::thread::current().id(),
@@ -221,9 +221,10 @@ pub(super) fn observe_operation_acquire(
 ) -> Option<NativeBinderRetirement> {
     let retirement = mark_operation_publication_acquire_pending(target, binder_state_key(fd));
     if retirement.is_some() {
-        debug!(
+        trace!(
             "event=synthetic observed BR_ACQUIRE for operation target ptr=0x{:x} cookie=0x{:x}",
-            target.ptr, target.cookie
+            target.ptr,
+            target.cookie
         );
     }
     retirement
@@ -245,7 +246,7 @@ pub(in crate::hook::intercept) unsafe fn flush_native_binder_lifecycle(
         if let Some(retirement) =
             finish_operation_publication_probe(probe, node_exists, Instant::now())
         {
-            debug!(
+            trace!(
                 "event=synthetic operation publication has no driver references; dropping ptr=0x{:x} cookie=0x{:x}",
                 retirement.target.ptr, retirement.target.cookie
             );
@@ -272,7 +273,7 @@ unsafe fn operation_binder_node_exists(
     ) {
         BinderIoctlCall::Called(ret) => ret,
         BinderIoctlCall::Stale => {
-            debug!(
+            trace!(
                 "event=synthetic operation publication belongs to a retired Binder fd generation; retaining until acquire ownership is resolved ptr=0x{:x} cookie=0x{:x} fd={} generation={}",
                 target.ptr, target.cookie, probe.binder.fd, probe.binder.generation
             );
@@ -290,15 +291,18 @@ unsafe fn operation_binder_node_exists(
             .raw_os_error()
             .unwrap_or(libc::EIO);
         if error == libc::EBADF {
-            debug!(
+            trace!(
                 "event=synthetic operation node query fd no longer references its Binder connection; retaining because process-wide acquire work may still be in flight fd={} ptr=0x{:x} cookie=0x{:x} errno={}",
                 probe.binder.fd, target.ptr, target.cookie, error
             );
             return Err(error);
         }
-        debug!(
+        trace!(
             "event=synthetic operation node query failed fd={} ptr=0x{:x} cookie=0x{:x} errno={}",
-            probe.binder.fd, target.ptr, target.cookie, error
+            probe.binder.fd,
+            target.ptr,
+            target.cookie,
+            error
         );
         return Err(error);
     }
@@ -343,7 +347,7 @@ pub(super) fn complete_transaction_submission(fd: c_int) -> Option<()> {
         );
     }
 
-    debug!(
+    trace!(
         "event=synthetic consumed BR_TRANSACTION_COMPLETE for fd={} thread={:?} remaining={}",
         fd,
         std::thread::current().id(),
@@ -410,12 +414,12 @@ fn complete_failed_transaction_submission(fd: c_int, cmd_nr: u32) {
         if let Some(completion) = failed_reply {
             if let Some(target) = completion.operation_target {
                 retire_synthetic_operation_retirement(target);
-                debug!(
+                trace!(
                     "event=synthetic failed reply retired operation backend and retained publication tombstone fd={} ptr=0x{:x} cookie=0x{:x}",
                     fd, target.target.ptr, target.target.cookie
                 );
             }
-            debug!(
+            trace!(
                 "event=synthetic consumed terminal result for failed synthetic reply fd={} thread={:?}",
                 fd,
                 std::thread::current().id()
@@ -443,7 +447,7 @@ fn complete_failed_transaction_submission(fd: c_int, cmd_nr: u32) {
         && !immediate_failure
         && complete_sync_transaction(fd, SyncTransactionState::AwaitingReply)
     {
-        debug!(
+        trace!(
             "event=synthetic consumed terminal result after completed synchronous transaction fd={} thread={:?}",
             fd,
             std::thread::current().id()
@@ -472,7 +476,7 @@ fn complete_failed_transaction_submission(fd: c_int, cmd_nr: u32) {
         Some(())
     });
     if removed.is_some() {
-        debug!(
+        trace!(
             "event=synthetic consumed terminal result for failed outgoing transaction fd={} thread={:?}",
             fd,
             std::thread::current().id()

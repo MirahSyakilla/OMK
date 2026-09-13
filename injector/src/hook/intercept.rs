@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, LazyLock, Mutex, MutexGuard, OnceLock};
 use std::time::Instant;
 
-use log::{debug, warn};
+use log::{debug, trace, warn};
 use nix::unistd::Pid;
 
 use super::binder::{

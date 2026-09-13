@@ -499,6 +499,15 @@ unsafe fn build_synthetic_br_transaction_reply_inner(
     };
     let method = request.method();
 
+    let decision = evaluate_caller(&caller, &cfg);
+    if !decision.allowed {
+        info!(
+            "event=synthetic rejected {} operation {:?} uid={} pid={} reason={:?}",
+            command_name, method, caller.uid, caller.pid, decision.reason,
+        );
+        return Ok(SyntheticReply::Status(StatusCode::PermissionDenied.into()));
+    }
+
     info!(
         "event=synthetic handling {} operation {:?} uid={} pid={} target=ptr:0x{:x}/cookie:0x{:x}",
         command_name, method, caller.uid, caller.pid, target.ptr, target.cookie,

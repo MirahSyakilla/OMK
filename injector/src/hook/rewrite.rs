@@ -96,8 +96,20 @@ impl CallerInfo {
 
 fn evaluate_caller(
     caller: &CallerInfo,
-    cfg: &config::InjectorConfig,
+    cfg: &Arc<config::InjectorConfig>,
 ) -> crate::filter::FilterDecision {
+    let cache_key = (
+        caller.uid,
+        caller.pid,
+        Arc::as_ptr(cfg) as usize,
+        caller.sid.clone(),
+    );
+    if let Ok(cache) = CALLER_FILTER_CACHE.lock() {
+        if let Some(decision) = cache.get(&cache_key) {
+            return decision.clone();
+        }
+    }
+
     let uid = caller.uid as u32;
     let preflight = filter::evaluate(&cfg.scoop, &cfg.filter, uid, PackageResolution::Unknown);
     if preflight.reason == FilterReason::RejectedAndroidPackage {
@@ -114,8 +126,21 @@ fn evaluate_caller(
             "event=decision package filter disabled; routing still follows per-method intercept settings"
         );
     }
+    if let Ok(mut cache) = CALLER_FILTER_CACHE.lock() {
+        if cache.len() >= CALLER_FILTER_CACHE_LIMIT {
+            cache.retain(|key, _| key.2 == cache_key.2);
+        }
+        cache.insert(cache_key, decision.clone());
+    }
     decision
 }
+
+const CALLER_FILTER_CACHE_LIMIT: usize = 1024;
+type CallerFilterCacheKey = (i64, i64, usize, String);
+type CallerFilterCache = HashMap<CallerFilterCacheKey, crate::filter::FilterDecision>;
+
+static CALLER_FILTER_CACHE: LazyLock<Mutex<CallerFilterCache>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn service_request_key(request: &ParsedServiceRequest) -> Option<&KeyDescriptor> {
     match request {

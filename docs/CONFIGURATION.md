@@ -435,7 +435,8 @@ scoop = [
 [main]
 # Master switch for request routing. Keep true for normal use.
 enabled = true
-# Injector log detail: off, error, warn, info, debug, or trace.
+# Injector log detail: off, error, warn, info, debug, or trace. Per-transaction
+# Binder traces and raw parcel previews require trace.
 log_level = "debug"
 
 [filter]
@@ -515,7 +516,9 @@ routes.
 This controls injector messages. Accepted values are `"off"`, `"error"`,
 `"warn"`, `"warning"`, `"info"`, `"debug"`, and `"trace"`; `"warning"` is an
 alias for `"warn"`. Matching is case-insensitive, but lowercase values are
-recommended. `"debug"` is the default and the normal choice for a bug report.
+recommended. `"debug"` is the default. Use `"trace"` only for short, focused
+Binder diagnostics because it enables per-transaction traces and raw parcel
+previews.
 
 A valid file change updates the level without restarting the injector. An
 unrecognized string does not make the TOML file invalid; the injector uses

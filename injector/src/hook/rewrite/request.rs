@@ -1,4 +1,5 @@
 use super::*;
+use log::trace;
 
 pub(super) fn target_from_transaction(tr: &binder_transaction_data) -> Option<LocalBinderTarget> {
     let ptr = unsafe { tr.target.ptr };
@@ -42,16 +43,19 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
     }
 
     if forward::is_bypassed() {
-        debug!(
+        trace!(
             "skipped {} because bypass is active: code=0x{:x} uid={} pid={}",
-            command_name, tr.code, tr.sender_euid, tr.sender_pid
+            command_name,
+            tr.code,
+            tr.sender_euid,
+            tr.sender_pid
         );
         return false;
     }
 
     let cfg = config::get();
     if !cfg.main.enabled {
-        debug!("event=decision injector disabled by config");
+        trace!("event=decision injector disabled by config");
         return false;
     }
 
@@ -69,9 +73,10 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
             Ok(interface) => interface,
             Err(error) => {
                 if parcel::contains_known_keystore_interface(parcel_bytes) {
-                    debug!(
+                    trace!(
                         "event=decision failed to read keystore interface code=0x{:x}: {:#}",
-                        tr.code, error
+                        tr.code,
+                        error
                     );
                 }
                 return false;
@@ -100,7 +105,7 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
         ) {
             Ok(request) => request,
             Err(error) => {
-                debug!(
+                trace!(
                     "event=decision failed to parse IKeystoreAuthorization request code=0x{:x}: {:#}",
                     tr.code, error
                 );
@@ -109,7 +114,7 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
         };
 
         let method = request.method();
-        info!(
+        trace!(
             "event=decision command={} authorization_method={:?} code=0x{:x} uid={} pid={} sid='{}'; mirroring auth state to OMK after system success",
             command_name,
             method,
@@ -187,9 +192,10 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
         ) {
             Ok(request) => request,
             Err(error) => {
-                debug!(
+                trace!(
                     "event=decision failed to parse IKeystoreMaintenance request code=0x{:x}: {:#}",
-                    tr.code, error
+                    tr.code,
+                    error
                 );
                 return false;
             }
@@ -246,7 +252,7 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
         } else {
             "mirroring maintenance state to OMK after system success"
         };
-        info!(
+        trace!(
             "event=decision command={} maintenance_method={:?} code=0x{:x} uid={} pid={} sid='{}' packages={:?} route={:?} reason={:?}; {}",
             command_name,
             method,
@@ -310,9 +316,10 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
             match parcel::parse_service_request(data, data_size, offsets, offsets_size, tr.code) {
                 Ok(request) => request,
                 Err(error) => {
-                    debug!(
+                    trace!(
                         "event=decision failed to parse IKeystoreService request code=0x{:x}: {:#}",
-                        tr.code, error
+                        tr.code,
+                        error
                     );
                     return false;
                 }
@@ -360,7 +367,7 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
             route_for_service_request(&request, &cfg.intercept)
         };
         if !decision.allowed && !allow_omk_grant {
-            info!(
+            trace!(
                 "event=decision command={} service_method={:?} code=0x{:x} uid={} pid={} sid='{}' packages={:?} allowed=false reason={:?}; routing request to System",
                 command_name,
                 method,
@@ -374,7 +381,7 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
             route = RouteTarget::System;
         }
         if allow_omk_grant {
-            info!(
+            trace!(
                 "event=decision command={} service_method={:?} code=0x{:x} uid={} pid={} sid='{}' packages={:?} allowed=true reason={:?} omk_grant=true",
                 command_name,
                 method,
@@ -401,7 +408,7 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
                     Some(reply)
                 }
                 OmkServicePrecompute::PreserveSystem => {
-                    info!(
+                    trace!(
                         "event=route method={:?} uid={} pid={} route={:?} omk_unavailable=true; preserving original system request",
                         method, caller.uid, caller.pid, route
                     );
@@ -414,7 +421,7 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
         };
         let request_rewritten = precomputed_service_reply.is_some();
 
-        info!(
+        trace!(
             "event=decision command={} service_method={:?} code=0x{:x} uid={} pid={} sid='{}' packages={:?} allowed={} reason={:?}",
             command_name,
             method,
@@ -426,9 +433,12 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
             decision.allowed,
             decision.reason,
         );
-        info!(
+        trace!(
             "event=route method={:?} uid={} pid={} route={:?}",
-            method, caller.uid, caller.pid, route
+            method,
+            caller.uid,
+            caller.pid,
+            route
         );
 
         let pending = PendingServiceCall {
@@ -437,6 +447,9 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
             packages: decision.packages,
             route,
         };
+        if pending.route == RouteTarget::System && precomputed_service_reply.is_none() {
+            return false;
+        }
         if !expects_reply {
             if let Some(reply) = precomputed_service_reply.as_ref() {
                 if let Err(error) = build_precomputed_service_reply(reply) {
@@ -459,7 +472,7 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
     }
 
     let Some(target) = target_from_transaction(tr) else {
-        debug!(
+        trace!(
             "event=decision skipping keystore request without local target code=0x{:x} target={}",
             tr.code,
             format_target(tr)
@@ -471,7 +484,7 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
         let decision = evaluate_caller(&caller, &cfg);
         let caller = caller.with_keybox_slot(cfg.keybox_slot_for_packages(&decision.packages));
         let Some(target_info) = tracker::lookup_security_level_target(target) else {
-            debug!(
+            trace!(
                 "event=decision skipping IKeystoreSecurityLevel request for unmapped target ptr=0x{:x} cookie=0x{:x}",
                 target.ptr, target.cookie
             );
@@ -487,7 +500,7 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
         ) {
             Ok(request) => request,
             Err(error) => {
-                debug!(
+                trace!(
                     "event=decision failed to parse IKeystoreSecurityLevel request code=0x{:x}: {:#}",
                     tr.code, error
                 );
@@ -536,7 +549,7 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
             RouteTarget::System
         };
         if !decision.allowed && !allow_unknown_omk_route {
-            info!(
+            trace!(
                 "event=decision command={} security_level_method={:?} code=0x{:x} uid={} pid={} sid='{}' packages={:?} allowed=false reason={:?} target=ptr:0x{:x}/cookie:0x{:x} security_level={:?}; routing request to System",
                 command_name,
                 method,
@@ -552,7 +565,7 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
             );
         }
 
-        info!(
+        trace!(
             "event=decision command={} security_level_method={:?} code=0x{:x} uid={} pid={} sid='{}' packages={:?} allowed={} reason={:?} target=ptr:0x{:x}/cookie:0x{:x} security_level={:?} scoop_enabled={} omk_derived_route={}",
             command_name,
             method,
@@ -569,10 +582,18 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
             scoop_enabled,
             allow_unknown_omk_route,
         );
-        info!(
+        trace!(
             "event=route security_level_method={:?} uid={} pid={} route={:?} security_level={:?}",
-            method, caller.uid, caller.pid, route, target_info.security_level
+            method,
+            caller.uid,
+            caller.pid,
+            route,
+            target_info.security_level
         );
+
+        if route == RouteTarget::System {
+            return false;
+        }
 
         let mut pending = PendingSecurityLevelCall {
             request,
@@ -585,7 +606,7 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
             let reply = match build_omk_security_level_reply(&pending, true) {
                 Ok(Some(reply)) => reply,
                 Ok(None) => {
-                    info!(
+                    trace!(
                         "event=route security-level {:?} OMK unavailable for uid={} pid={}; preserving original system request",
                         method, caller_uid, pending.caller.pid
                     );
@@ -622,12 +643,16 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
 
     if request_interface == identify::KEYSTORE_OPERATION_INTERFACE {
         let Some(operation_target) = lookup_operation_target(target) else {
-            debug!(
+            trace!(
                 "event=decision skipping IKeystoreOperation request for unmapped target ptr=0x{:x} cookie=0x{:x}",
                 target.ptr, target.cookie
             );
             return false;
         };
+
+        if operation_target.route == RouteTarget::System {
+            return false;
+        }
 
         let request = match parcel::parse_operation_request(
             data,
@@ -638,9 +663,10 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
         ) {
             Ok(request) => request,
             Err(error) => {
-                debug!(
+                trace!(
                     "event=decision failed to parse IKeystoreOperation request code=0x{:x}: {:#}",
-                    tr.code, error
+                    tr.code,
+                    error
                 );
                 return false;
             }
@@ -648,7 +674,7 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
 
         let method = request.method();
 
-        info!(
+        trace!(
             "event=decision command={} operation_method={:?} code=0x{:x} uid={} pid={} sid='{}' target=ptr:0x{:x}/cookie:0x{:x}",
             command_name,
             method,
@@ -659,9 +685,12 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
             target.ptr,
             target.cookie,
         );
-        info!(
+        trace!(
             "event=route operation_method={:?} uid={} pid={} route={:?}",
-            method, caller.uid, caller.pid, operation_target.route
+            method,
+            caller.uid,
+            caller.pid,
+            operation_target.route
         );
 
         let pending = PendingOperationCall {
@@ -681,7 +710,7 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
         return false;
     }
 
-    debug!(
+    trace!(
         "event=decision skipping unsupported keystore interface request code=0x{:x}",
         tr.code
     );
