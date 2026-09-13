@@ -1,4 +1,5 @@
-pub const SOCKET: &str = "/data/misc/keystore/omk/rpc.sock";
+pub const SOCKET: &str = "/data/misc/keystore/keystore.sock";
+pub const LEGACY_SOCKET: &str = "/data/misc/keystore/omk/rpc.sock";
 pub const WIRE_MAX_VERSION: u32 = 2;
 
 pub const SERVICE: &str = "omk";

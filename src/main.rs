@@ -172,6 +172,15 @@ fn create_rpc_server() -> Result<Arc<RpcServer>> {
     server.set_android13plus(rpc::WIRE_MAX_VERSION);
     std::fs::set_permissions(rpc::SOCKET, std::fs::Permissions::from_mode(0o660))
         .context("failed to chmod OMK RPC socket")?;
+    if let Err(error) = std::fs::remove_file(rpc::LEGACY_SOCKET) {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            warn!(
+                "failed to remove legacy OMK RPC socket {}: {}",
+                rpc::LEGACY_SOCKET,
+                error
+            );
+        }
+    }
 
     server.set_authorizer(|peer| {
         let allowed = matches!(
