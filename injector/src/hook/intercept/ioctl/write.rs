@@ -228,6 +228,23 @@ pub(super) unsafe fn parse_write_buffer(
                     if cmd_size == expected_size {
                         let tr_ptr = payload as *mut binder_transaction_data;
                         let mut tr = std::ptr::read_unaligned(tr_ptr);
+                        // Remote-handle transactions (keystore2 -> HAL/PM) are never
+                        // rewritten: they target nodes this process does not own. Skip
+                        // shadowing and logging so the outbound hot path stays as close
+                        // to stock as possible.
+                        if !is_reply && tr.target.handle != 0 {
+                            completion_commands.push((
+                                offset + cmd_size,
+                                None,
+                                (tr.flags & TF_ONE_WAY) == 0,
+                                None,
+                            ));
+                            offset += cmd_size;
+                            if is_reply {
+                                reply_count += 1;
+                            }
+                            continue;
+                        }
                         let prepared = is_reply
                             .then(|| prepared_bc_reply(fd, reply_count))
                             .flatten();
