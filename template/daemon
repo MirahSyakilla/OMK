@@ -50,6 +50,9 @@ consume_restart_request() {
 cd "$MODDIR" || exit 1
 mkdir -p "$STATE_DIR"
 
+echo $$ > "$STATE_DIR/keymint-daemon.pid"
+trap 'rm -f "$STATE_DIR/keymint-daemon.pid"' EXIT INT TERM
+
 while true; do
   TARGET=$(find_module_keymint)
   if [ -z "$TARGET" ]; then

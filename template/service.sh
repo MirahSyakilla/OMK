@@ -3,31 +3,30 @@ STATE_DIR=/data/adb/omk
 
 mkdir -p "$STATE_DIR"
 
-pid_matches_script() {
-  pid=$1
-  script=$2
-  [ -r "/proc/$pid/cmdline" ] || return 1
-  cmdline=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)
-  echo "$cmdline" | grep -F "$script" >/dev/null 2>&1
+daemon_alive() {
+  script=$1
+  for pid in $(pgrep -f "$script" 2>/dev/null); do
+    [ "$pid" = "$$" ] && continue
+    cmdline=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)
+    case "$cmdline" in
+      *"$script"*) return 0 ;;
+    esac
+  done
+  return 1
 }
 
 start_daemon() {
   script=$1
   pidfile=$2
 
-  if [ -f "$pidfile" ]; then
-    pid=$(cat "$pidfile" 2>/dev/null)
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && pid_matches_script "$pid" "$script"; then
-      return 0
-    fi
-    rm -f "$pidfile"
+  if daemon_alive "$script"; then
+    return 0
   fi
+  rm -f "$pidfile"
 
-  sh "$script" &
-  pid=$!
-  echo $pid > "$pidfile"
+  setsid nohup sh "$script" >/dev/null 2>&1 &
   sleep 1
-  if ! kill -0 "$pid" 2>/dev/null || ! pid_matches_script "$pid" "$script"; then
+  if ! daemon_alive "$script"; then
     rm -f "$pidfile"
     return 1
   fi

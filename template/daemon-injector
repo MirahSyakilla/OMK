@@ -108,6 +108,8 @@ restart_keystore() {
 }
 
 mkdir -p "$STATE_DIR"
+echo $$ > "$STATE_DIR/injector-daemon.pid"
+trap 'rm -f "$STATE_DIR/injector-daemon.pid"' EXIT INT TERM
 pending_restart=0
 last_attempt_pid=
 last_attempt_at=0
