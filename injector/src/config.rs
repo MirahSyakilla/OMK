@@ -641,6 +641,27 @@ impl InjectorConfig {
         self
     }
 
+    /// Whether any of the caller's packages opted in to the ATTEST_KEY
+    /// capability fallback.
+    ///
+    /// Some stock KeyMint HALs (notably keymaster 4.x builds without the
+    /// `android.hardware.keystore.app_attest_key` feature) silently drop the
+    /// `PURPOSE=ATTEST_KEY` authorization, which makes app-attest-key key
+    /// generation unusable on those devices. When a package sets
+    /// `attest_key_fallback = true` under `[scoop.<package>]`, attestation-key
+    /// related generation requests from that package are served by the OMK
+    /// backend, which implements the full KeyMint 3 ATTEST_KEY semantics.
+    /// Every other request from the caller keeps its normal routing.
+    pub fn attest_key_fallback_for_packages(&self, packages: &[String]) -> bool {
+        packages.iter().any(|package| {
+            self.scoop_details
+                .get(package)
+                .and_then(|table| table.get("attest_key_fallback"))
+                .and_then(toml::Value::as_bool)
+                .unwrap_or(false)
+        })
+    }
+
     /// Resolve the keybox slot for a caller's package set.
     ///
     /// A UID can own more than one package, so a slot is only selected when

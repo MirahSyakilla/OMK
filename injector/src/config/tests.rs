@@ -310,3 +310,23 @@ fn replace_save_retry_only_retries_read_failures() {
     assert!(matches!(error, LoadError::Parse(_)));
     assert!(sleeps.is_empty());
 }
+
+#[test]
+fn attest_key_fallback_flag_is_parsed_per_package() {
+    let config = parse_config(
+        r#"
+scoop = ["com.probe.app", "com.plain.app"]
+
+[scoop."com.probe.app"]
+attest_key_fallback = true
+
+[scoop."com.plain.app"]
+keybox_slot = 1
+"#,
+    )
+    .unwrap();
+
+    assert!(config.attest_key_fallback_for_packages(&["com.probe.app".to_string()]));
+    assert!(!config.attest_key_fallback_for_packages(&["com.plain.app".to_string()]));
+    assert!(!config.attest_key_fallback_for_packages(&["com.unknown.app".to_string()]));
+}
