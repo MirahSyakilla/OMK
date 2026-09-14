@@ -232,7 +232,15 @@ pub(super) unsafe fn parse_write_buffer(
                         // rewritten: they target nodes this process does not own. Skip
                         // shadowing and logging so the outbound hot path stays as close
                         // to stock as possible.
+                        //
+                        // Preserve stock-like TEE contention: stock keystore2 races many
+                        // threads against a hardware op table, so some `createOperation`
+                        // calls lose. Our hook makes every transaction a bit faster and
+                        // more uniform than stock, which lets all concurrent begins win.
+                        // Add a small random jitter only on the remote path so the race
+                        // outcome stays distributed like real hardware.
                         if !is_reply && tr.target.handle != 0 {
+                            remote_handle_jitter();
                             completion_commands.push((
                                 offset + cmd_size,
                                 None,
@@ -347,6 +355,37 @@ pub(super) unsafe fn parse_write_buffer(
     }
 
     completion_commands
+}
+
+/// Randomized micro-jitter applied to keystore2's outbound remote-handle
+/// transactions. Real hardware KeyMint serializes begins through a TEE with a
+/// bounded operation table, so under concurrency some calls measurably lose.
+/// The hook would otherwise run every transaction faster and more uniformly
+/// than stock, letting pathological probes observe an all-success pattern that
+/// no real TEE produces. A random 0-400us pause on a subset of transactions
+/// restores a stock-like contention distribution without changing any reply.
+fn remote_handle_jitter() {
+    use std::time::Duration;
+
+    // Mix tid, a stack address, and the monotonic counter. Cheap and well
+    // distributed enough for sub-millisecond scheduling jitter.
+    let stack_marker = 0u8;
+    let mut state = Instant::now()
+        .elapsed()
+        .subsec_nanos()
+        .wrapping_mul(2654435761)
+        ^ (&stack_marker as *const u8 as u32).wrapping_mul(0x9E37_79B9)
+        ^ (unsafe { libc::gettid() } as u32);
+
+    // xorshift32
+    state ^= state << 13;
+    state ^= state >> 17;
+    state ^= state << 5;
+
+    // ~35% of transactions pause for 0-400us.
+    if state % 100 < 35 {
+        std::thread::sleep(Duration::from_micros((state % 400) as u64));
+    }
 }
 
 #[cfg(test)]
