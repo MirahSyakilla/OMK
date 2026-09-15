@@ -50,6 +50,9 @@ static KEYBOX_DB_RETIRE_ALLOWED: AtomicBool = AtomicBool::new(false);
 static KEYBOX_RUNTIME_LOADED: AtomicBool = AtomicBool::new(false);
 
 thread_local! {
+    // The initializer is already const; current nightly Clippy reports a
+    // false positive for this macro expansion.
+    #[allow(clippy::missing_const_for_thread_local)]
     static ACTIVE_KEYBOX_SLOT: Cell<u32> = const { Cell::new(0) };
 }
 
