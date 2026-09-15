@@ -652,6 +652,24 @@ impl InjectorConfig {
     /// related generation requests from that package are served by the OMK
     /// backend, which implements the full KeyMint 3 ATTEST_KEY semantics.
     /// Every other request from the caller keeps its normal routing.
+    /// Packages opted into the per-package ATTEST_KEY capability fallback.
+    ///
+    /// These callers are served entirely by the OMK backend (same routing as
+    /// scooped packages) so attestation-key generation, alias lookup, and child
+    /// key generation all observe one backend.
+    pub fn attest_key_fallback_packages(&self) -> Vec<String> {
+        self.scoop_details
+            .iter()
+            .filter(|(_, table)| {
+                table
+                    .get("attest_key_fallback")
+                    .and_then(toml::Value::as_bool)
+                    .unwrap_or(false)
+            })
+            .map(|(package, _)| package.clone())
+            .collect()
+    }
+
     pub fn attest_key_fallback_for_packages(&self, packages: &[String]) -> bool {
         packages.iter().any(|package| {
             self.scoop_details

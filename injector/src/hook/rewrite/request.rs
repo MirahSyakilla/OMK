@@ -31,41 +31,6 @@ fn is_known_keystore_interface(interface: &str) -> bool {
     identify::KNOWN_KEYSTORE_INTERFACES.contains(&interface)
 }
 
-/// True when a parsed security-level request is attestation-key related:
-/// the parameters carry `PURPOSE=ATTEST_KEY`, or the request references an
-/// explicit attestation key alias.
-fn security_level_request_targets_attest_key(request: &ParsedSecurityLevelRequest) -> bool {
-    let params_attest =
-        |params: &[crate::android::hardware::security::keymint::KeyParameter::KeyParameter]| {
-            params.iter().any(|parameter| {
-            parameter.tag == crate::android::hardware::security::keymint::Tag::Tag::PURPOSE
-                && matches!(
-                    parameter.value,
-                    crate::android::hardware::security::keymint::KeyParameterValue::KeyParameterValue::KeyPurpose(
-                        crate::android::hardware::security::keymint::KeyPurpose::KeyPurpose::ATTEST_KEY
-                    )
-                )
-        })
-        };
-    match request {
-        ParsedSecurityLevelRequest::GenerateKey {
-            params,
-            attestation_key,
-            ..
-        }
-        | ParsedSecurityLevelRequest::ImportKey {
-            params,
-            attestation_key,
-            ..
-        } => params_attest(params) || attestation_key.is_some(),
-        ParsedSecurityLevelRequest::CreateOperation {
-            operation_parameters,
-            ..
-        } => params_attest(operation_parameters),
-        _ => false,
-    }
-}
-
 pub(in crate::hook) unsafe fn handle_br_transaction(
     connection: BinderStateKey,
     tr: &mut binder_transaction_data,
@@ -587,20 +552,11 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
         };
         // Keystore2 shares each security-level Binder between getSecurityLevel and getKeyEntry.
         let scoop_enabled = security_level_scoop_enabled(&cfg.intercept);
-        // Per-package ATTEST_KEY capability fallback: serve attestation-key related
-        // generation from the OMK backend when the caller opted in and the stock
-        // HAL lacks the capability. The request's own parameters decide; nothing is
-        // inferred from stored key state.
-        let attest_fallback = !decision.allowed
-            && !allow_unknown_omk_route
-            && cfg.attest_key_fallback_for_packages(&decision.packages)
-            && security_level_request_targets_attest_key(&request);
-        let route =
-            if allow_unknown_omk_route || attest_fallback || decision.allowed && scoop_enabled {
-                RouteTarget::Omk
-            } else {
-                RouteTarget::System
-            };
+        let route = if allow_unknown_omk_route || decision.allowed && scoop_enabled {
+            RouteTarget::Omk
+        } else {
+            RouteTarget::System
+        };
         if !decision.allowed && !allow_unknown_omk_route {
             trace!(
                 "event=decision command={} security_level_method={:?} code=0x{:x} uid={} pid={} sid='{}' packages={:?} allowed=false reason={:?} target=ptr:0x{:x}/cookie:0x{:x} security_level={:?}; routing request to System",

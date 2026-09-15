@@ -112,7 +112,13 @@ fn evaluate_caller(
     }
 
     let uid = caller.uid as u32;
-    let preflight = filter::evaluate(&cfg.scoop, &cfg.filter, uid, PackageResolution::Unknown);
+    let preflight = filter::evaluate(
+        &cfg.scoop,
+        &cfg.attest_key_fallback_packages(),
+        &cfg.filter,
+        uid,
+        PackageResolution::Unknown,
+    );
     if preflight.reason == FilterReason::RejectedAndroidPackage {
         return preflight;
     }
@@ -122,7 +128,13 @@ fn evaluate_caller(
         ipc::resolve_packages_for_uid(uid)
     };
     let cacheable = matches!(&package_resolution, PackageResolution::Known(_));
-    let decision = filter::evaluate(&cfg.scoop, &cfg.filter, uid, package_resolution);
+    let decision = filter::evaluate(
+        &cfg.scoop,
+        &cfg.attest_key_fallback_packages(),
+        &cfg.filter,
+        uid,
+        package_resolution,
+    );
     if decision.reason == FilterReason::Disabled {
         debug!(
             "event=decision package filter disabled; routing still follows per-method intercept settings"

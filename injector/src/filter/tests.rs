@@ -13,7 +13,13 @@ fn disabled_filter_reports_disabled_and_allows() {
     let mut config = base_config();
     config.enabled = false;
 
-    let decision = evaluate(&base_scope(), &config, 10_000, PackageResolution::Unknown);
+    let decision = evaluate(
+        &base_scope(),
+        &[],
+        &config,
+        10_000,
+        PackageResolution::Unknown,
+    );
     assert!(decision.allowed);
     assert_eq!(decision.reason, FilterReason::Disabled);
 }
@@ -25,6 +31,7 @@ fn android_package_is_rejected_when_blocking_is_enabled() {
 
     let decision = evaluate(
         &scope,
+        &[],
         &config,
         10_000,
         PackageResolution::Known(vec!["android".to_string()]),
@@ -42,6 +49,7 @@ fn denylist_rejection_takes_precedence_over_scope() {
 
     let decision = evaluate(
         &scope,
+        &[],
         &config,
         10_000,
         PackageResolution::Known(vec!["com.example.app".to_string()]),
@@ -57,6 +65,7 @@ fn known_package_outside_scope_is_rejected() {
 
     let decision = evaluate(
         &base_scope(),
+        &[],
         &config,
         10_000,
         PackageResolution::Known(vec!["com.other".to_string()]),
@@ -71,12 +80,12 @@ fn unknown_package_policy_only_allows_app_uids() {
     config.allow_unknown_package = true;
 
     for uid in [10_000, 110_000] {
-        let decision = evaluate(&base_scope(), &config, uid, PackageResolution::Unknown);
+        let decision = evaluate(&base_scope(), &[], &config, uid, PackageResolution::Unknown);
         assert!(decision.allowed);
         assert_eq!(decision.reason, FilterReason::Allowed);
     }
     for uid in [9_999, 109_999] {
-        let decision = evaluate(&base_scope(), &config, uid, PackageResolution::Unknown);
+        let decision = evaluate(&base_scope(), &[], &config, uid, PackageResolution::Unknown);
         assert!(!decision.allowed);
         assert_eq!(decision.reason, FilterReason::RejectedAndroidPackage);
     }
@@ -87,12 +96,12 @@ fn root_follows_android_package_policy() {
     let mut config = base_config();
     config.allow_unknown_package = true;
 
-    let decision = evaluate(&base_scope(), &config, 0, PackageResolution::Unknown);
+    let decision = evaluate(&base_scope(), &[], &config, 0, PackageResolution::Unknown);
     assert!(!decision.allowed);
     assert_eq!(decision.reason, FilterReason::RejectedAndroidPackage);
 
     config.block_android_package = false;
-    let decision = evaluate(&base_scope(), &config, 0, PackageResolution::Unknown);
+    let decision = evaluate(&base_scope(), &[], &config, 0, PackageResolution::Unknown);
     assert!(decision.allowed);
     assert_eq!(decision.reason, FilterReason::Allowed);
 }
@@ -103,6 +112,7 @@ fn android_prefixed_package_in_scope_is_allowed() {
     let scope = vec!["com.android.vending".to_string()];
     let decision = evaluate(
         &scope,
+        &[],
         &config,
         10_000,
         PackageResolution::Known(scope.clone()),
@@ -117,6 +127,7 @@ fn empty_scope_keeps_android_and_denylist_precedence() {
     config.block_android_package = false;
     let decision = evaluate(
         &[],
+        &[],
         &config,
         10_000,
         PackageResolution::Known(vec!["com.anything".to_string()]),
@@ -126,6 +137,7 @@ fn empty_scope_keeps_android_and_denylist_precedence() {
 
     let config = base_config();
     let decision = evaluate(
+        &[],
         &[],
         &config,
         10_000,
@@ -137,6 +149,7 @@ fn empty_scope_keeps_android_and_denylist_precedence() {
     config.block_android_package = false;
     config.deny_packages = vec!["com.blocked".to_string()];
     let decision = evaluate(
+        &[],
         &[],
         &config,
         10_000,

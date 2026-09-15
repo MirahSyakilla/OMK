@@ -27,6 +27,7 @@ pub struct FilterDecision {
 
 pub fn evaluate(
     scoop: &[String],
+    fallback_packages: &[String],
     config: &FilterConfig,
     uid: u32,
     resolution: PackageResolution,
@@ -80,7 +81,10 @@ pub fn evaluate(
         .any(|pkg| config.deny_packages.contains(pkg))
     {
         FilterReason::RejectedByDenylist
-    } else if !packages.iter().any(|pkg| scoop.contains(pkg)) {
+    } else if !packages
+        .iter()
+        .any(|pkg| scoop.contains(pkg) || fallback_packages.contains(pkg))
+    {
         FilterReason::RejectedNotInScope
     } else {
         FilterReason::Allowed
