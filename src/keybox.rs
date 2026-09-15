@@ -1,7 +1,6 @@
 use std::{
     cell::Cell,
-    fs::{self, OpenOptions},
-    io::Write,
+    fs,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -14,6 +13,7 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use der::Encode;
 use kmr_common::{
     crypto::{ec, rsa, KeyMaterial, Sha256},
+    runtime::fs::atomic_replace_with_metadata,
     Error,
 };
 use kmr_crypto_boring::{ec::BoringEc, mldsa::BoringMlDsa, rsa::BoringRsa, sha256::BoringSha256};
@@ -428,6 +428,20 @@ fn validate_chain_matches_key(
             algorithm_name(algorithm)
         );
     }
+    for pair in chain.windows(2) {
+        let current = <Certificate as x509_der::Decode>::from_der(&pair[0].encoded_certificate)
+            .context("failed to parse certificate while validating chain order")?;
+        let issuer = <Certificate as x509_der::Decode>::from_der(&pair[1].encoded_certificate)
+            .context("failed to parse issuer while validating chain order")?;
+        let current_issuer = current.tbs_certificate().issuer().to_der()?;
+        let issuer_subject = issuer.tbs_certificate().subject().to_der()?;
+        if current_issuer != issuer_subject {
+            bail!(
+                "{} certificate chain has a broken issuer/subject link",
+                algorithm_name(algorithm)
+            );
+        }
+    }
     Ok(())
 }
 
@@ -460,58 +474,8 @@ fn encode_pem_block(label: &str, der: &[u8]) -> String {
     pem
 }
 
-fn temp_keybox_path(path: &str) -> PathBuf {
-    let target = Path::new(path);
-    let file_name = target
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("keybox.xml");
-    let temp_name = format!(".{file_name}.tmp-{}", std::process::id());
-    target
-        .parent()
-        .map(|parent| parent.join(&temp_name))
-        .unwrap_or_else(|| PathBuf::from(temp_name))
-}
-
 fn write_keybox_xml(path: &str, xml: &str) -> Result<()> {
-    if let Some(parent) = Path::new(path).parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create keybox directory {}", parent.display()))?;
-    }
-    let temp_path = temp_keybox_path(path);
-    {
-        let mut file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&temp_path)
-            .with_context(|| {
-                format!(
-                    "failed to open temporary keybox.xml {}",
-                    temp_path.display()
-                )
-            })?;
-        file.write_all(xml.as_bytes()).with_context(|| {
-            format!(
-                "failed to write temporary keybox.xml {}",
-                temp_path.display()
-            )
-        })?;
-        file.sync_all().with_context(|| {
-            format!(
-                "failed to sync temporary keybox.xml {}",
-                temp_path.display()
-            )
-        })?;
-    }
-
-    #[cfg(windows)]
-    if Path::new(path).exists() {
-        fs::remove_file(path)
-            .with_context(|| format!("failed to replace keybox.xml at {path} on Windows"))?;
-    }
-
-    fs::rename(&temp_path, path)
+    atomic_replace_with_metadata(Path::new(path), xml.as_bytes(), 0o600, 1017, 1017)
         .with_context(|| format!("failed to atomically replace keybox.xml at {path}"))
 }
 
@@ -611,14 +575,7 @@ fn load_keybox_with_fallback(path: &str) -> Result<(KeyBox, bool)> {
                 let fallback_origin = is_fallback_continuation(&keybox, &contents);
                 Ok((keybox, fallback_origin))
             }
-            Err(error) => {
-                warn!(
-                    "invalid keybox.xml at {}: {:#}; rewriting bundled template",
-                    path, error
-                );
-                write_bundled_keybox(path)?;
-                Ok((KeyBox::new(), true))
-            }
+            Err(error) => Err(error).with_context(|| format!("invalid keybox.xml at {path}")),
         },
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             info!("keybox.xml missing at {}; writing bundled template", path);
@@ -834,13 +791,15 @@ mod tests {
     }
 
     #[test]
-    fn invalid_file_falls_back_to_bundled_template() {
+    fn invalid_file_is_rejected_without_replacement() {
         let path = write_temp_keybox("invalid", "<not-xml>");
-        let (keybox, used_fallback) = load_keybox_with_fallback(path.to_str().unwrap()).unwrap();
-        assert!(used_fallback);
-        assert_eq!(keybox.identity_digest(), KeyBox::new().identity_digest());
+        let error = match load_keybox_with_fallback(path.to_str().unwrap()) {
+            Ok(_) => panic!("invalid keybox was accepted"),
+            Err(error) => error,
+        };
+        assert!(format!("{error:#}").contains("invalid keybox.xml"));
         let written = fs::read_to_string(path).unwrap();
-        assert!(written.contains("<AndroidAttestation>"));
+        assert_eq!(written, "<not-xml>");
     }
 
     #[test]

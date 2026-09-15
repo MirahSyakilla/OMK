@@ -46,7 +46,14 @@ pub fn atomic_replace_preserving_metadata(
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("config");
-    let temp_path = parent.join(format!(".{file_name}.tmp-{}", std::process::id()));
+    let temp_path = parent.join(format!(
+        ".{file_name}.tmp-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    ));
 
     let result = (|| {
         let mut file = OpenOptions::new()
@@ -68,6 +75,53 @@ pub fn atomic_replace_preserving_metadata(
         std::fs::File::open(parent)?.sync_all()
     })();
 
+    if result.is_err() {
+        let _ = fs::remove_file(temp_path);
+    }
+    result
+}
+
+pub fn atomic_replace_with_metadata(
+    path: &Path,
+    contents: &[u8],
+    mode: u32,
+    uid: u32,
+    gid: u32,
+) -> io::Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no parent"))?;
+    fs::create_dir_all(parent)?;
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("file");
+    let temp_path = parent.join(format!(
+        ".{file_name}.tmp-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    ));
+    let result = (|| {
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .mode(mode)
+            .open(&temp_path)?;
+        file.write_all(contents)?;
+        if unsafe { libc::fchown(file.as_raw_fd(), uid, gid) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if unsafe { libc::fchmod(file.as_raw_fd(), mode as libc::mode_t) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&temp_path, path)?;
+        fs::File::open(parent)?.sync_all()
+    })();
     if result.is_err() {
         let _ = fs::remove_file(temp_path);
     }

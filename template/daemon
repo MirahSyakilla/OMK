@@ -29,18 +29,18 @@ find_module_keymint() {
 }
 
 expand_shared_restart() {
-  if [ -f "$RESTART_ALL_FILE" ]; then
+  if mv "$RESTART_ALL_FILE" "$RESTART_ALL_FILE.claimed.$$" 2>/dev/null; then
     : > "$RESTART_FILE"
     : > "$PEER_RESTART_FILE"
-    rm -f "$RESTART_ALL_FILE"
+    rm -f "$RESTART_ALL_FILE.claimed.$$"
   fi
 }
 
 consume_restart_request() {
   expand_shared_restart
 
-  if [ -f "$RESTART_FILE" ]; then
-    rm -f "$RESTART_FILE"
+  if mv "$RESTART_FILE" "$RESTART_FILE.claimed.$$" 2>/dev/null; then
+    rm -f "$RESTART_FILE.claimed.$$"
     return 0
   fi
 
@@ -52,6 +52,7 @@ mkdir -p "$STATE_DIR"
 
 echo $$ > "$STATE_DIR/keymint-daemon.pid"
 trap 'rm -f "$STATE_DIR/keymint-daemon.pid"' EXIT INT TERM
+retry_delay=2
 
 while true; do
   TARGET=$(find_module_keymint)
@@ -82,5 +83,11 @@ while true; do
   wait "$child_pid"
   rc=$?
   echo "[keymint-daemon] keymint exited with code $rc"
-  sleep 2
+  if [ "$rc" -ne 0 ]; then
+    if [ "$retry_delay" = "" ]; then retry_delay=2; else retry_delay=$((retry_delay * 2)); fi
+    [ "$retry_delay" -gt 60 ] && retry_delay=60
+  else
+    retry_delay=2
+  fi
+  sleep "$retry_delay"
 done

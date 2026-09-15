@@ -644,12 +644,13 @@ requests.
 
 ### Per-package subtables
 
-Per-package tables such as `[scoop.com.example.app]` are supported for
-per-package keybox routing. The only recognized value is `keybox_slot`, with
-valid slots from `1` through `1024`. Omit the value to keep the legacy default
-keybox (slot `0`). Other values may be preserved when the file is parsed, but
-they do not change which backend handles a request. Do not add unsupported
-settings.
+Per-package tables such as `[scoop.com.example.app]` support `keybox_slot`,
+with valid slots from `1` through `1024`, and `attest_key_fallback`. Omit
+`keybox_slot` to keep the legacy default keybox (slot `0`). When
+`attest_key_fallback = true`, the package is treated as an in-scope package
+and all intercepted keystore operations for its UID use OMK. This full-package
+behavior is required because System and OMK key descriptors are not
+interchangeable. Deny rules and per-method interception settings still apply.
 
 ### Keybox slots
 

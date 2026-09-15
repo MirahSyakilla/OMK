@@ -641,22 +641,11 @@ impl InjectorConfig {
         self
     }
 
-    /// Whether any of the caller's packages opted in to the ATTEST_KEY
-    /// capability fallback.
+    /// Packages opted into the ATTEST_KEY capability fallback.
     ///
-    /// Some stock KeyMint HALs (notably keymaster 4.x builds without the
-    /// `android.hardware.keystore.app_attest_key` feature) silently drop the
-    /// `PURPOSE=ATTEST_KEY` authorization, which makes app-attest-key key
-    /// generation unusable on those devices. When a package sets
-    /// `attest_key_fallback = true` under `[scoop.<package>]`, attestation-key
-    /// related generation requests from that package are served by the OMK
-    /// backend, which implements the full KeyMint 3 ATTEST_KEY semantics.
-    /// Every other request from the caller keeps its normal routing.
-    /// Packages opted into the per-package ATTEST_KEY capability fallback.
-    ///
-    /// These callers are served entirely by the OMK backend (same routing as
-    /// scooped packages) so attestation-key generation, alias lookup, and child
-    /// key generation all observe one backend.
+    /// These callers are served entirely by the OMK backend, with the same
+    /// routing semantics as ordinary scoop entries. Full-package routing is
+    /// required because System and OMK key descriptors are not interchangeable.
     pub fn attest_key_fallback_packages(&self) -> Vec<String> {
         self.scoop_details
             .iter()

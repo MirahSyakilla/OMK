@@ -166,7 +166,7 @@ pub fn write_msg<W: Write>(w: &mut W, data: &[u8]) -> binder::Result<()> {
 }
 
 /// Read a message from a stream-oriented [`Read`] item, with length framing.
-pub fn read_msg<R: Read>(r: &mut R) -> binder::Result<Vec<u8>> {
+pub fn read_msg<R: Read>(r: &mut R, max_size: usize) -> binder::Result<Vec<u8>> {
     // The data read from the `Read` item has a 4-byte big-endian length prefix.
     let mut len_data = [0u8; 4];
     r.read_exact(&mut len_data).map_err(|e| {
@@ -174,6 +174,13 @@ pub fn read_msg<R: Read>(r: &mut R) -> binder::Result<Vec<u8>> {
         binder::Status::new_exception(binder::ExceptionCode::TRANSACTION_FAILED, None)
     })?;
     let len = u32::from_be_bytes(len_data);
+    if len as usize > max_size {
+        error!("TA response message too large: {len} > {max_size}");
+        return Err(binder::Status::new_exception(
+            binder::ExceptionCode::TRANSACTION_FAILED,
+            None,
+        ));
+    }
     let mut data = vec![0; len as usize];
     r.read_exact(&mut data).map_err(|e| {
         error!("Failed to read data from stream: {e}");
@@ -196,7 +203,7 @@ impl<R: Read + Debug + Send, W: Write + Debug + Send> SerializedChannel for Mess
 
     fn execute(&mut self, serialized_req: &[u8]) -> binder::Result<Vec<u8>> {
         write_msg(&mut self.w, serialized_req)?;
-        read_msg(&mut self.r)
+        read_msg(&mut self.r, Self::MAX_SIZE)
     }
 }
 
@@ -356,7 +363,16 @@ pub fn send_attest_ids<T: SerializedChannel>(
     ids: kmr_wire::AttestationIdInfo,
 ) -> binder::Result<()> {
     let req = kmr_wire::SetAttestationIdsRequest { ids };
-    info!("provision->attestation IDs are {req:?}");
+    info!(
+        "provision->attestation IDs prepared (brand={}, device={}, product={}, serial={}, imei={}, imei2={}, meid={})",
+        req.ids.brand.len(),
+        req.ids.device.len(),
+        req.ids.product.len(),
+        req.ids.serial.len(),
+        req.ids.imei.len(),
+        req.ids.imei2.len(),
+        req.ids.meid.len(),
+    );
     let _rsp: kmr_wire::SetAttestationIdsResponse = channel_execute(channel, req)?;
     Ok(())
 }

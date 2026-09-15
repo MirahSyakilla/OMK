@@ -4,8 +4,8 @@
 # Optional per-package settings can be added under [scoop.<package>].
 # Example:
 # [scoop.io.github.vvb2060.keyattestation]
-# mode = "strict"
 # keybox_slot = 1
+# attest_key_fallback = true
 
 version = 1
 

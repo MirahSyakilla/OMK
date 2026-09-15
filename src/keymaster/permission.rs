@@ -29,7 +29,7 @@ use crate::keymaster::utils::{get_interface_once, AppUid};
 use crate::selinux::{self, implement_class, Backend, ClassPermission};
 use crate::top::qwq2333::ohmykeymint::CallerInfo::CallerInfo;
 use anyhow::Context as AnyhowContext;
-use kmr_common::consts::{AID_KEYSTORE, AID_ROOT};
+use kmr_common::consts::AID_KEYSTORE;
 use rsbinder::{calling_caller, hub, thread_state::CallingContext, Caller, Status};
 use std::cmp::PartialEq;
 use std::convert::From;
@@ -555,8 +555,12 @@ fn forwarding_transport_is_trusted(caller: Option<Caller>) -> bool {
         Some(Caller::Kernel { uid, sid, .. }) => {
             uid == AID_KEYSTORE && sid.as_ref().is_some_and(|sid| trusted_forwarding_sid(sid))
         }
-        Some(Caller::Rpc(rsbinder::rpc::PeerIdentity::Local { uid, .. })) => {
-            matches!(uid, AID_ROOT | AID_KEYSTORE)
+        Some(Caller::Rpc(rsbinder::rpc::PeerIdentity::Local { uid, pid })) => {
+            uid == AID_KEYSTORE
+                && pid > 0
+                && std::fs::read_link(format!("/proc/{pid}/exe"))
+                    .ok()
+                    .is_some_and(|path| path == std::path::Path::new("/system/bin/keystore2"))
         }
         _ => false,
     }

@@ -7,7 +7,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
-use kmr_common::{rpc, selinux};
+use kmr_common::{rpc, runtime::fs::atomic_replace_with_metadata, selinux};
 use log::{debug, error, info, warn};
 use nix::{sys::signal::Signal, unistd::Pid};
 use rand::TryRng;
@@ -20,7 +20,7 @@ use crate::sys::wait_pid;
 use crate::{sys, utils};
 
 const ANDROID_DLEXT_USE_LIBRARY_FD: u64 = 0x10;
-const REMOTE_PAYLOAD_STATE_PATH: &str = "/data/adb/omk/injector.payload";
+const REMOTE_PAYLOAD_STATE_PATH: &str = "/data/misc/keystore/omk/data/injector.payload";
 const READY_TIMEOUT: Duration = Duration::from_secs(10);
 const READY_RETRY_DELAY: Duration = Duration::from_millis(200);
 
@@ -75,8 +75,14 @@ fn persist_remote_payload_state(pid: Pid, payload_identifier: &str) -> Result<()
             )
         })?;
     }
-    std::fs::write(path, format!("{} {}\n", pid, payload_identifier))
-        .with_context(|| format!("failed to write injector payload state {}", path.display()))?;
+    atomic_replace_with_metadata(
+        path,
+        format!("{} {}\n", pid, payload_identifier).as_bytes(),
+        0o660,
+        1017,
+        1017,
+    )
+    .with_context(|| format!("failed to write injector payload state {}", path.display()))?;
     Ok(())
 }
 

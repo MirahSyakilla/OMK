@@ -44,18 +44,18 @@ prepare_injector() {
 }
 
 expand_shared_restart() {
-  if [ -f "$RESTART_ALL_FILE" ]; then
+  if mv "$RESTART_ALL_FILE" "$RESTART_ALL_FILE.claimed.$$" 2>/dev/null; then
     : > "$RESTART_FILE"
     : > "$PEER_RESTART_FILE"
-    rm -f "$RESTART_ALL_FILE"
+    rm -f "$RESTART_ALL_FILE.claimed.$$"
   fi
 }
 
 consume_restart_request() {
   expand_shared_restart
 
-  if [ -f "$RESTART_FILE" ]; then
-    rm -f "$RESTART_FILE"
+  if mv "$RESTART_FILE" "$RESTART_FILE.claimed.$$" 2>/dev/null; then
+    rm -f "$RESTART_FILE.claimed.$$"
     return 0
   fi
 

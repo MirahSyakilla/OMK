@@ -185,7 +185,12 @@ fn create_rpc_server() -> Result<Arc<RpcServer>> {
     server.set_authorizer(|peer| {
         let allowed = matches!(
             peer,
-            PeerIdentity::Local { uid, .. } if *uid == KEYSTORE_UID
+            PeerIdentity::Local { uid, pid }
+                if *uid == KEYSTORE_UID
+                    && *pid > 0
+                    && std::fs::read_link(format!("/proc/{pid}/exe"))
+                        .ok()
+                        .is_some_and(|path| path == std::path::Path::new("/system/bin/keystore2"))
         );
         if !allowed {
             warn!("rejected OMK RPC peer {peer}");
