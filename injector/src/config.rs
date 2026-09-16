@@ -11,7 +11,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex, OnceLock, RwLock,
 };
 use std::time::Duration;
@@ -39,6 +39,7 @@ pub struct InjectorConfig {
 pub struct MainConfig {
     pub enabled: bool,
     pub log_level: String,
+    pub debug_logging: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -101,6 +102,7 @@ impl Default for MainConfig {
         Self {
             enabled: true,
             log_level: "debug".to_string(),
+            debug_logging: false,
         }
     }
 }
@@ -178,6 +180,16 @@ static CONFIG: OnceLock<RwLock<Arc<InjectorConfig>>> = OnceLock::new();
 static WATCHER_STARTED: OnceLock<()> = OnceLock::new();
 static CONFIG_FILE_WRITE_LOCK: Mutex<()> = Mutex::new(());
 static CONFIG_GENERATION: AtomicU64 = AtomicU64::new(1);
+static DEBUG_LOGGING: AtomicBool = AtomicBool::new(false);
+
+pub fn debug_logging() -> bool {
+    DEBUG_LOGGING.load(Ordering::Relaxed)
+}
+
+fn apply_runtime_logging(main: &MainConfig) {
+    DEBUG_LOGGING.store(main.debug_logging, Ordering::Relaxed);
+    log::set_max_level(main.log_level_filter());
+}
 
 pub fn generation() -> u64 {
     CONFIG_GENERATION.load(Ordering::Acquire)
@@ -208,10 +220,10 @@ pub fn get() -> Arc<InjectorConfig> {
 fn ensure_initialized() {
     let path = config_path();
     CONFIG.get_or_init(|| {
-        RwLock::new(Arc::new(
-            load_or_seed(&path, LoadContext::Startup)
-                .expect("startup config loading always returns a fallback"),
-        ))
+        let loaded = load_or_seed(&path, LoadContext::Startup)
+            .expect("startup config loading always returns a fallback");
+        apply_runtime_logging(&loaded.main);
+        RwLock::new(Arc::new(loaded))
     });
     WATCHER_STARTED.get_or_init(|| start_watcher(path));
 }
@@ -562,10 +574,9 @@ fn reload_runtime_config(path: &Path, trigger: WatchTrigger) {
     if let Some(lock) = CONFIG.get() {
         match lock.write() {
             Ok(mut guard) => {
-                let level = config.main.log_level_filter();
+                apply_runtime_logging(&config.main);
                 *guard = Arc::new(config);
                 CONFIG_GENERATION.fetch_add(1, Ordering::AcqRel);
-                log::set_max_level(level);
                 log::info!(
                     "reloaded config from {} via {}",
                     path.display(),

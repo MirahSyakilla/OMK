@@ -525,10 +525,12 @@ pub(in crate::hook::rewrite) fn register_synthetic_operation_carrier(
             target.ptr, target.cookie
         );
     }
-    info!(
-        "event=synthetic registered operation target ptr=0x{:x} cookie=0x{:x} aad_allowed={} uid={} pid={} sid='{}'",
-        target.ptr, target.cookie, aad_allowed, caller.uid, caller.pid, caller.sid
-    );
+    if config::debug_logging() {
+        info!(
+            "event=synthetic registered operation target ptr=0x{:x} cookie=0x{:x} aad_allowed={} uid={} pid={} sid='{}'",
+            target.ptr, target.cookie, aad_allowed, caller.uid, caller.pid, caller.sid
+        );
+    }
     Ok((carrier, NativeBinderRetirement { target, generation }))
 }
 
@@ -586,10 +588,12 @@ pub(in crate::hook::rewrite) fn register_synthetic_security_level_carrier(
         }
     };
     tracker::remember_security_level_target(target, SecurityLevelTargetInfo { security_level });
-    info!(
-        "event=synthetic registered/reused security-level target ptr=0x{:x} cookie=0x{:x} security_level={:?} source_method={:?} uid={} pid={} sid='{}'",
-        target.ptr, target.cookie, security_level, source_method, caller.uid, caller.pid, caller.sid
-    );
+    if config::debug_logging() {
+        info!(
+            "event=synthetic registered/reused security-level target ptr=0x{:x} cookie=0x{:x} security_level={:?} source_method={:?} uid={} pid={} sid='{}'",
+            target.ptr, target.cookie, security_level, source_method, caller.uid, caller.pid, caller.sid
+        );
+    }
     Ok(carrier)
 }
 

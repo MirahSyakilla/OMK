@@ -243,21 +243,23 @@ pub(in crate::hook) unsafe fn handle_bc_reply(
         Ok(Some(reply)) => {
             let (kind, method, uid, pid) = pending.reply_log_context();
             install_outbound_reply(connection, tr, reply);
-            info!(
-                "event=reply rewrote {} {} reply for uid={} pid={} original={{flags=0x{:x}, data_size={}, offsets_size={}, objects={}}} rewritten={{flags=0x{:x}, data_size={}, offsets_size={}, objects={}}}",
-                kind,
-                method,
-                uid,
-                pid,
-                original_flags,
-                original_data_size,
-                original_offsets_size,
-                original_objects,
-                tr.flags,
-                tr.data_size,
-                tr.offsets_size,
-                describe_transaction_objects(tr),
-            );
+            if config::debug_logging() {
+                info!(
+                    "event=reply rewrote {} {} reply for uid={} pid={} original={{flags=0x{:x}, data_size={}, offsets_size={}, objects={}}} rewritten={{flags=0x{:x}, data_size={}, offsets_size={}, objects={}}}",
+                    kind,
+                    method,
+                    uid,
+                    pid,
+                    original_flags,
+                    original_data_size,
+                    original_offsets_size,
+                    original_objects,
+                    tr.flags,
+                    tr.data_size,
+                    tr.offsets_size,
+                    describe_transaction_objects(tr),
+                );
+            }
         }
         Ok(None) => {
             let observed = match &pending {

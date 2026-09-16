@@ -23,6 +23,7 @@ scoop = [
 [main]
 enabled = true
 log_level = "debug"
+debug_logging = false
 
 [filter]
 enabled = true

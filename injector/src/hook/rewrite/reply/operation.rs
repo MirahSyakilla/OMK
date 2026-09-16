@@ -44,13 +44,15 @@ pub(super) unsafe fn register_operation_target_from_reply(
             finalized: false,
         },
     );
-    info!(
-        "event=route observed operation carrier ptr=0x{:x} cookie=0x{:x} preferred_route={:?} aad_allowed={}",
-        target.ptr,
-        target.cookie,
-        route,
-        aad_allowed,
-    );
+    if config::debug_logging() {
+        info!(
+            "event=route observed operation carrier ptr=0x{:x} cookie=0x{:x} preferred_route={:?} aad_allowed={}",
+            target.ptr,
+            target.cookie,
+            route,
+            aad_allowed,
+        );
+    }
     Ok(true)
 }
 

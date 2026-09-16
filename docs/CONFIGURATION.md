@@ -438,6 +438,8 @@ enabled = true
 # Injector log detail: off, error, warn, info, debug, or trace. Per-transaction
 # Binder traces and raw parcel previews require trace.
 log_level = "debug"
+# Per-transaction injector logs. Keep false; enable only for short diagnostics.
+debug_logging = false
 
 [filter]
 # Enforce scoop and the safety rules below.
@@ -523,6 +525,15 @@ previews.
 A valid file change updates the level without restarting the injector. An
 unrecognized string does not make the TOML file invalid; the injector uses
 `debug` instead.
+
+#### `debug_logging`
+
+This gates per-transaction injector logs such as synthetic Binder handling and
+reply rewrites. `false` is the default. Keep it off for normal use: those
+messages add measurable latency that apps can observe. Enable it only for
+short diagnostics, together with a `log_level` of `"info"`, `"debug"`, or
+`"trace"`. A valid file change updates the switch without restarting the
+injector.
 
 ### `[filter]`
 

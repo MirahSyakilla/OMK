@@ -42,6 +42,7 @@ fn config_defaults_and_log_levels_match_contract() {
     assert_eq!(config.scoop, default_scoop());
     assert!(config.scoop_details.is_empty());
     assert_eq!(config.main.log_level_filter(), LevelFilter::Debug);
+    assert!(!config.main.debug_logging);
     assert!(config.filter.block_android_package);
     assert!(!config.filter.allow_unknown_package);
     assert!(config.intercept.get_security_level);
@@ -74,6 +75,7 @@ keybox_slot = 2
 [main]
 enabled = false
 log_level = "trace"
+debug_logging = true
 
 [filter]
 enabled = true
@@ -101,6 +103,7 @@ get_supplementary_attestation_info = true
         vec!["com.example.app".to_string(), "com.other.app".to_string()]
     );
     assert_eq!(parsed.main.log_level_filter(), LevelFilter::Trace);
+    assert!(parsed.main.debug_logging);
     assert!(!parsed.main.enabled);
     assert_eq!(
         parsed
@@ -326,6 +329,7 @@ keybox_slot = 1
     )
     .unwrap();
 
+    assert!(!config.main.debug_logging);
     assert!(config.attest_key_fallback_for_packages(&["com.probe.app".to_string()]));
     assert!(!config.attest_key_fallback_for_packages(&["com.plain.app".to_string()]));
     assert!(!config.attest_key_fallback_for_packages(&["com.unknown.app".to_string()]));

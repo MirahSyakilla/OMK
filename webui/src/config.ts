@@ -241,6 +241,11 @@ export const INJECTOR_MAIN_SCHEMA = new PolicySchema({
     placeholder: 'debug',
     validate: (v) => LOG_LEVELS.includes(v.toLowerCase()) || LOG_LEVELS.join(' | '),
   },
+  debug_logging: {
+    type: 'boolean',
+    label: 'Debug Logging',
+    defaultValue: false,
+  },
 })
 
 export const FILTER_SCHEMA = new PolicySchema({
@@ -449,6 +454,7 @@ export class Config {
         injector_main: {
           enabled: true,
           log_level: 'debug',
+          debug_logging: false,
         },
         filter: {
           enabled: true,
@@ -536,6 +542,7 @@ export class Config {
     data.injector_main = {
       enabled: boolValue(injectorMain.enabled, true),
       log_level: stringValue(injectorMain.log_level, 'debug'),
+      debug_logging: boolValue(injectorMain.debug_logging, false),
     }
     data.filter = {
       enabled: boolValue(injectorFilter.enabled, true),
@@ -620,6 +627,7 @@ export class Config {
       ...recordValue(injector.main),
       enabled: data.injector_main?.enabled === true,
       log_level: stringValue(data.injector_main?.log_level, 'debug').toLowerCase(),
+      debug_logging: data.injector_main?.debug_logging === true,
     }
     const filter = {
       ...recordValue(injector.filter),
