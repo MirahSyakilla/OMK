@@ -39,6 +39,7 @@ fn temp_config_path(name: &str) -> TempConfigPath {
 fn config_defaults_and_log_levels_match_contract() {
     let config = InjectorConfig::default();
     assert!(config.main.enabled);
+    assert_eq!(config.main.attestation_generation_delay_ms, 0);
     assert_eq!(config.scoop, default_scoop());
     assert!(config.scoop_details.is_empty());
     assert_eq!(config.main.log_level_filter(), LevelFilter::Off);
@@ -101,6 +102,37 @@ fn debug_logging_caps_effective_level_at_warn() {
 
     main.log_level = "warn".to_string();
     assert_eq!(main.effective_log_level(), LevelFilter::Warn);
+}
+
+#[test]
+fn attestation_generation_delay_is_optional_bounded_and_preserved() {
+    assert_eq!(
+        parse_config("")
+            .unwrap()
+            .main
+            .attestation_generation_delay_ms,
+        0
+    );
+    for delay in [0, 25, 250] {
+        let config = parse_config(&format!(
+            "[main]\nattestation_generation_delay_ms = {delay}\n"
+        ))
+        .unwrap();
+        let rendered = render_config(&config).unwrap();
+        assert_eq!(
+            parse_config(&rendered)
+                .unwrap()
+                .main
+                .attestation_generation_delay_ms,
+            delay
+        );
+    }
+    for delay in ["-1", "251", "65536", "1.5", "true", "\"25\""] {
+        assert!(parse_config(&format!(
+            "[main]\nattestation_generation_delay_ms = {delay}\n"
+        ))
+        .is_err());
+    }
 }
 
 #[test]

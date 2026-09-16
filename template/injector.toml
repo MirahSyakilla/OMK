@@ -25,6 +25,8 @@ scoop = [
 enabled = true
 log_level = "off"
 debug_logging = false
+# Optional timing workaround for successful challenged generation; 0 disables it.
+attestation_generation_delay_ms = 0
 
 [filter]
 enabled = true

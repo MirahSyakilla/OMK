@@ -40,6 +40,8 @@ pub struct MainConfig {
     pub enabled: bool,
     pub log_level: String,
     pub debug_logging: bool,
+    /// Optional delay after successful challenged key generation, in milliseconds.
+    pub attestation_generation_delay_ms: u16,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -103,6 +105,7 @@ impl Default for MainConfig {
             enabled: true,
             log_level: "off".to_string(),
             debug_logging: false,
+            attestation_generation_delay_ms: 0,
         }
     }
 }
@@ -458,6 +461,9 @@ fn parse_versioned_config(
     let preprocessed = preprocess_config(candidate)?;
     let parsed: InjectorConfig =
         toml::from_str(&preprocessed).map_err(|error| error.to_string())?;
+    if parsed.main.attestation_generation_delay_ms > 250 {
+        return Err("main.attestation_generation_delay_ms must be in 0..=250".into());
+    }
     Ok((parsed.normalized(), migrated))
 }
 

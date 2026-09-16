@@ -3581,14 +3581,24 @@ impl KeystoreDB {
         })
     }
 
-    // Generates a random id and passes it to the given function, which will
-    // try to insert it into a database.  If that insertion fails, retry;
-    // otherwise return the id.
+    // Generates a random, positive id and passes it to the given function,
+    // which will try to insert it into a database. If that insertion fails,
+    // retry; otherwise return the id.
+    //
+    // Key IDs are represented as i64 in the keystore2 API. Although the
+    // wire contract can represent negative values, Android clients commonly
+    // treat a non-positive namespace as an unspecified key id. In particular,
+    // clients probing the raw descriptor contract skip KEY_ID operations for
+    // negative ids. Keep newly allocated IDs in the positive range so the
+    // returned metadata can always be used as a KEY_ID descriptor.
     fn insert_with_retry(inserter: impl Fn(i64) -> rusqlite::Result<usize>) -> Result<i64> {
         loop {
-            let newid: i64 = match random() {
-                Self::UNASSIGNED_KEY_ID => continue, // UNASSIGNED_KEY_ID cannot be assigned.
-                i => i,
+            let newid = loop {
+                let candidate: u64 = random();
+                if candidate == 0 || candidate > i64::MAX as u64 {
+                    continue;
+                }
+                break candidate as i64;
             };
             match inserter(newid) {
                 // If the id already existed, try again.
@@ -3733,6 +3743,14 @@ mod tests {
     use super::*;
 
     const TEST_NAMESPACE: i64 = 10001;
+
+    #[test]
+    fn generated_key_ids_are_positive() {
+        for _ in 0..64 {
+            let id = KeystoreDB::insert_with_retry(|_| Ok(1)).unwrap();
+            assert!(id > 0);
+        }
+    }
 
     fn make_test_db() -> KeystoreDB {
         let mut conn = Connection::open_in_memory().unwrap();

@@ -30,6 +30,11 @@ Active files:
 
 See [Configuration Guide](docs/CONFIGURATION.md).
 
+An optional `injector.toml` setting, `[main].attestation_generation_delay_ms`
+(`0` by default, range `0..250`), delays successful challenged key generation
+replies. It adds latency and occupies a Binder worker. See the Configuration
+Guide before enabling it.
+
 ## Keybox
 
 A valid box has at least one RSA or EC entry whose private key matches its chain. PKCS#1, SEC1, and PKCS#8 PEM are accepted. RKP-style EC-only boxes work; RSA attest requests are signed with that EC key.

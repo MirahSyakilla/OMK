@@ -1,4 +1,6 @@
 use super::*;
+use crate::android::hardware::security::keymint::{KeyParameter::KeyParameter, Tag::Tag};
+use crate::android::system::keystore2::KeyMetadata::KeyMetadata;
 
 mod dispatch;
 mod operation;
@@ -612,7 +614,13 @@ pub(super) fn build_omk_security_level_reply(
                 *flags,
                 entropy,
             ) {
-                Ok(metadata) => Ok(Some(parcel::build_plain_reply(&metadata)?)),
+                Ok(metadata) => build_generated_key_reply(
+                    &metadata,
+                    params,
+                    config::get().main.attestation_generation_delay_ms,
+                    std::thread::sleep,
+                )
+                .map(Some),
                 Err(error) => omk_status_reply_for_method("generateKey", &pending.caller, &error),
             }
         }
@@ -671,6 +679,26 @@ pub(super) fn build_omk_security_level_reply(
             }
         }
     }
+}
+
+fn build_generated_key_reply(
+    metadata: &KeyMetadata,
+    params: &[KeyParameter],
+    delay_ms: u16,
+    wait: impl FnOnce(Duration),
+) -> anyhow::Result<OutboundReply> {
+    let reply = parcel::build_plain_reply(metadata)?;
+    if delay_ms > 0
+        && params
+            .iter()
+            .any(|param| param.tag == Tag::ATTESTATION_CHALLENGE)
+    {
+        // The RPC has already returned. Waiting here leaves its shared connection
+        // and the KeyMint/database locks available to other requests. The current
+        // keystore2 Binder worker remains occupied until this reply is delivered.
+        wait(Duration::from_millis(u64::from(delay_ms)));
+    }
+    Ok(reply)
 }
 
 #[cfg(test)]

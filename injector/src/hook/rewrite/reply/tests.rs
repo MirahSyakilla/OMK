@@ -5,6 +5,45 @@ use rsbinder::{ExceptionCode, Status, StatusCode};
 use super::*;
 use crate::hook::rewrite::tests::*;
 
+#[test]
+fn generated_key_reply_delay_preserves_metadata_and_only_waits_for_challenge() {
+    use crate::android::hardware::security::keymint::KeyParameterValue::KeyParameterValue;
+
+    let metadata = KeyMetadata {
+        key: KeyDescriptor {
+            domain: Domain::KEY_ID,
+            nspace: 123,
+            ..Default::default()
+        },
+        certificate: Some(vec![1, 2, 3]),
+        ..Default::default()
+    };
+    let challenge = vec![KeyParameter {
+        tag: Tag::ATTESTATION_CHALLENGE,
+        value: KeyParameterValue::Blob(vec![7]),
+    }];
+    let plain = vec![KeyParameter {
+        tag: Tag::APPLICATION_DATA,
+        value: KeyParameterValue::Blob(vec![7]),
+    }];
+    for (params, delay, expected) in [
+        (&challenge, 25, Some(Duration::from_millis(25))),
+        (&challenge, 0, None),
+        (&plain, 25, None),
+    ] {
+        let mut waited = None;
+        let mut reply = build_generated_key_reply(&metadata, params, delay, |duration| {
+            waited = Some(duration);
+        })
+        .unwrap();
+        assert_eq!(waited, expected);
+        let decoded: KeyMetadata = parcel::parse_owned_success_reply(&mut reply).unwrap();
+        assert_eq!(decoded.key.domain, metadata.key.domain);
+        assert_eq!(decoded.key.nspace, metadata.key.nspace);
+        assert_eq!(decoded.certificate, metadata.certificate);
+    }
+}
+
 pub(super) fn assert_unknown_transaction_reply(reply: SyntheticReply) {
     let SyntheticReply::Status(status) = reply else {
         panic!("unknown transaction should be returned as a binder status code");

@@ -451,6 +451,8 @@ enabled = true
 log_level = "off"
 # Diagnostic logs at info/debug/trace. Keep false; enable only for short diagnostics.
 debug_logging = false
+# Optional successful challenged-generation response delay, 0..250 ms.
+attestation_generation_delay_ms = 0
 
 [filter]
 # Enforce scoop and the safety rules below.
@@ -546,6 +548,24 @@ the injector caps output at `warn` so per-transaction Binder logs cannot add
 measurable latency. Enable it only for short diagnostics, together with a
 `log_level` of `"info"`, `"debug"`, or `"trace"`. A valid file change updates
 the switch without restarting the injector.
+
+#### `attestation_generation_delay_ms`
+
+Optional timing workaround, an integer from `0` to `250` milliseconds. The
+default `0` disables it. A nonzero value delays only successful OMK
+`generateKey` replies for requests containing `ATTESTATION_CHALLENGE`, after
+the RPC and reply serialization complete. Plain generation, imports,
+operations, System requests, and error responses do not receive this delay.
+
+This can mitigate clients that classify software KeyMint by generation
+timing. It does not provide hardware security or guarantee a detector result.
+For example, `25` adds at least 25 ms to each successful challenged generation;
+scheduling can add more. The waiting Binder worker stays occupied, so many
+concurrent generations can delay unrelated callers even though the RPC
+connection and KeyMint/database locks are free. Leave it at `0` unless needed.
+
+Valid changes apply without a restart. Out-of-range or non-integer values
+reject the configuration; on reload, the previous valid settings remain active.
 
 ### `[filter]`
 
