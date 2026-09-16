@@ -39,7 +39,7 @@ fn main() {
             config.main.log_level
         );
     }
-    log::set_max_level(config.main.log_level_filter());
+    log::set_max_level(config.main.effective_log_level());
     log_runtime_identity("Launcher");
     match utils::current_exe_identity() {
         Ok(identity) => {
@@ -97,7 +97,7 @@ pub extern "C" fn entry(handle: *const c_void) -> bool {
             config.main.log_level
         );
     }
-    log::set_max_level(config.main.log_level_filter());
+    log::set_max_level(config.main.effective_log_level());
     log_runtime_identity("Payload");
     log::info!(
         "Injected library entry called! Handle: {:?}, build_id={}, build_target={}, runtime_arch={}, current_exe={}",

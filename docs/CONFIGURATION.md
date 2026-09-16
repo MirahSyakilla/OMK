@@ -436,9 +436,9 @@ scoop = [
 # Master switch for request routing. Keep true for normal use.
 enabled = true
 # Injector log detail: off, error, warn, info, debug, or trace. Per-transaction
-# Binder traces and raw parcel previews require trace.
+# Binder traces and raw parcel previews require debug_logging = true and trace.
 log_level = "debug"
-# Per-transaction injector logs. Keep false; enable only for short diagnostics.
+# Diagnostic logs at info/debug/trace. Keep false; enable only for short diagnostics.
 debug_logging = false
 
 [filter]
@@ -522,18 +522,19 @@ recommended. `"debug"` is the default. Use `"trace"` only for short, focused
 Binder diagnostics because it enables per-transaction traces and raw parcel
 previews.
 
-A valid file change updates the level without restarting the injector. An
-unrecognized string does not make the TOML file invalid; the injector uses
-`debug` instead.
+While `debug_logging` is `false`, output is capped at `warn` even if this
+setting is `"info"`, `"debug"`, or `"trace"`. A valid file change updates the
+level without restarting the injector. An unrecognized string does not make
+the TOML file invalid; the injector uses `debug` instead.
 
 #### `debug_logging`
 
-This gates per-transaction injector logs such as synthetic Binder handling and
-reply rewrites. `false` is the default. Keep it off for normal use: those
-messages add measurable latency that apps can observe. Enable it only for
-short diagnostics, together with a `log_level` of `"info"`, `"debug"`, or
-`"trace"`. A valid file change updates the switch without restarting the
-injector.
+This is the master switch for injector diagnostic logs at `info`, `debug`, and
+`trace`. `false` is the default. Keep it off for normal use: while it is off,
+the injector caps output at `warn` so per-transaction Binder logs cannot add
+measurable latency. Enable it only for short diagnostics, together with a
+`log_level` of `"info"`, `"debug"`, or `"trace"`. A valid file change updates
+the switch without restarting the injector.
 
 ### `[filter]`
 

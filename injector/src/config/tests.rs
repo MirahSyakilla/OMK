@@ -43,6 +43,7 @@ fn config_defaults_and_log_levels_match_contract() {
     assert!(config.scoop_details.is_empty());
     assert_eq!(config.main.log_level_filter(), LevelFilter::Debug);
     assert!(!config.main.debug_logging);
+    assert_eq!(config.main.effective_log_level(), LevelFilter::Warn);
     assert!(config.filter.block_android_package);
     assert!(!config.filter.allow_unknown_package);
     assert!(config.intercept.get_security_level);
@@ -60,6 +61,39 @@ fn config_defaults_and_log_levels_match_contract() {
     assert_eq!(parse_level_filter("WARNING"), Some(LevelFilter::Warn));
     assert_eq!(parse_level_filter("trace"), Some(LevelFilter::Trace));
     assert_eq!(parse_level_filter("unknown"), None);
+}
+
+#[test]
+fn debug_logging_caps_effective_level_at_warn() {
+    let mut main = MainConfig::default();
+    assert!(!main.debug_logging);
+    assert_eq!(main.log_level_filter(), LevelFilter::Debug);
+    assert_eq!(main.effective_log_level(), LevelFilter::Warn);
+
+    main.log_level = "trace".to_string();
+    assert_eq!(main.effective_log_level(), LevelFilter::Warn);
+
+    main.log_level = "info".to_string();
+    assert_eq!(main.effective_log_level(), LevelFilter::Warn);
+
+    main.log_level = "error".to_string();
+    assert_eq!(main.effective_log_level(), LevelFilter::Error);
+
+    main.log_level = "off".to_string();
+    assert_eq!(main.effective_log_level(), LevelFilter::Off);
+
+    main.debug_logging = true;
+    main.log_level = "debug".to_string();
+    assert_eq!(main.effective_log_level(), LevelFilter::Debug);
+
+    main.log_level = "trace".to_string();
+    assert_eq!(main.effective_log_level(), LevelFilter::Trace);
+
+    main.log_level = "info".to_string();
+    assert_eq!(main.effective_log_level(), LevelFilter::Info);
+
+    main.log_level = "warn".to_string();
+    assert_eq!(main.effective_log_level(), LevelFilter::Warn);
 }
 
 #[test]
@@ -104,6 +138,7 @@ get_supplementary_attestation_info = true
     );
     assert_eq!(parsed.main.log_level_filter(), LevelFilter::Trace);
     assert!(parsed.main.debug_logging);
+    assert_eq!(parsed.main.effective_log_level(), LevelFilter::Trace);
     assert!(!parsed.main.enabled);
     assert_eq!(
         parsed
@@ -267,6 +302,8 @@ fn template_scope_matches_default_scope() {
     let template = include_str!("../../../template/injector.toml");
     let parsed = parse_config(template).expect("template injector config should parse");
     assert_eq!(parsed.scoop, default_scoop());
+    assert!(!parsed.main.debug_logging);
+    assert_eq!(parsed.main.effective_log_level(), LevelFilter::Warn);
 }
 
 #[test]

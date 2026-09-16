@@ -188,7 +188,7 @@ pub fn debug_logging() -> bool {
 
 fn apply_runtime_logging(main: &MainConfig) {
     DEBUG_LOGGING.store(main.debug_logging, Ordering::Relaxed);
-    log::set_max_level(main.log_level_filter());
+    log::set_max_level(main.effective_log_level());
 }
 
 pub fn generation() -> u64 {
@@ -642,6 +642,15 @@ pub fn parse_level_filter(value: &str) -> Option<LevelFilter> {
 impl MainConfig {
     pub fn log_level_filter(&self) -> LevelFilter {
         parse_level_filter(&self.log_level).unwrap_or(LevelFilter::Debug)
+    }
+
+    pub fn effective_log_level(&self) -> LevelFilter {
+        let configured = self.log_level_filter();
+        if self.debug_logging {
+            configured
+        } else {
+            configured.min(LevelFilter::Warn)
+        }
     }
 }
 
