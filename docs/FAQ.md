@@ -184,7 +184,7 @@ reboot is required. The automatic value cannot return until the next boot.
 A TOML syntax error, an unknown injector field, or an unsupported configuration
 version is not applied while OMK is already running; the affected component
 keeps its last valid settings. An unknown injector `log_level` is a special
-case: the file remains valid and the level falls back to `debug`. Restarting
+case: the file remains valid and the level falls back to `off`. Restarting
 with a broken `config.toml` prevents keymint from starting, and restarting with
 a broken `injector.toml` disables OMK request routing.
 

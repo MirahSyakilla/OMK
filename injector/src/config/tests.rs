@@ -41,9 +41,9 @@ fn config_defaults_and_log_levels_match_contract() {
     assert!(config.main.enabled);
     assert_eq!(config.scoop, default_scoop());
     assert!(config.scoop_details.is_empty());
-    assert_eq!(config.main.log_level_filter(), LevelFilter::Debug);
+    assert_eq!(config.main.log_level_filter(), LevelFilter::Off);
     assert!(!config.main.debug_logging);
-    assert_eq!(config.main.effective_log_level(), LevelFilter::Warn);
+    assert_eq!(config.main.effective_log_level(), LevelFilter::Off);
     assert!(config.filter.block_android_package);
     assert!(!config.filter.allow_unknown_package);
     assert!(config.intercept.get_security_level);
@@ -61,14 +61,21 @@ fn config_defaults_and_log_levels_match_contract() {
     assert_eq!(parse_level_filter("WARNING"), Some(LevelFilter::Warn));
     assert_eq!(parse_level_filter("trace"), Some(LevelFilter::Trace));
     assert_eq!(parse_level_filter("unknown"), None);
+
+    let unknown = MainConfig {
+        log_level: "not-a-level".to_string(),
+        ..Default::default()
+    };
+    assert_eq!(unknown.log_level_filter(), LevelFilter::Off);
+    assert_eq!(unknown.effective_log_level(), LevelFilter::Off);
 }
 
 #[test]
 fn debug_logging_caps_effective_level_at_warn() {
     let mut main = MainConfig::default();
     assert!(!main.debug_logging);
-    assert_eq!(main.log_level_filter(), LevelFilter::Debug);
-    assert_eq!(main.effective_log_level(), LevelFilter::Warn);
+    assert_eq!(main.log_level_filter(), LevelFilter::Off);
+    assert_eq!(main.effective_log_level(), LevelFilter::Off);
 
     main.log_level = "trace".to_string();
     assert_eq!(main.effective_log_level(), LevelFilter::Warn);
@@ -302,8 +309,9 @@ fn template_scope_matches_default_scope() {
     let template = include_str!("../../../template/injector.toml");
     let parsed = parse_config(template).expect("template injector config should parse");
     assert_eq!(parsed.scoop, default_scoop());
+    assert_eq!(parsed.main.log_level, "off");
     assert!(!parsed.main.debug_logging);
-    assert_eq!(parsed.main.effective_log_level(), LevelFilter::Warn);
+    assert_eq!(parsed.main.effective_log_level(), LevelFilter::Off);
 }
 
 #[test]

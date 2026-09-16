@@ -101,7 +101,7 @@ impl Default for MainConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            log_level: "debug".to_string(),
+            log_level: "off".to_string(),
             debug_logging: false,
         }
     }
@@ -641,7 +641,7 @@ pub fn parse_level_filter(value: &str) -> Option<LevelFilter> {
 
 impl MainConfig {
     pub fn log_level_filter(&self) -> LevelFilter {
-        parse_level_filter(&self.log_level).unwrap_or(LevelFilter::Debug)
+        parse_level_filter(&self.log_level).unwrap_or(LevelFilter::Off)
     }
 
     pub fn effective_log_level(&self) -> LevelFilter {
