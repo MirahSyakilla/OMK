@@ -58,6 +58,9 @@ fn install_hooks() -> Result<()> {
     let _ = config::get();
     info!("initializing binder ioctl hook");
     ipc::ensure_process_state();
+    // Native ServiceManager calls need a fresh IPCThreadState: the injected
+    // thread may be suspended inside libbinder, and hooks run inside its ioctl.
+    super::binder::start_registered_service_target_worker()?;
 
     let mut libraries = Vec::new();
     let mut seen = HashSet::new();

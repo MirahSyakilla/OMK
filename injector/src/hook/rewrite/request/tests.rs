@@ -8,6 +8,8 @@ use crate::{
 use rsbinder::{Status, StatusCode};
 use std::mem::size_of;
 
+mod interface_boundary;
+
 #[test]
 fn omk_grant_blocker_preserves_inbound_binder_buffer() {
     let mut tr: binder_transaction_data = unsafe { std::mem::zeroed() };

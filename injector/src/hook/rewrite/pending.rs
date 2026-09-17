@@ -61,6 +61,7 @@ pub(super) enum OmkMigratePrecompute {
 }
 
 pub(super) enum PendingCall {
+    InterfaceBoundaryFailure(CallerInfo),
     Authorization(PendingAuthorizationCall),
     PrecomputedAuthorization(PendingAuthorizationCall, Status),
     Maintenance(PendingMaintenanceCall),
@@ -86,6 +87,9 @@ struct PendingReplyFrame {
 impl PendingCall {
     fn reply_log_context(&self) -> (&'static str, String, i64, i64) {
         match self {
+            Self::InterfaceBoundaryFailure(caller) => {
+                ("boundary", "interface".to_owned(), caller.uid, caller.pid)
+            }
             Self::Authorization(call) | Self::PrecomputedAuthorization(call, _) => (
                 "authorization",
                 format!("{:?}", call.method),
@@ -151,6 +155,7 @@ pub(in crate::hook) unsafe fn handle_bc_reply(
     let original_objects = describe_transaction_objects(tr);
 
     let result = match &mut pending {
+        PendingCall::InterfaceBoundaryFailure(_) => Ok(Some(synthetic_fallback_reply())),
         PendingCall::Authorization(call) => {
             debug!(
                 "event=reply handling authorization {:?} uid={} pid={}",
@@ -302,6 +307,7 @@ pub(in crate::hook) unsafe fn handle_bc_reply(
 
 fn pending_preserves_system_on_rewrite_failure(pending: &PendingCall) -> bool {
     match pending {
+        PendingCall::InterfaceBoundaryFailure(_) => false,
         PendingCall::Authorization(_) => true,
         PendingCall::PrecomputedAuthorization(_, _) => false,
         PendingCall::Maintenance(call) => call.route != RouteTarget::Omk,

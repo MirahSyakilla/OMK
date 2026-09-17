@@ -46,6 +46,7 @@ goblin = "0.10.7"
 ring = "0.17.14"
 android_logger = "0.15.1"
 multi_log = "0.1.2"
+zip = { version = "8.2.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [profile.dev]
 incremental = true

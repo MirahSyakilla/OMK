@@ -1,5 +1,5 @@
 use super::*;
-use log::trace;
+use log::{debug, info, trace};
 
 pub(super) fn target_from_transaction(tr: &binder_transaction_data) -> Option<LocalBinderTarget> {
     let ptr = unsafe { tr.target.ptr };
@@ -23,12 +23,66 @@ fn route_for_service_request(
     }
 }
 
+fn service_request_needs_identity(
+    request: &ParsedServiceRequest,
+    decision: &filter::FilterDecision,
+    intercept: &config::InterceptConfig,
+) -> bool {
+    (decision.allowed && route_for_service_request(request, intercept) == RouteTarget::Omk)
+        || service_request_key(request)
+            .is_some_and(|key| omk_grant_descriptor_needs_probe(key, decision))
+}
+
 pub(super) fn security_level_scoop_enabled(intercept: &config::InterceptConfig) -> bool {
     intercept.get_security_level || intercept.get_key_entry
 }
 
 fn is_known_keystore_interface(interface: &str) -> bool {
     identify::KNOWN_KEYSTORE_INTERFACES.contains(&interface)
+}
+
+// None means the trusted ServiceManager identity is not ready yet. A known
+// mismatch must reach the original AIDL interface check without OMK effects.
+fn registered_interface_matches_target(
+    target: LocalBinderTarget,
+    interface: &str,
+    lookup: &impl Fn(&str) -> Option<LocalBinderTarget>,
+) -> Option<bool> {
+    let registered_interfaces = [
+        identify::KEYSTORE_SERVICE_INTERFACE,
+        identify::KEYSTORE_MAINTENANCE_INTERFACE,
+        identify::KEYSTORE_AUTHORIZATION_INTERFACE,
+    ];
+    if !registered_interfaces.contains(&interface) {
+        // Security-level and operation nodes use their existing target maps.
+        return Some(true);
+    }
+    if let Some(expected) = lookup(interface) {
+        return Some(expected == target);
+    }
+    if registered_interfaces
+        .iter()
+        .any(|other| *other != interface && lookup(other) == Some(target))
+    {
+        return Some(false);
+    }
+    None
+}
+
+fn block_unverified_interface(
+    connection: BinderStateKey,
+    tr: &mut binder_transaction_data,
+    caller: CallerInfo,
+) -> bool {
+    warn!(
+        "event=interface registered Binder identity not ready code=0x{:x} uid={} pid={}; returning SYSTEM_ERROR before backend execution",
+        tr.code, caller.uid, caller.pid
+    );
+    block_system_request(tr);
+    if (tr.flags & super::super::binder::TF_ONE_WAY) == 0 {
+        replace_top_pending(connection, PendingCall::InterfaceBoundaryFailure(caller));
+    }
+    true
 }
 
 pub(in crate::hook) unsafe fn handle_br_transaction(
@@ -59,6 +113,26 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
         return false;
     }
 
+    handle_keystore_transaction(
+        connection,
+        tr,
+        caller_sid,
+        command_name,
+        &cfg,
+        super::super::binder::registered_service_target,
+    )
+}
+
+unsafe fn handle_keystore_transaction(
+    connection: BinderStateKey,
+    tr: &mut binder_transaction_data,
+    caller_sid: Option<String>,
+    command_name: &str,
+    cfg: &config::InjectorConfig,
+    lookup_service_target: impl Fn(&str) -> Option<LocalBinderTarget>,
+) -> bool {
+    let expects_reply = (tr.flags & super::super::binder::TF_ONE_WAY) == 0;
+
     let Some(parcel_bytes) = super::super::binder::transaction_data_bytes(tr) else {
         warn!(
             "event=decision null parcel buffer for {} code=0x{:x} uid={} pid={}",
@@ -85,23 +159,24 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
     if !is_known_keystore_interface(&request_interface) {
         return false;
     }
-    let pin_target = LocalBinderTarget {
-        ptr: unsafe { tr.target.ptr },
-        cookie: tr.cookie,
-    };
-    if !tracker::accept_binder_interface(pin_target, &request_interface) {
-        trace!(
-            "event=decision command={} code=0x{:x} uid={} pid={} interface={} binder ptr=0x{:x} cookie=0x{:x} token_mismatch=true; passing through",
-            command_name,
-            tr.code,
-            tr.sender_euid,
-            tr.sender_pid,
-            request_interface,
-            pin_target.ptr,
-            pin_target.cookie
-        );
+    let Some(target) = target_from_transaction(tr) else {
         return false;
-    }
+    };
+    let interface_ready = match registered_interface_matches_target(
+        target,
+        &request_interface,
+        &lookup_service_target,
+    ) {
+        Some(true) => true,
+        Some(false) => {
+            debug!(
+                "event=interface request token does not match registered Binder target interface={} code=0x{:x} target={}; preserving system interface rejection",
+                request_interface, tr.code, format_target(tr)
+            );
+            return false;
+        }
+        None => false,
+    };
     let caller = CallerInfo {
         uid: i64::from(tr.sender_euid.max(0)),
         sid: caller_sid.unwrap_or_default(),
@@ -132,7 +207,16 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
         };
 
         let method = request.method();
-        trace!(
+        if !interface_ready {
+            return if authorization_requires_mirror(&request)
+                && authorization_mirror_failure_policy(&request) == MirrorFailurePolicy::FailClosed
+            {
+                block_unverified_interface(connection, tr, caller)
+            } else {
+                false
+            };
+        }
+        info!(
             "event=decision command={} authorization_method={:?} code=0x{:x} uid={} pid={} sid='{}'; mirroring auth state to OMK after system success",
             command_name,
             method,
@@ -222,7 +306,7 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
         let method = request.method();
         let (route, keybox_slot, packages, reason) = match &request {
             ParsedMaintenanceRequest::MigrateKeyNamespace { .. } => {
-                let decision = evaluate_caller(&caller, &cfg);
+                let decision = evaluate_caller(&caller, cfg);
                 (
                     if decision.allowed {
                         RouteTarget::Omk
@@ -236,6 +320,13 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
             }
             _ => (RouteTarget::System, 0, Vec::new(), None),
         };
+        if !interface_ready {
+            return if route == RouteTarget::Omk || maintenance_requires_mirror(&request) {
+                block_unverified_interface(connection, tr, caller)
+            } else {
+                false
+            };
+        }
         let caller = caller
             .with_keybox_slot(keybox_slot)
             .with_rkp_credential(cfg.rkp_credential_for_packages(&packages));
@@ -330,7 +421,7 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
     }
 
     if request_interface == identify::KEYSTORE_SERVICE_INTERFACE {
-        let decision = evaluate_caller(&caller, &cfg);
+        let decision = evaluate_caller(&caller, cfg);
         let caller = caller
             .with_keybox_slot(cfg.keybox_slot_for_packages(&decision.packages))
             .with_rkp_credential(cfg.rkp_credential_for_packages(&decision.packages));
@@ -349,6 +440,14 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
 
         let method = request.method();
         let original_code = tr.code;
+        if !interface_ready {
+            let requires_omk = service_request_needs_identity(&request, &decision, &cfg.intercept);
+            return if requires_omk {
+                block_unverified_interface(connection, tr, caller)
+            } else {
+                false
+            };
+        }
         let allow_omk_grant = match should_allow_omk_grant_service_request_with_probe(
             &request,
             &decision,
@@ -502,17 +601,8 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
         return request_rewritten;
     }
 
-    let Some(target) = target_from_transaction(tr) else {
-        trace!(
-            "event=decision skipping keystore request without local target code=0x{:x} target={}",
-            tr.code,
-            format_target(tr)
-        );
-        return false;
-    };
-
     if request_interface == identify::KEYSTORE_SECURITY_LEVEL_INTERFACE {
-        let decision = evaluate_caller(&caller, &cfg);
+        let decision = evaluate_caller(&caller, cfg);
         let caller = caller
             .with_keybox_slot(cfg.keybox_slot_for_packages(&decision.packages))
             .with_rkp_credential(cfg.rkp_credential_for_packages(&decision.packages));

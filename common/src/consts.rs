@@ -12,6 +12,13 @@ pub const AID_SYSTEM: u32 = 1000;
 pub const AID_KEYSTORE: u32 = 1017;
 pub const AID_APP_START: u32 = 10_000;
 pub const AID_USER_OFFSET: u32 = 100_000;
+pub const AID_APP_ZYGOTE_ISOLATED_START: u32 = 90_000;
+pub const AID_ISOLATED_END: u32 = 99_999;
+
+pub fn is_isolated_uid(uid: u32) -> bool {
+    (AID_APP_ZYGOTE_ISOLATED_START..=AID_ISOLATED_END).contains(&(uid % AID_USER_OFFSET))
+}
+
 pub const KEYSTORE_UID: libc::uid_t = AID_KEYSTORE as libc::uid_t;
 pub const KEYSTORE_GID: libc::gid_t = AID_KEYSTORE as libc::gid_t;
 

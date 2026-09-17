@@ -18,6 +18,7 @@ use rsbinder::{
 
 use crate::android::security::keystore::IKeyAttestationApplicationIdProvider::IKeyAttestationApplicationIdProvider;
 use crate::filter::PackageResolution;
+use crate::top::qwq2333::ohmykeymint::CallerInfo::CallerInfo;
 use crate::top::qwq2333::ohmykeymint::IOhMyAuthorizationService::IOhMyAuthorizationService;
 use crate::top::qwq2333::ohmykeymint::IOhMyKsService::IOhMyKsService;
 use crate::top::qwq2333::ohmykeymint::IOhMyMaintenanceService::IOhMyMaintenanceService;
@@ -419,6 +420,42 @@ pub fn resolve_packages_for_uid(uid: u32) -> PackageResolution {
         Ok(packages) => PackageResolution::Known(packages),
         Err(error) => {
             warn!("failed to resolve packages for uid {}: {:#}", uid, error);
+            PackageResolution::Unknown
+        }
+    }
+}
+
+pub fn resolve_packages_for_caller(caller: &CallerInfo) -> PackageResolution {
+    resolve_packages_for_caller_with(caller, resolve_packages_for_uid, |caller| {
+        with_omk_retry(|omk| Ok(omk.r#resolveIsolatedCallerPackages(Some(caller))?))
+    })
+}
+
+fn resolve_packages_for_caller_with(
+    caller: &CallerInfo,
+    resolve_uid: impl FnOnce(u32) -> PackageResolution,
+    resolve_isolated: impl FnOnce(&CallerInfo) -> Result<Vec<String>>,
+) -> PackageResolution {
+    let Ok(uid) = u32::try_from(caller.uid) else {
+        return PackageResolution::Unknown;
+    };
+    let packages = resolve_uid(uid);
+    if !matches!(packages, PackageResolution::Unknown)
+        || !kmr_common::consts::is_isolated_uid(uid)
+        || caller.pid <= 0
+    {
+        return packages;
+    }
+    // Only package attribution is resolved. Keep the kernel UID/PID/SID for
+    // all subsequent key authorization and business requests.
+    match resolve_isolated(caller) {
+        Ok(packages) if !packages.is_empty() => PackageResolution::Known(packages),
+        Ok(_) => PackageResolution::Unknown,
+        Err(error) => {
+            debug!(
+                "isolated caller package lookup unavailable uid={} pid={}: {error:#}",
+                caller.uid, caller.pid
+            );
             PackageResolution::Unknown
         }
     }

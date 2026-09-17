@@ -16,6 +16,10 @@ use super::{
     BINDER_TYPE_BINDER, FLAT_BINDER_FLAG_TXN_SECURITY_CTX, TF_ONE_WAY,
 };
 
+mod service;
+
+pub(crate) use service::{registered_service_target, start_registered_service_target_worker};
+
 struct NativeBinderUserData {
     target: OnceLock<LocalBinderTarget>,
     retirement_generation: std::sync::atomic::AtomicU64,
@@ -62,6 +66,7 @@ type BinderGetUserData = unsafe extern "C" fn(*mut c_void) -> *mut c_void;
 type BinderGetCallingUid = unsafe extern "C" fn() -> libc::uid_t;
 type BinderGetCallingPid = unsafe extern "C" fn() -> libc::pid_t;
 type BinderSetRequestingSid = unsafe extern "C" fn(*mut c_void, bool);
+type ServiceManagerCheckService = unsafe extern "C" fn(*const c_char) -> *mut c_void;
 type ParcelCreate = unsafe extern "C" fn() -> *mut c_void;
 type ParcelDelete = unsafe extern "C" fn(*mut c_void);
 type ParcelWriteStrongBinder = unsafe extern "C" fn(*mut c_void, *mut c_void) -> i32;
@@ -95,6 +100,7 @@ struct NativeBinderApi {
     binder_get_calling_pid: BinderGetCallingPid,
     binder_set_requesting_sid: BinderSetRequestingSid,
     binder_mark_vintf_stability: BinderRef,
+    service_manager_check_service: ServiceManagerCheckService,
     parcel_create: ParcelCreate,
     parcel_delete: ParcelDelete,
     parcel_write_strong_binder: ParcelWriteStrongBinder,
@@ -550,6 +556,8 @@ impl NativeBinderApi {
         let binder_set_requesting_sid = load_symbol(binder_ndk, b"AIBinder_setRequestingSid\0")?;
         let binder_mark_vintf_stability =
             load_symbol(binder_ndk, b"AIBinder_markVintfStability\0")?;
+        let service_manager_check_service =
+            load_symbol(binder_ndk, b"AServiceManager_checkService\0")?;
         let parcel_create = load_symbol(binder_ndk, b"AParcel_create\0")?;
         let parcel_delete = load_symbol(binder_ndk, b"AParcel_delete\0")?;
         let parcel_write_strong_binder = load_symbol(binder_ndk, b"AParcel_writeStrongBinder\0")?;
@@ -609,6 +617,7 @@ impl NativeBinderApi {
             binder_get_calling_pid,
             binder_set_requesting_sid,
             binder_mark_vintf_stability,
+            service_manager_check_service,
             parcel_create,
             parcel_delete,
             parcel_write_strong_binder,
@@ -671,52 +680,8 @@ fn create_native_binder_with_api(
         (api.binder_mark_vintf_stability)(binder.binder as *mut c_void);
     }
 
-    let parcel = unsafe { (api.parcel_create)() };
-    if parcel.is_null() {
-        bail!(
-            "AParcel_create returned null for native {} carrier",
-            kind.label()
-        );
-    }
-    let parcel = RawParcel {
-        parcel,
-        delete: api.parcel_delete,
-    };
-    let status =
-        unsafe { (api.parcel_write_strong_binder)(parcel.parcel, binder.binder as *mut c_void) };
-    if status != 0 {
-        bail!(
-            "AParcel_writeStrongBinder failed for native {} carrier: {status}",
-            kind.label()
-        );
-    }
-
-    let data_size = unsafe { (api.parcel_get_data_size)(parcel.parcel) };
-    let expected_size = size_of::<flat_binder_object>() + size_of::<i32>();
-    if data_size < 0 || data_size as usize != expected_size {
-        bail!(
-            "unexpected native {} carrier size: expected {expected_size}, got {data_size}",
-            kind.label()
-        );
-    }
-    let platform = unsafe { api.view_platform_const(parcel.parcel, std::ptr::null(), true) };
-    if platform.is_null() {
-        bail!(
-            "AParcel_viewPlatformParcel returned null for native {} carrier",
-            kind.label()
-        );
-    }
-    if unsafe { (api.platform_parcel_data_size)(platform) } != data_size as usize {
-        bail!(
-            "native {} carrier AParcel/platform Parcel size mismatch",
-            kind.label()
-        );
-    }
-    let data = unsafe { (api.platform_parcel_data)(platform) };
-    if data.is_null() {
-        bail!("native {} carrier has null data", kind.label());
-    }
-    let carrier = unsafe { std::slice::from_raw_parts(data, data_size as usize) }.to_vec();
+    let carrier = native_binder_carrier(api, &binder)
+        .with_context(|| format!("native {} Binder carrier failed", kind.label()))?;
     let object = unsafe { std::ptr::read_unaligned(carrier.as_ptr() as *const flat_binder_object) };
     if object.hdr.type_ != BINDER_TYPE_BINDER {
         bail!(
@@ -762,6 +727,43 @@ fn create_native_binder_with_api(
         target,
         carrier: carrier.into_boxed_slice(),
     })
+}
+
+fn native_binder_carrier(api: &NativeBinderApi, binder: &RawBinder) -> Result<Vec<u8>> {
+    let parcel = unsafe { (api.parcel_create)() };
+    if parcel.is_null() {
+        bail!("AParcel_create returned null for Binder carrier");
+    }
+    let parcel = RawParcel {
+        parcel,
+        delete: api.parcel_delete,
+    };
+    let status =
+        unsafe { (api.parcel_write_strong_binder)(parcel.parcel, binder.binder as *mut c_void) };
+    if status != 0 {
+        bail!("AParcel_writeStrongBinder failed for Binder carrier: {status}");
+    }
+
+    let data_size = unsafe { (api.parcel_get_data_size)(parcel.parcel) };
+    let expected_size = size_of::<flat_binder_object>() + size_of::<i32>();
+    if data_size < 0 || data_size as usize != expected_size {
+        bail!("unexpected Binder carrier size: expected {expected_size}, got {data_size}");
+    }
+    let platform = unsafe { api.view_platform_const(parcel.parcel, std::ptr::null(), true) };
+    if platform.is_null() {
+        bail!("AParcel_viewPlatformParcel returned null for Binder carrier");
+    }
+    if unsafe { (api.platform_parcel_data_size)(platform) } != data_size as usize {
+        bail!("Binder carrier AParcel/platform Parcel size mismatch");
+    }
+    if unsafe { (api.platform_parcel_objects_count)(platform) } != 1 {
+        bail!("Binder carrier must contain exactly one object");
+    }
+    let data = unsafe { (api.platform_parcel_data)(platform) };
+    if data.is_null() {
+        bail!("Binder carrier has null data");
+    }
+    Ok(unsafe { std::slice::from_raw_parts(data, data_size as usize) }.to_vec())
 }
 
 pub(crate) fn create_native_security_level_binder() -> Result<NativeBinder> {

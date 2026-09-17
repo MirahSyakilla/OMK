@@ -49,4 +49,6 @@ interface IOhMyKsService {
     void updateRsaKeybox(in @nullable CallerInfo ctx, in byte[] key, in List<Certificate> chain);
 
     boolean isOmkGrant(in @nullable CallerInfo ctx, in KeyDescriptor grant);
+
+    String[] resolveIsolatedCallerPackages(in @nullable CallerInfo ctx);
 }

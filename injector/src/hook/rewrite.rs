@@ -101,7 +101,7 @@ impl CallerInfo {
 
 fn evaluate_caller(
     caller: &CallerInfo,
-    cfg: &Arc<config::InjectorConfig>,
+    cfg: &config::InjectorConfig,
 ) -> crate::filter::FilterDecision {
     let cache_key = (
         caller.uid,
@@ -130,7 +130,7 @@ fn evaluate_caller(
 
     let package_resolution = {
         let _guard = BypassGuard::enter();
-        ipc::resolve_packages_for_uid(uid)
+        ipc::resolve_packages_for_caller(caller)
     };
     let cacheable = matches!(&package_resolution, PackageResolution::Known(_));
     let decision = filter::evaluate(
@@ -200,21 +200,24 @@ fn should_allow_omk_grant_descriptor_with_probe(
     caller: &CallerInfo,
     mut probe: impl FnMut(&CallerInfo, &KeyDescriptor) -> anyhow::Result<bool>,
 ) -> anyhow::Result<bool> {
-    if decision.allowed
-        || !matches!(
-            decision.reason,
-            FilterReason::RejectedUnknownPackage | FilterReason::RejectedNotInScope
-        )
-    {
-        return Ok(false);
-    }
-
-    if grant.domain != Domain::GRANT {
+    if !omk_grant_descriptor_needs_probe(grant, decision) {
         return Ok(false);
     }
 
     ensure_mirror_state_recovered()?;
     probe(caller, grant)
+}
+
+fn omk_grant_descriptor_needs_probe(
+    grant: &KeyDescriptor,
+    decision: &filter::FilterDecision,
+) -> bool {
+    !decision.allowed
+        && matches!(
+            decision.reason,
+            FilterReason::RejectedUnknownPackage | FilterReason::RejectedNotInScope
+        )
+        && grant.domain == Domain::GRANT
 }
 
 fn probe_omk_grant(caller: &CallerInfo, grant: &KeyDescriptor) -> anyhow::Result<bool> {

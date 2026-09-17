@@ -888,4 +888,16 @@ impl IOhMyKsService for KeystoreService {
         let ctx = Some(require_omk_ctx(ctx, "IOhMyKsService::isOmkGrant")?);
         self.is_omk_grant(ctx, grant).map_err(into_logged_binder)
     }
+
+    fn resolveIsolatedCallerPackages(
+        &self,
+        ctx: Option<&CallerInfo>,
+    ) -> Result<Vec<String>, Status> {
+        let ctx = require_omk_ctx(ctx, "IOhMyKsService::resolveIsolatedCallerPackages")?;
+        let (Ok(uid), Ok(pid)) = (u32::try_from(ctx.uid), u32::try_from(ctx.pid)) else {
+            return Ok(Vec::new());
+        };
+        crate::plat::resetprop::runtime_isolated_caller_packages(uid, pid)
+            .map_err(into_logged_binder)
+    }
 }

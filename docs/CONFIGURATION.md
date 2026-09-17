@@ -635,6 +635,31 @@ allowed by the filter, `true` routes that operation to OMK and `false` leaves
 that operation on System. These switches do not migrate existing keys or make
 System-created key references usable by OMK.
 
+Service, maintenance, and authorization requests must match the actual Binder
+object registered for their interface before OMK dispatch or state mirroring.
+An interface token naming a different Binder service is left to the system
+interface check and does not trigger OMK work. Registered Binder identities
+are resolved independently on a dedicated thread. If an identity is not yet
+available, calls requiring OMK execution or mandatory state mirroring return
+`SYSTEM_ERROR` without executing a backend; calls configured for System stay
+on System. Best-effort authentication-token updates also stay on System while
+their service identity is unavailable. Missing service identities are retried
+automatically.
+
+Isolated Android service callers use the system ActivityManager process record
+for package attribution when ordinary UID package lookup has no result. The
+privileged helper matches the Binder caller PID and checks its kernel UID and
+process start time before and after the lookup. Only the process package list
+affects the existing package filter; dependency packages are excluded. The
+original isolated UID, PID, and SELinux identity remain authoritative for key
+permissions. Failed or unsupported lookups retain unknown-package behavior.
+The ActivityManager transaction number is read from the installed system
+framework's AIDL Stub constant, allowing vendor method-number changes without
+probing unknown transactions. The constant is cached only in memory; process
+ownership is queried and checked for each unresolved isolated caller request.
+This attribution has no key-descriptor or backend-origin dependency and does
+not override deny lists or per-method interception settings.
+
 The OMK-owned grant exception is separate from ordinary package routing. A
 request carrying a confirmed OMK grant may return to OMK even when the
 receiving app is outside `scoop`, so the granted key remains usable.

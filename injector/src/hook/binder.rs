@@ -5,8 +5,8 @@ use log::trace;
 mod native;
 
 pub(crate) use native::{
-    create_native_operation_binder, create_native_security_level_binder, NativeBinder,
-    NativeBinderRetirement,
+    create_native_operation_binder, create_native_security_level_binder, registered_service_target,
+    start_registered_service_target_worker, NativeBinder, NativeBinderRetirement,
 };
 
 const PARCEL_PREVIEW_CHARS: usize = 50;

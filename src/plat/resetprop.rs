@@ -9,6 +9,15 @@ use std::{
 use anyhow::{anyhow, bail, Context, Result};
 use rsbinder::{hub, Status, StatusCode};
 
+mod isolated_process;
+
+pub(crate) fn runtime_isolated_caller_packages(uid: u32, pid: u32) -> Result<Vec<String>> {
+    if !kmr_common::consts::is_isolated_uid(uid) || pid == 0 {
+        return Ok(Vec::new());
+    }
+    with_helper(|helper| helper.isolated_caller_packages(uid, pid))
+}
+
 const ANDROID_PACKAGE: &str = "android";
 const PACKAGE_MANAGER_NATIVE_DESCRIPTOR: &str = "android.content.pm.IPackageManagerNative";
 const PACKAGE_MANAGER_NATIVE_SERVICE: &str = "package_native";
@@ -251,6 +260,11 @@ struct ResetpropHelperClient {
 }
 
 impl ResetpropHelperClient {
+    fn isolated_caller_packages(&mut self, uid: u32, pid: u32) -> Result<Vec<String>> {
+        let response = self.request(&format!("ISOLATED_PACKAGES\t{uid}\t{pid}\n"))?;
+        isolated_process::parse_helper_response(&response)
+    }
+
     fn write_and_verify_property(&mut self, property: &str, value: &str) -> Result<()> {
         let response = self.request(&format!("SET\t{property}\t{value}\n"))?;
         if response == "OK" {
@@ -509,7 +523,12 @@ fn helper_loop(stream: UnixStream, command: Option<ResetpropCommand>) -> Result<
         }
 
         let trimmed = line.trim_end_matches(['\r', '\n']);
-        let response = if let Some(feature) = parse_feature_request(trimmed) {
+        let response = if let Some(request) = trimmed.strip_prefix("ISOLATED_PACKAGES\t") {
+            match isolated_process::execute_helper_request(request) {
+                Ok(response) => response,
+                Err(error) => helper_error_response(&error),
+            }
+        } else if let Some(feature) = parse_feature_request(trimmed) {
             match execute_has_system_feature(feature) {
                 Ok(true) => "TRUE\n".to_string(),
                 Ok(false) => "FALSE\n".to_string(),
