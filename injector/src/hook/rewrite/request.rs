@@ -85,6 +85,20 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
     if !is_known_keystore_interface(&request_interface) {
         return false;
     }
+    let binder_ptr = unsafe { tr.target.ptr };
+    if !tracker::accept_binder_interface(binder_ptr, &request_interface) {
+        trace!(
+            "event=decision command={} code=0x{:x} uid={} pid={} interface={} binder ptr=0x{:x} cookie=0x{:x} token_mismatch=true; passing through",
+            command_name,
+            tr.code,
+            tr.sender_euid,
+            tr.sender_pid,
+            request_interface,
+            binder_ptr,
+            tr.cookie
+        );
+        return false;
+    }
     let caller = CallerInfo {
         uid: i64::from(tr.sender_euid.max(0)),
         sid: caller_sid.unwrap_or_default(),

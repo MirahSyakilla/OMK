@@ -321,3 +321,62 @@ fn denylisted_grant_readback_does_not_probe_omk() {
     )
     .expect("denylisted grant lookup should succeed"));
 }
+
+#[test]
+fn mismatched_interface_token_on_pinned_binder_is_not_intercepted() {
+    let _guard = route_state_test_guard();
+    let service_target = LocalBinderTarget {
+        ptr: 0x5150,
+        cookie: 0,
+    };
+    let maintenance_target = LocalBinderTarget {
+        ptr: 0x5151,
+        cookie: 0,
+    };
+    let fd = 41;
+
+    let mut service_request = request_parcel(identify::KEYSTORE_SERVICE_INTERFACE);
+    service_request.write(&sample_key_descriptor()).unwrap();
+    let mut service_tr =
+        transaction_for_parcel(service_target, service_tx::r#getKeyEntry, &service_request);
+    unsafe { handle_br_transaction(fd, &mut service_tr, None, "BR_TRANSACTION") };
+    assert_eq!(
+        tracker::lookup_binder_interface_for_tests(service_target.ptr),
+        Some(identify::KEYSTORE_SERVICE_INTERFACE)
+    );
+    let _ = take_top_pending(fd);
+
+    let mut spoof = request_parcel(identify::KEYSTORE_MAINTENANCE_INTERFACE);
+    spoof.write(&sample_key_descriptor()).unwrap();
+    spoof.write(&sample_key_descriptor()).unwrap();
+    let mut spoof_tr = transaction_for_parcel(
+        service_target,
+        crate::android::security::maintenance::IKeystoreMaintenance::transactions::r#migrateKeyNamespace,
+        &spoof,
+    );
+    let rewritten = unsafe { handle_br_transaction(fd, &mut spoof_tr, None, "BR_TRANSACTION") };
+    assert!(!rewritten);
+    assert_eq!(
+        tracker::lookup_binder_interface_for_tests(service_target.ptr),
+        Some(identify::KEYSTORE_SERVICE_INTERFACE)
+    );
+    assert!(!matches!(
+        take_top_pending(fd),
+        Some(Some(PendingCall::Maintenance(_)))
+            | Some(Some(PendingCall::PrecomputedMaintenance(_, _)))
+    ));
+
+    let mut maintenance_request = request_parcel(identify::KEYSTORE_MAINTENANCE_INTERFACE);
+    maintenance_request.write(&sample_key_descriptor()).unwrap();
+    maintenance_request.write(&sample_key_descriptor()).unwrap();
+    let mut maintenance_tr = transaction_for_parcel(
+        maintenance_target,
+        crate::android::security::maintenance::IKeystoreMaintenance::transactions::r#migrateKeyNamespace,
+        &maintenance_request,
+    );
+    unsafe { handle_br_transaction(fd, &mut maintenance_tr, None, "BR_TRANSACTION") };
+    assert_eq!(
+        tracker::lookup_binder_interface_for_tests(maintenance_target.ptr),
+        Some(identify::KEYSTORE_MAINTENANCE_INTERFACE)
+    );
+}
