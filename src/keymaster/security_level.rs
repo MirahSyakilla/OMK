@@ -15,7 +15,7 @@
 //! This crate implements the IKeystoreSecurityLevel interface.
 
 use crate::android::hardware::security::keymint::{
-    Algorithm::Algorithm, AttestationKey::AttestationKey,
+    Algorithm::Algorithm, AttestationKey::AttestationKey, Certificate::Certificate,
     HardwareAuthenticatorType::HardwareAuthenticatorType, IKeyMintDevice::IKeyMintDevice,
     KeyCreationResult::KeyCreationResult, KeyFormat::KeyFormat,
     KeyMintHardwareInfo::KeyMintHardwareInfo, KeyOrigin::KeyOrigin, KeyParameter::KeyParameter,
@@ -825,13 +825,15 @@ impl KeystoreSecurityLevel {
         } else {
             None
         };
-        let creation_result =
+        let (mut creation_result, attest_chain_suffix) =
             crate::keybox::with_active_slot(keybox_slot, || match attestation_key_info {
                 Some(AttestationKeyInfo::UserGenerated {
                     key_id_guard,
                     blob,
                     blob_metadata,
                     issuer_subject,
+                    cert,
+                    cert_chain,
                 }) => self
                     .upgrade_keyblob_if_required_with(
                         Some(key_id_guard),
@@ -855,16 +857,31 @@ impl KeystoreSecurityLevel {
                       attestation key, params: {:?}.",
                         log_security_safe_params(&params)
                     ))
-                    .map(|(result, _)| result),
+                    .map(|(result, _)| (result, Some((cert, cert_chain)))),
                 None => self
                     .generate_key_and_retry_on_att_id_mismatch(&params, None)
                     .context(ks_err!(
                         "While generating without a provided \
                  attestation key and params: {:?}.",
                         log_security_safe_params(&params)
-                    )),
+                    ))
+                    .map(|result| (result, None)),
             })
             .context(ks_err!())?;
+        if let Some((cert, cert_chain)) = attest_chain_suffix {
+            if !cert.is_empty() {
+                creation_result.certificateChain.push(Certificate {
+                    encodedCertificate: cert,
+                });
+            }
+            if let Some(chain) = cert_chain {
+                if !chain.is_empty() {
+                    creation_result.certificateChain.push(Certificate {
+                        encodedCertificate: chain,
+                    });
+                }
+            }
+        }
 
         let user = caller_uid.owning_user();
         self.store_new_key(

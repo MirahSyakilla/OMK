@@ -34,6 +34,8 @@ pub enum AttestationKeyInfo {
         blob: Vec<u8>,
         blob_metadata: BlobMetaData,
         issuer_subject: Vec<u8>,
+        cert: Vec<u8>,
+        cert_chain: Option<Vec<u8>>,
     },
 }
 
@@ -53,24 +55,33 @@ pub fn get_attest_key_info(
     }
 }
 
+struct LoadedAttestKey {
+    key_id_guard: KeyIdGuard,
+    blob: Vec<u8>,
+    blob_metadata: BlobMetaData,
+    cert: Vec<u8>,
+    cert_chain: Option<Vec<u8>>,
+}
+
 fn get_user_generated_attestation_key(
     ctx: Option<&CallerInfo>,
     key: &KeyDescriptor,
     caller_uid: AppUid,
     db: &mut KeystoreDB,
 ) -> Result<AttestationKeyInfo> {
-    let (key_id_guard, blob, cert, blob_metadata) =
-        load_attest_key_blob_and_cert(ctx, key, caller_uid, db)
-            .context(ks_err!("Failed to load blob and cert"))?;
+    let loaded = load_attest_key_blob_and_cert(ctx, key, caller_uid, db)
+        .context(ks_err!("Failed to load blob and cert"))?;
 
-    let issuer_subject: Vec<u8> = parse_subject_from_certificate(&cert)
+    let issuer_subject: Vec<u8> = parse_subject_from_certificate(&loaded.cert)
         .context(ks_err!("Failed to parse subject from certificate"))?;
 
     Ok(AttestationKeyInfo::UserGenerated {
-        key_id_guard,
-        blob,
+        key_id_guard: loaded.key_id_guard,
+        blob: loaded.blob,
         issuer_subject,
-        blob_metadata,
+        blob_metadata: loaded.blob_metadata,
+        cert: loaded.cert,
+        cert_chain: loaded.cert_chain,
     })
 }
 
@@ -79,7 +90,7 @@ fn load_attest_key_blob_and_cert(
     key: &KeyDescriptor,
     caller_uid: AppUid,
     db: &mut KeystoreDB,
-) -> Result<(KeyIdGuard, Vec<u8>, Vec<u8>, BlobMetaData)> {
+) -> Result<LoadedAttestKey> {
     match key.domain {
         Domain::BLOB => Err(Error::Km(ErrorCode::INVALID_ARGUMENT))
             .context(ks_err!("Domain::BLOB attestation keys not supported")),
@@ -106,7 +117,14 @@ fn load_attest_key_blob_and_cert(
                 .context(ks_err!(
                     "Successfully loaded key entry, but cert was missing"
                 ))?;
-            Ok((key_id_guard, blob, cert, blob_metadata))
+            let cert_chain = key_entry.take_cert_chain();
+            Ok(LoadedAttestKey {
+                key_id_guard,
+                blob,
+                blob_metadata,
+                cert,
+                cert_chain,
+            })
         }
     }
 }
