@@ -200,6 +200,7 @@ pub(in crate::hook::rewrite) fn build_operation_reply_rewrite(
             match backend.r#finish(input.as_deref(), signature.as_deref()) {
                 Ok(output) => {
                     mark_operation_target_finalized(pending.target);
+                    super::omk_tee_like_op_pad();
                     parcel::build_plain_reply(&output)?
                 }
                 Err(status) => {

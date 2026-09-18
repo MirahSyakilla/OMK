@@ -11,6 +11,19 @@ pub(super) use operation::{
     build_no_carrier_create_operation_reply, build_operation_reply_rewrite,
 };
 
+fn omk_tee_like_op_pad() {
+    let mut state = std::time::Instant::now()
+        .elapsed()
+        .subsec_nanos()
+        .wrapping_mul(2654435761);
+    state ^= state << 13;
+    state ^= state >> 17;
+    state ^= state << 5;
+    std::thread::sleep(std::time::Duration::from_micros(
+        1200 + u64::from(state % 800),
+    ));
+}
+
 fn register_security_level_carrier(
     carrier: &parcel::ReplyBinderCarrier,
     security_level: crate::android::hardware::security::keymint::SecurityLevel::SecurityLevel,
@@ -535,7 +548,10 @@ pub(super) fn build_omk_security_level_reply(
             let omk_response =
                 match omk_level.r#createOperation(Some(caller), key, operation_parameters, *forced)
                 {
-                    Ok(response) => response,
+                    Ok(response) => {
+                        omk_tee_like_op_pad();
+                        response
+                    }
                     Err(error) => {
                         return omk_status_reply_for_method(
                             "createOperation",
