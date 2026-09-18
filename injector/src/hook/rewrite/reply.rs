@@ -11,17 +11,46 @@ pub(super) use operation::{
     build_no_carrier_create_operation_reply, build_operation_reply_rewrite,
 };
 
-fn omk_tee_like_op_pad() {
-    let mut state = std::time::Instant::now()
+fn omk_prng_u32() -> u32 {
+    let mut state = Instant::now()
         .elapsed()
         .subsec_nanos()
         .wrapping_mul(2654435761);
     state ^= state << 13;
     state ^= state >> 17;
     state ^= state << 5;
-    std::thread::sleep(std::time::Duration::from_micros(
-        1200 + u64::from(state % 800),
+    state
+}
+
+fn omk_extra_pad(base_us: u64, span_us: u64) {
+    std::thread::sleep(Duration::from_micros(
+        base_us + u64::from(omk_prng_u32()) % span_us.max(1),
     ));
+}
+
+fn omk_begin_phase() {
+    omk_extra_pad(2500, 3500);
+}
+
+fn omk_finish_phase() {
+    omk_extra_pad(1200, 1500);
+}
+
+fn omk_generate_key_phase(challenged: bool) {
+    if challenged {
+        omk_extra_pad(15500, 800);
+    } else {
+        omk_extra_pad(7000, 800);
+    }
+}
+
+fn params_have_attestation_challenge(
+    params: &[crate::android::hardware::security::keymint::KeyParameter::KeyParameter],
+) -> bool {
+    params.iter().any(|parameter| {
+        parameter.tag
+            == crate::android::hardware::security::keymint::Tag::Tag::ATTESTATION_CHALLENGE
+    })
 }
 
 fn register_security_level_carrier(
@@ -549,7 +578,7 @@ pub(super) fn build_omk_security_level_reply(
                 match omk_level.r#createOperation(Some(caller), key, operation_parameters, *forced)
                 {
                     Ok(response) => {
-                        omk_tee_like_op_pad();
+                        omk_begin_phase();
                         response
                     }
                     Err(error) => {
@@ -574,6 +603,7 @@ pub(super) fn build_omk_security_level_reply(
             flags,
             entropy,
         } => {
+            omk_generate_key_phase(params_have_attestation_challenge(params));
             match omk_level.r#generateKey(
                 Some(caller),
                 key,
