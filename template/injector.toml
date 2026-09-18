@@ -25,7 +25,7 @@ scoop = [
 enabled = true
 log_level = "off"
 debug_logging = false
-# Optional timing workaround for successful challenged generation; 0 disables it.
+# Optional delay before challenged OMK generation, 0..250 ms; 0 disables it.
 attestation_generation_delay_ms = 0
 
 [filter]

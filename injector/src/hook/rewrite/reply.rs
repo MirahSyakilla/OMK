@@ -606,21 +606,22 @@ pub(super) fn build_omk_security_level_reply(
             entropy,
         } => {
             omk_generate_key_phase(params_have_attestation_challenge(params));
-            match omk_level.r#generateKey(
-                Some(caller),
-                key,
-                attestation_key.as_ref(),
+            match generate_key_with_delay(
                 params,
-                *flags,
-                entropy,
+                config::get().main.attestation_generation_delay_ms,
+                std::thread::sleep,
+                || {
+                    omk_level.r#generateKey(
+                        Some(caller),
+                        key,
+                        attestation_key.as_ref(),
+                        params,
+                        *flags,
+                        entropy,
+                    )
+                },
             ) {
-                Ok(metadata) => build_generated_key_reply(
-                    &metadata,
-                    params,
-                    config::get().main.attestation_generation_delay_ms,
-                    std::thread::sleep,
-                )
-                .map(Some),
+                Ok(metadata) => Ok(Some(parcel::build_plain_reply(&metadata)?)),
                 Err(error) => omk_status_reply_for_method("generateKey", &pending.caller, &error),
             }
         }
@@ -681,24 +682,23 @@ pub(super) fn build_omk_security_level_reply(
     }
 }
 
-fn build_generated_key_reply(
-    metadata: &KeyMetadata,
+fn generate_key_with_delay(
     params: &[KeyParameter],
     delay_ms: u16,
     wait: impl FnOnce(Duration),
-) -> anyhow::Result<OutboundReply> {
-    let reply = parcel::build_plain_reply(metadata)?;
+    generate: impl FnOnce() -> Result<KeyMetadata, Status>,
+) -> Result<KeyMetadata, Status> {
     if delay_ms > 0
         && params
             .iter()
             .any(|param| param.tag == Tag::ATTESTATION_CHALLENGE)
     {
-        // The RPC has already returned. Waiting here leaves its shared connection
-        // and the KeyMint/database locks available to other requests. The current
-        // keystore2 Binder worker remains occupied until this reply is delivered.
+        // Wait before the RPC so no new key is published during this extra wait.
+        // No config, RPC connection, or KeyMint/database lock is held here. The
+        // Binder worker stays occupied; challenged business errors also wait.
         wait(Duration::from_millis(u64::from(delay_ms)));
     }
-    Ok(reply)
+    generate()
 }
 
 #[cfg(test)]

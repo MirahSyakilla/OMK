@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::mem::size_of;
 
 use rsbinder::{ExceptionCode, Status, StatusCode};
@@ -6,18 +7,9 @@ use super::*;
 use crate::hook::rewrite::tests::*;
 
 #[test]
-fn generated_key_reply_delay_preserves_metadata_and_only_waits_for_challenge() {
+fn generation_delay_precedes_key_publication_and_preserves_metadata() {
     use crate::android::hardware::security::keymint::KeyParameterValue::KeyParameterValue;
 
-    let metadata = KeyMetadata {
-        key: KeyDescriptor {
-            domain: Domain::KEY_ID,
-            nspace: 123,
-            ..Default::default()
-        },
-        certificate: Some(vec![1, 2, 3]),
-        ..Default::default()
-    };
     let challenge = vec![KeyParameter {
         tag: Tag::ATTESTATION_CHALLENGE,
         value: KeyParameterValue::Blob(vec![7]),
@@ -31,16 +23,72 @@ fn generated_key_reply_delay_preserves_metadata_and_only_waits_for_challenge() {
         (&challenge, 0, None),
         (&plain, 25, None),
     ] {
-        let mut waited = None;
-        let mut reply = build_generated_key_reply(&metadata, params, delay, |duration| {
-            waited = Some(duration);
-        })
+        let waited = Cell::new(None);
+        let generation_calls = Cell::new(0);
+        let generated = generate_key_with_delay(
+            params,
+            delay,
+            |duration| {
+                assert_eq!(generation_calls.get(), 0, "key must not exist during wait");
+                waited.set(Some(duration));
+            },
+            || {
+                assert_eq!(waited.get(), expected, "wait must precede generation");
+                generation_calls.set(generation_calls.get() + 1);
+                Ok(KeyMetadata {
+                    key: KeyDescriptor {
+                        domain: Domain::KEY_ID,
+                        nspace: 123,
+                        ..Default::default()
+                    },
+                    certificate: Some(vec![1, 2, 3]),
+                    ..Default::default()
+                })
+            },
+        )
         .unwrap();
-        assert_eq!(waited, expected);
+        assert_eq!(waited.get(), expected);
+        assert_eq!(generation_calls.get(), 1);
+        let mut reply = parcel::build_plain_reply(&generated).unwrap();
         let decoded: KeyMetadata = parcel::parse_owned_success_reply(&mut reply).unwrap();
-        assert_eq!(decoded.key.domain, metadata.key.domain);
-        assert_eq!(decoded.key.nspace, metadata.key.nspace);
-        assert_eq!(decoded.certificate, metadata.certificate);
+        assert_eq!(decoded.key.domain, Domain::KEY_ID);
+        assert_eq!(decoded.key.nspace, 123);
+        assert_eq!(decoded.certificate, Some(vec![1, 2, 3]));
+    }
+}
+
+#[test]
+fn generation_delay_precedes_failure_and_preserves_error() {
+    use crate::android::hardware::security::keymint::KeyParameterValue::KeyParameterValue;
+
+    let challenge = vec![KeyParameter {
+        tag: Tag::ATTESTATION_CHALLENGE,
+        value: KeyParameterValue::Blob(vec![7]),
+    }];
+    for error in [
+        Status::new_service_specific_error(ResponseCode::PERMISSION_DENIED.0, None),
+        Status::from(StatusCode::DeadObject),
+    ] {
+        let expected_error = format!("{error:?}");
+        let waited = Cell::new(false);
+        let generation_calls = Cell::new(0);
+        let error = generate_key_with_delay(
+            &challenge,
+            25,
+            |duration| {
+                assert_eq!(generation_calls.get(), 0);
+                assert_eq!(duration, Duration::from_millis(25));
+                waited.set(true);
+            },
+            || {
+                assert!(waited.get(), "errors must also follow the configured wait");
+                generation_calls.set(generation_calls.get() + 1);
+                Err(error)
+            },
+        )
+        .unwrap_err();
+        assert_eq!(generation_calls.get(), 1);
+        assert_eq!(format!("{error:?}"), expected_error);
     }
 }
 

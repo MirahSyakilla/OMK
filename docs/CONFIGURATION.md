@@ -451,7 +451,7 @@ enabled = true
 log_level = "off"
 # Diagnostic logs at info/debug/trace. Keep false; enable only for short diagnostics.
 debug_logging = false
-# Optional successful challenged-generation response delay, 0..250 ms.
+# Optional delay before challenged OMK generation, 0..250 ms.
 attestation_generation_delay_ms = 0
 
 [filter]
@@ -552,17 +552,21 @@ the switch without restarting the injector.
 #### `attestation_generation_delay_ms`
 
 Optional timing workaround, an integer from `0` to `250` milliseconds. The
-default `0` disables it. A nonzero value delays only successful OMK
-`generateKey` replies for requests containing `ATTESTATION_CHALLENGE`, after
-the RPC and reply serialization complete. Plain generation, imports,
-operations, System requests, and error responses do not receive this delay.
+default `0` disables it. A nonzero value delays OMK `generateKey` requests
+containing `ATTESTATION_CHALLENGE` before the generation RPC starts. Both
+two-way and one-way requests receive this delay, including calls that return
+OMK business errors. Plain generation, imports, operations, System requests,
+and failures before generation dispatch do not receive this delay.
 
 This can mitigate clients that classify software KeyMint by generation
 timing. It does not provide hardware security or guarantee a detector result.
-For example, `25` adds at least 25 ms to each successful challenged generation;
-scheduling can add more. The waiting Binder worker stays occupied, so many
-concurrent generations can delay unrelated callers even though the RPC
-connection and KeyMint/database locks are free. Leave it at `0` unless needed.
+For example, `25` adds at least 25 ms before each affected generation;
+scheduling can add more. The wait occurs before creating or storing the new
+key, without holding the RPC connection or KeyMint/database locks. The Binder
+worker stays occupied, so concurrent requests can delay unrelated callers.
+Key storage and reply delivery remain separate steps; this setting does not
+promise that a concurrent reader cannot observe a key before the generation
+reply arrives. Leave it at `0` unless needed.
 
 Valid changes apply without a restart. Out-of-range or non-integer values
 reject the configuration; on reload, the previous valid settings remain active.
