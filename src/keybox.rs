@@ -691,10 +691,10 @@ fn load_keybox_with_fallback(path: &str) -> Result<(KeyBox, bool)> {
             Err(error) => {
                 warn!("invalid keybox.xml at {path}: {error:#}");
                 if let Some(keybox) = load_last_good() {
-                    warn!("using last-good keybox; leaving invalid file in place");
+                    warn!("invalid keybox.xml at {path}; using last-good");
                     return Ok((keybox, true));
                 }
-                warn!("no last-good keybox; using bundled template in memory");
+                warn!("invalid keybox.xml at {path}; using bundled template");
                 Ok((KeyBox::new(), true))
             }
         },
@@ -930,7 +930,7 @@ mod tests {
     }
 
     #[test]
-    fn invalid_file_keeps_disk_and_falls_back() {
+    fn invalid_file_falls_back() {
         let path = write_temp_keybox("invalid", "<not-xml>");
         let (keybox, used_fallback) = load_keybox_with_fallback(path.to_str().unwrap()).unwrap();
         assert!(used_fallback);
@@ -946,7 +946,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_ec_only_keybox_and_signs_rsa_hint_with_ec() {
+    fn ec_only_covers_rsa_hint() {
         let bundled = KeyBox::from_xml_str(BUNDLED_KEYBOX_XML).unwrap();
         let xml = bundled.to_xml_string();
         let rsa_block_start = xml.find("<Key algorithm=\"rsa\">").unwrap();

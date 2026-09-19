@@ -213,14 +213,9 @@ keybox that you use.
 
 ### What makes a keybox valid?
 
-OMK requires at least one complete RSA or EC entry. A factory box has both.
-An RKP-extracted box may contain only EC; OMK then signs every attested leaf
-with that EC key. For each present entry, the private key must match its
-certificate chain. PKCS#1, SEC1, and PKCS#8 PEM keys are accepted. XML
-comments outside key material are ignored.
-
-A file that another module accepts can still fail here if it has no usable
-RSA or EC key, a broken chain, or a private key that does not match the leaf.
+OMK needs at least one RSA or EC entry whose private key matches its
+certificate chain. PKCS#1, SEC1, and PKCS#8 PEM are accepted. If only EC
+is present, RSA attestation requests are signed with that EC key.
 
 ### How should I replace `keybox.xml`?
 
@@ -229,10 +224,9 @@ Replace the complete active file at
 Use a root file manager to copy the complete replacement under a temporary
 name in the same folder, then rename it to `keybox.xml` in one step.
 
-OMK normally reloads it automatically. Check `keymint.log` afterward. A missing
-file is replaced with the bundled template. An invalid file is left in place;
-OMK keeps the last valid box it stored, or the bundled template in memory, so
-keymint still starts.
+OMK reloads the file automatically. Check `keymint.log` afterward. A missing
+file is replaced with the bundled template. An invalid file is left on disk;
+keymint keeps the last valid box, or the bundled template, in memory.
 
 ### Why does a detector say that the certificate is expired or revoked?
 

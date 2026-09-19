@@ -167,9 +167,7 @@ fn resolve_vb_key(spec: &TrustValueSpec, device_locked: bool, slot_suffix: &str)
                     source: TrustValueSource::Computed,
                 },
                 Ok(_) => {
-                    log::warn!(
-                        "computed vbmeta public key digest is all-zero; using random fallback"
-                    );
+                    log::warn!("computed vbmeta public key digest is all-zero");
                     random_field(TrustValueSource::RandomFallback)
                 }
                 Err(error) => {
