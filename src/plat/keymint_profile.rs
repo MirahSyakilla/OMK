@@ -3,7 +3,7 @@ use std::sync::OnceLock;
 use anyhow::{anyhow, bail, Context, Result};
 use kmr_common::crypto::Sha256;
 use kmr_crypto_boring::sha256::BoringSha256;
-use rsbinder::{hub, Strong};
+use rsbinder::{hub, ProcessState, Strong};
 
 use super::resetprop;
 use crate::android::hardware::security::keymint::{
@@ -19,8 +19,6 @@ const KEYMINT_V4: i32 = 400;
 const KEYMINT_V5: i32 = 500;
 const KEYMINT_HAL_NAME: &str = "android.hardware.security.keymint";
 const KEYMINT_DEVICE_INTERFACE: &str = "IKeyMintDevice";
-const AOSP_AUTHOR_NAME: &str = "The Android Open Source Project";
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct KeyMintHardwareProfile {
     pub version_number: i32,
@@ -38,6 +36,15 @@ pub(crate) fn resolve_hardware_profile(security_level: SecurityLevel) -> KeyMint
     let version_number = probe_keymint_version_from_vintf(security_level)
         .unwrap_or_else(fallback_keymint_version_from_android);
 
+    match probe_system_keymint_hardware_info(security_level)
+        .and_then(|info| profile_from_system_hardware_info(&info, security_level, version_number))
+    {
+        Ok(profile) => return profile,
+        Err(error) => {
+            log::warn!("failed to copy system KeyMint hardware profile: {error:#}");
+        }
+    }
+
     if let Some(profile) = resolve_property_profile_with(
         security_level,
         version_number,
@@ -46,15 +53,7 @@ pub(crate) fn resolve_hardware_profile(security_level: SecurityLevel) -> KeyMint
         return profile;
     }
 
-    match probe_system_keymint_hardware_info(security_level)
-        .and_then(|info| profile_from_system_hardware_info(&info, security_level, version_number))
-    {
-        Ok(profile) => profile,
-        Err(error) => {
-            log::warn!("failed to resolve dynamic KeyMint hardware profile: {error:#}");
-            fallback_profile(security_level, version_number)
-        }
-    }
+    fallback_profile(security_level, version_number)
 }
 
 fn detect_strongbox_keymint_present() -> bool {
@@ -166,6 +165,9 @@ fn build_impl_name(
 fn probe_system_keymint_hardware_info(
     security_level: SecurityLevel,
 ) -> Result<KeyMintHardwareInfo> {
+    if !ProcessState::is_initialized() {
+        bail!("binder ProcessState is not initialized");
+    }
     let service = system_keymint_service_name(security_level)
         .ok_or_else(|| anyhow!("unsupported security level for system KeyMint probe"))?;
     let keymint: Strong<dyn IKeyMintDevice> =
@@ -290,11 +292,15 @@ fn normalize_keymint_version(version: i32) -> Option<i32> {
 fn fallback_profile(security_level: SecurityLevel, version_number: i32) -> KeyMintHardwareProfile {
     let line = version_number / 100;
     let sec_label = security_level_label(security_level);
+    let impl_name = format!("{sec_label} KeyMint {line}");
+    let author_name = sec_label.to_string();
+    let unique_id = derive_unique_id(&author_name, &impl_name, security_level, version_number)
+        .unwrap_or_else(|| hex::encode([0u8; 16]));
     KeyMintHardwareProfile {
         version_number,
-        impl_name: format!("Android {sec_label} KeyMint {line}"),
-        author_name: AOSP_AUTHOR_NAME.to_string(),
-        unique_id: format!("android-{sec_label}-keymint-{line}"),
+        impl_name,
+        author_name,
+        unique_id,
     }
 }
 
@@ -306,12 +312,7 @@ fn derive_unique_id(
 ) -> Option<String> {
     let input = format!("{author_name}\n{impl_name}\n{security_level:?}\n{version_number}");
     let digest = BoringSha256 {}.hash(input.as_bytes()).ok()?;
-    let digest = hex::encode(&digest[..6]);
-    Some(format!(
-        "keymint-{}-{}-{digest}",
-        security_level_slug(security_level),
-        version_number / 100
-    ))
+    Some(hex::encode(&digest[..16]))
 }
 
 fn security_level_instance(security_level: SecurityLevel) -> Option<&'static str> {
@@ -328,15 +329,6 @@ fn security_level_label(security_level: SecurityLevel) -> &'static str {
         SecurityLevel::STRONGBOX => "StrongBox",
         SecurityLevel::SOFTWARE => "Software",
         _ => "Unknown",
-    }
-}
-
-fn security_level_slug(security_level: SecurityLevel) -> &'static str {
-    match security_level {
-        SecurityLevel::TRUSTED_ENVIRONMENT => "tee",
-        SecurityLevel::STRONGBOX => "strongbox",
-        SecurityLevel::SOFTWARE => "software",
-        _ => "unknown",
     }
 }
 
@@ -395,16 +387,21 @@ mod tests {
     }
 
     #[test]
-    fn fallback_profile_preserves_legacy_strings() {
+    fn fallback_profile_has_no_software_fingerprint() {
         let tee = fallback_profile(SecurityLevel::TRUSTED_ENVIRONMENT, KEYMINT_V4);
         let strongbox = fallback_profile(SecurityLevel::STRONGBOX, KEYMINT_V4);
 
-        assert_eq!(tee.impl_name, "Android TEE KeyMint 4");
-        assert_eq!(tee.author_name, AOSP_AUTHOR_NAME);
-        assert_eq!(tee.unique_id, "android-TEE-keymint-4");
-        assert_eq!(strongbox.impl_name, "Android StrongBox KeyMint 4");
-        assert_eq!(strongbox.author_name, AOSP_AUTHOR_NAME);
-        assert_eq!(strongbox.unique_id, "android-StrongBox-keymint-4");
+        assert!(!tee.unique_id.contains("android-TEE-keymint"));
+        assert!(!strongbox.unique_id.contains("android-StrongBox-keymint"));
+        assert!(!tee.unique_id.contains("keymint-tee-"));
+        assert!(!strongbox.unique_id.contains("keymint-strongbox-"));
+        assert_eq!(tee.unique_id.len(), 32);
+        assert_eq!(strongbox.unique_id.len(), 32);
+        assert!(tee.unique_id.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_ne!(tee.unique_id, strongbox.unique_id);
+        assert!(!tee.impl_name.contains("Android "));
+        assert!(!strongbox.impl_name.contains("Android "));
+        assert_ne!(tee.author_name, "The Android Open Source Project");
     }
 
     #[test]
@@ -434,10 +431,11 @@ mod tests {
 
         assert_eq!(tee.unique_id, tee_again.unique_id);
         assert_ne!(tee.unique_id, strongbox.unique_id);
-        assert!(tee.unique_id.len() <= 32);
-        assert!(strongbox.unique_id.len() <= 32);
-        assert!(tee.unique_id.is_ascii());
-        assert!(strongbox.unique_id.is_ascii());
+        assert_eq!(tee.unique_id.len(), 32);
+        assert_eq!(strongbox.unique_id.len(), 32);
+        assert!(tee.unique_id.chars().all(|c| c.is_ascii_hexdigit()));
+        assert!(!tee.unique_id.contains("android-TEE-keymint"));
+        assert!(!tee.unique_id.contains("keymint-tee-"));
     }
 
     #[test]
