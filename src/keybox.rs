@@ -66,7 +66,7 @@ pub struct KeyBox {
     identity_digest: [u8; 32],
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum KeyAlgorithm {
     Ec,
     Rsa,
@@ -409,12 +409,20 @@ fn parse_xml_key_entries(xml: &str) -> Result<(Option<ParsedKeyEntry>, Vec<Parse
                     let algo = current_algo
                         .take()
                         .context("missing key algorithm in keybox.xml")?;
-                    let entry = ParsedKeyEntry::from_pem_parts(&private_key, &certs).with_context(
-                        || format!("failed to parse {:?} key entry", algorithm_name(algo)),
-                    )?;
-                    match algo {
-                        KeyAlgorithm::Rsa => rsa = Some(entry),
-                        KeyAlgorithm::Ec => ec.push(entry),
+                    match ParsedKeyEntry::from_pem_parts(&private_key, &certs) {
+                        Ok(entry) => match algo {
+                            KeyAlgorithm::Rsa => rsa = Some(entry),
+                            KeyAlgorithm::Ec => ec.push(entry),
+                        },
+                        Err(error) if algo == KeyAlgorithm::Rsa => {
+                            warn!("skipping RSA keybox entry: {error:#}");
+                        }
+                        Err(error) => {
+                            return Err(error).context(format!(
+                                "failed to parse {} key entry",
+                                algorithm_name(algo)
+                            ));
+                        }
                     }
                 }
                 _ => {}
@@ -1025,6 +1033,22 @@ mod tests {
             .unwrap();
         validate_chain_matches_key(&second.signing_key, &second.cert_chain, KeyAlgorithm::Ec)
             .unwrap();
+    }
+
+    #[test]
+    fn skips_rsa_entry_with_empty_certificate_chain() {
+        let bundled = KeyBox::from_xml_str(BUNDLED_KEYBOX_XML).unwrap();
+        let xml = bundled.to_xml_string();
+        let rsa_start = xml.find("<Key algorithm=\"rsa\">").unwrap();
+        let chain_start = xml[rsa_start..].find("<CertificateChain>").unwrap() + rsa_start;
+        let chain_end = xml[chain_start..]
+            .find("</CertificateChain>")
+            .map(|offset| chain_start + offset + "</CertificateChain>".len())
+            .unwrap();
+        let stripped = format!("{}{}", &xml[..chain_start], &xml[chain_end..]);
+        let keybox = KeyBox::from_xml_str(&stripped).unwrap();
+        assert!(keybox.rsa_info.is_none());
+        assert!(!keybox.ec_infos.is_empty());
     }
 
     #[test]

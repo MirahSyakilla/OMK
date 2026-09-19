@@ -64,12 +64,13 @@ async function generateEcKeyPair(): Promise<CryptoKeyPair> {
 async function generateRsaKeyPair(): Promise<CryptoKeyPair> {
   const cryptoEngine = getCryptoEngine()
   if (!cryptoEngine) throw new Error('WebCrypto engine is unavailable')
-  const algorithm = pkijs.getAlgorithmParameters('RSA-OAEP', 'generateKey') as {
-    algorithm: RsaHashedKeyGenParams
-    usages: KeyUsage[]
+  const algorithm: RsaHashedKeyGenParams = {
+    name: 'RSASSA-PKCS1-v1_5',
+    modulusLength: 2048,
+    publicExponent: new Uint8Array([1, 0, 1]),
+    hash: 'SHA-256',
   }
-  algorithm.algorithm.hash = 'SHA-256'
-  const keyPair = await cryptoEngine.generateKey(algorithm.algorithm, true, algorithm.usages)
+  const keyPair = await cryptoEngine.generateKey(algorithm, true, ['sign', 'verify'])
   return keyPair as CryptoKeyPair
 }
 
@@ -153,6 +154,7 @@ export async function generateUnknownKeybox(): Promise<string> {
 
   const rsaKeyPair = await generateRsaKeyPair()
   const rsaPrivateKeyPem = await exportRsaPrivateKey(rsaKeyPair.privateKey)
+  const rsaCertPem = await generateCertificate(rsaKeyPair.privateKey, rsaKeyPair.publicKey)
 
   const keybox = `<?xml version="1.0" encoding="UTF-8"?>
 <AndroidAttestation>
@@ -173,6 +175,12 @@ ${certPem.split('\n').map(line => '                    ' + line).join('\n')}
             <PrivateKey format="pem">
 ${rsaPrivateKeyPem.split('\n').map(line => '                ' + line).join('\n')}
             </PrivateKey>
+            <CertificateChain>
+                <NumberOfCertificates>1</NumberOfCertificates>
+                <Certificate format="pem">
+${rsaCertPem.split('\n').map(line => '                    ' + line).join('\n')}
+                </Certificate>
+            </CertificateChain>
         </Key>
     </Keybox>
 </AndroidAttestation>`

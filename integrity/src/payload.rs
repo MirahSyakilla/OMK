@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 
-pub const TOML_PATH: &str = "/data/misc/keystore/omk/data/integrity.toml";
-pub const PROP_PATH: &str = "/data/misc/keystore/omk/data/integrity.prop";
+pub const TOML_PATH: &str = "/data/adb/omk/integrity.toml";
+pub const PROP_PATH: &str = "/data/adb/omk/integrity.prop";
+pub const TOML_PATH_FALLBACK: &str = "/data/misc/keystore/omk/data/integrity.toml";
+pub const PROP_PATH_FALLBACK: &str = "/data/misc/keystore/omk/data/integrity.prop";
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -158,9 +160,20 @@ pub fn parse_files(toml: &str, prop: &str) -> IntegrityPayload {
     payload
 }
 
+fn read_first(paths: &[&str]) -> String {
+    for path in paths {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            if !content.is_empty() {
+                return content;
+            }
+        }
+    }
+    String::new()
+}
+
 pub fn load_from_disk() -> IntegrityPayload {
-    let toml = std::fs::read_to_string(TOML_PATH).unwrap_or_default();
-    let prop = std::fs::read_to_string(PROP_PATH).unwrap_or_default();
+    let toml = read_first(&[TOML_PATH, TOML_PATH_FALLBACK]);
+    let prop = read_first(&[PROP_PATH, PROP_PATH_FALLBACK]);
     parse_files(&toml, &prop)
 }
 

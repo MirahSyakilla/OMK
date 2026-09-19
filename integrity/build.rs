@@ -15,6 +15,7 @@ fn main() {
     cc::Build::new()
         .cpp(true)
         .std("c++17")
+        .cpp_link_stdlib(None)
         .file("src/api.cpp")
         .include("src")
         .flag("-fno-exceptions")

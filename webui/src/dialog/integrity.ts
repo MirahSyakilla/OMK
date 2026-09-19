@@ -6,8 +6,11 @@ import { Snackbar } from '../snackbar/snackbar'
 import { applyDialogAnimation } from './animation'
 
 const DATA_DIR = '/data/misc/keystore/omk/data'
-const TOML_PATH = `${DATA_DIR}/integrity.toml`
-const PROP_PATH = `${DATA_DIR}/integrity.prop`
+const ADB_DIR = '/data/adb/omk'
+const TOML_PATH = `${ADB_DIR}/integrity.toml`
+const PROP_PATH = `${ADB_DIR}/integrity.prop`
+const TOML_PATH_DATA = `${DATA_DIR}/integrity.toml`
+const PROP_PATH_DATA = `${DATA_DIR}/integrity.prop`
 
 interface IntegrityState {
   enabled: boolean
@@ -203,9 +206,10 @@ export class IntegrityDialog {
   }
 
   async #readState(): Promise<IntegrityState> {
-    if (!(await File.exist(TOML_PATH))) return { ...DEFAULTS }
+    const tomlPath = (await File.exist(TOML_PATH)) ? TOML_PATH : TOML_PATH_DATA
+    if (!(await File.exist(tomlPath))) return { ...DEFAULTS }
     try {
-      const map = parseKv(await File.read(TOML_PATH))
+      const map = parseKv(await File.read(tomlPath))
       return {
         enabled: parseBool(map.enabled, false),
         spoof_build: parseBool(map.spoof_build, true),
@@ -221,9 +225,10 @@ export class IntegrityDialog {
   }
 
   async #readFingerprint(): Promise<string> {
-    if (!(await File.exist(PROP_PATH))) return ''
+    const propPath = (await File.exist(PROP_PATH)) ? PROP_PATH : PROP_PATH_DATA
+    if (!(await File.exist(propPath))) return ''
     try {
-      const map = parseKv(await File.read(PROP_PATH))
+      const map = parseKv(await File.read(propPath))
       this.#product = map.PRODUCT || this.#productFromFingerprint(map.FINGERPRINT ?? '')
       return map.FINGERPRINT ?? ''
     } catch {
@@ -286,8 +291,10 @@ export class IntegrityDialog {
 
     try {
       await File.createDirectory(DATA_DIR)
+      await File.createDirectory(ADB_DIR)
       if (this.#pendingProp) {
         await File.write(PROP_PATH, this.#pendingProp)
+        await File.write(PROP_PATH_DATA, this.#pendingProp)
       }
       const toml = [
         `enabled = ${state.enabled}`,
@@ -299,8 +306,10 @@ export class IntegrityDialog {
         `unify_product_props = ${state.unify_product_props}`,
       ].join('\n')
       await File.write(TOML_PATH, toml)
+      await File.write(TOML_PATH_DATA, toml)
 
-      const prop = parseKv(this.#pendingProp ?? ((await File.exist(PROP_PATH)) ? await File.read(PROP_PATH) : ''))
+      const propPath = (await File.exist(PROP_PATH)) ? PROP_PATH : PROP_PATH_DATA
+      const prop = parseKv(this.#pendingProp ?? ((await File.exist(propPath)) ? await File.read(propPath) : ''))
       if (state.sync_trust_patch && prop.SECURITY_PATCH) {
         this.#config.set('trust', 'security_patch', prop.SECURITY_PATCH)
       }
