@@ -1,6 +1,6 @@
 import { exec } from 'kernelsu-alt'
 import { File } from './file'
-import { GITHUB_REPO, MOD_ID } from './constant'
+import { GITHUB_REPO, KEYBOX_ALWAYSSTRONG_URL, MOD_ID } from './constant'
 
 export class Cli {
   static #basePathPromise: Promise<string> | null = null
@@ -42,6 +42,17 @@ export class Cli {
   async getAospKey(): Promise<string> {
     const basePath = await this.getBasePath()
     return File.read(`${basePath}/keybox.xml`)
+  }
+
+  async getAlwaysStrongKey(): Promise<string> {
+    const quoted = KEYBOX_ALWAYSSTRONG_URL.replace(/'/g, `'\\''`)
+    const result = await exec(
+      `curl -fsSL --connect-timeout 15 --max-time 85 '${quoted}' 2>/dev/null || wget -q -T 20 -O - '${quoted}'`,
+    )
+    if (result.errno !== 0 || !result.stdout.trim()) {
+      throw new Error(result.stderr || 'AlwaysStrong keybox download failed')
+    }
+    return result.stdout
   }
 
   async getKeyboxSlots(configPath: string): Promise<number[]> {

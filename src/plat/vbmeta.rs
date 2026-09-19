@@ -154,7 +154,7 @@ fn resolve_vb_key(spec: &TrustValueSpec, device_locked: bool, slot_suffix: &str)
         },
         TrustValueSpec::Random => random_field(TrustValueSource::RandomExplicit),
         TrustValueSpec::Auto => {
-            if let Some(value) = read_hex_property(VBMETA_KEY_PROP) {
+            if let Some(value) = read_hex_property(VBMETA_KEY_PROP).filter(is_nonzero_digest) {
                 return ResolvedField {
                     value,
                     source: TrustValueSource::Property,
@@ -162,10 +162,16 @@ fn resolve_vb_key(spec: &TrustValueSpec, device_locked: bool, slot_suffix: &str)
             }
 
             match compute_vbmeta_public_key_digest(slot_suffix, device_locked) {
-                Ok(value) => ResolvedField {
+                Ok(value) if is_nonzero_digest(&value) => ResolvedField {
                     value,
                     source: TrustValueSource::Computed,
                 },
+                Ok(_) => {
+                    log::warn!(
+                        "computed vbmeta public key digest is all-zero; using random fallback"
+                    );
+                    random_field(TrustValueSource::RandomFallback)
+                }
                 Err(error) => {
                     log::warn!("computed vbmeta public key digest unavailable: {error:#}");
                     random_field(TrustValueSource::RandomFallback)
@@ -183,7 +189,7 @@ fn resolve_vb_hash(spec: &TrustValueSpec) -> ResolvedField {
         },
         TrustValueSpec::Random => random_field(TrustValueSource::RandomExplicit),
         TrustValueSpec::Auto => {
-            if let Some(value) = read_hex_property(VBMETA_HASH_PROP) {
+            if let Some(value) = read_hex_property(VBMETA_HASH_PROP).filter(is_nonzero_digest) {
                 return ResolvedField {
                     value,
                     source: TrustValueSource::Property,
@@ -470,6 +476,10 @@ fn sync_string_sysprop(property: &str, value: &str) -> Result<()> {
         resetprop::direct_write_and_verify_property(property, value)?;
     }
     Ok(())
+}
+
+fn is_nonzero_digest(value: &[u8; 32]) -> bool {
+    value.iter().any(|byte| *byte != 0)
 }
 
 fn read_hex_property(name: &str) -> Option<[u8; 32]> {

@@ -229,6 +229,22 @@ export class Keybox {
     }
   }
 
+  async setAlwaysStrongKey(): Promise<void> {
+    try {
+      const payload = await this.cli.getAlwaysStrongKey()
+      const result = await this.setKeybox(payload, 'base64 -d')
+      if (result !== 'cancelled') {
+        this.#snackbar.show(
+          i18n.t(result === 'saved' ? 'prompt_alwaysstrong_key_set' : 'prompt_alwaysstrong_key_set_error'),
+          result === 'saved',
+        )
+      }
+    } catch (error) {
+      console.error(error)
+      this.#snackbar.show(i18n.t('prompt_alwaysstrong_key_set_error'), false)
+    }
+  }
+
   async setLocalKey(): Promise<void> {
     try {
       const content = await this.#fileSelector.getFileContent('xml')

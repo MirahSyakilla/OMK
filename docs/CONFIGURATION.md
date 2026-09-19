@@ -301,8 +301,8 @@ reports that the live update failed, restart keymint.
 This controls the 32-byte verified-boot public-key digest:
 
 - `"auto"` first reads `ro.boot.vbmeta.public_key_digest`, then tries to
-  calculate the top-level vbmeta key digest, and uses a random fallback only if
-  neither source is available;
+  calculate the top-level vbmeta key digest, skips an all-zero value from either
+  source, and uses a random fallback only if neither source is usable;
 - `"random"` generates a new value whenever keymint starts; or
 - a 64-character hexadecimal string pins an exact value.
 
@@ -316,8 +316,8 @@ original boot property before `"auto"` reads it.
 This controls the 32-byte verified-boot hash:
 
 - `"auto"` first reads `ro.boot.vbmeta.digest`, then tries the original System
-  attestation hash, and uses a random fallback only if neither source is
-  available;
+  attestation hash, skips an all-zero property value, and uses a random fallback
+  only if neither source is usable;
 - `"random"` generates a new value whenever keymint starts; or
 - a 64-character hexadecimal string pins an exact value.
 

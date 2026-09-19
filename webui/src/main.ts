@@ -124,6 +124,9 @@ mainMenu.on('menu-keybox-aosp', () => {
 mainMenu.on('menu-keybox-unknown', () => {
   void keybox.setUnknownKey()
 })
+mainMenu.on('menu-keybox-alwaysstrong', () => {
+  void keybox.setAlwaysStrongKey()
+})
 mainMenu.on('menu-keybox-local', () => {
   void keybox.setLocalKey()
 })

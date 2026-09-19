@@ -16,7 +16,8 @@
     <string name="help_set_keybox">Set Keybox</string>
     <string name="help_set_keybox_description">Replace TrickyStore keybox with:</string>
     <string name="help_set_keybox_aosp">**AOSP** - the default keybox comes with TrickyStore.</string>
-    <string name="help_set_keybox_unknown">**Unknown** - self-signed and not valid for Play Integrity verdict.</string>
+    <string name="help_set_keybox_unknown">**Self-Signed** - generated locally and not valid for Play Integrity verdict.</string>
+    <string name="help_set_keybox_alwaysstrong">**AlwaysStrong** - fetch the current Evoker/AlwaysStrong keybox.</string>
     <string name="help_set_keybox_local">**Local** - select keybox from your device.</string>
     <string name="help_set_keybox_custom">**Custom** - custom keybox provider via online fetching.</string>
     <string name="help_set_default_policy">Set Default Policy</string>
@@ -52,7 +53,8 @@
     <string name="menu_add_system_app">Add System App</string>
     <string name="menu_keybox">Keybox</string>
     <string name="menu_keybox_aosp">AOSP</string>
-    <string name="menu_keybox_unknown">Unknown</string>
+    <string name="menu_keybox_unknown">Self-Signed</string>
+    <string name="menu_keybox_alwaysstrong">AlwaysStrong</string>
     <string name="menu_keybox_local">Local</string>
     <string name="menu_prop_setting">Prop Settings</string>
     <string name="menu_set_default_policy">Set Default Policy</string>
@@ -74,7 +76,9 @@
     <!-- Prompt -->
     <string name="prompt_aosp_key_set">AOSP keybox set successfully</string>
     <string name="prompt_key_set_error">Failed to update keybox</string>
-    <string name="prompt_unknown_key_set">Unknown keybox set successfully</string>
+    <string name="prompt_unknown_key_set">Self-signed keybox set successfully</string>
+    <string name="prompt_alwaysstrong_key_set">AlwaysStrong keybox set successfully</string>
+    <string name="prompt_alwaysstrong_key_set_error">Failed to fetch AlwaysStrong keybox</string>
     <string name="prompt_boot_hash_set">Verified Boot Hash saved successfully</string>
     <string name="prompt_boot_hash_set_error">Failed to update Verified Boot Hash</string>
     <string name="prompt_saved_target">Config saved</string>
