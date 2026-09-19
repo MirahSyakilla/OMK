@@ -19,6 +19,10 @@ export class HelpDialog {
             <p><code>allow_unknown_package</code> only affects callers whose package name cannot be resolved by the injector. It does not auto-include normal app packages.</p>
           </div>
           <div class="instruction">
+            <h3>Integrity settings</h3>
+            <p>Spoofs DroidGuard and Play Store build fields when ReZygisk (preferred), ZygiskNext, NeoZygisk, or Magisk Zygisk is loaded. Import a Pixel <code>.prop</code> with <code>FINGERPRINT=</code>. Enable stays off if Play Integrity Fix/Fork or TrickyStore zygisk is present. Save restarts KeyMint and the injector, then kills <code>gms.unstable</code> and force-stops Play Store.</p>
+          </div>
+          <div class="instruction">
             <h3>Trust settings</h3>
             <p>Use the Trust dialog for <code>security_patch</code>, <code>vb_key</code>, <code>vb_hash</code>, <code>verified_boot_state</code>, and <code>device_locked</code>.</p>
           </div>
@@ -28,7 +32,7 @@ export class HelpDialog {
           </div>
           <div class="instruction">
             <h3>Keybox</h3>
-            <p>AOSP is the bundled keybox. AlwaysStrong fetches from Evoker. Repo opens the KOWX712 picker. Self-Signed generates a local dummy. <b>Manage Keybox</b> lists slots so you can rename, export, or delete them. Long-press an app to assign a slot.</p>
+            <p>AOSP is the bundled keybox. AlwaysStrong fetches from Evoker. Repo opens the KOWX712 picker. Self-Signed generates a local dummy. <b>Manage Keybox</b> lists slots so you can rename, export, or delete them, and shows certificate expiry. Long-press an app to open <b>Manage App</b> and assign a slot. Expired boxes show an <b>Expired</b> pill.</p>
           </div>
           <div class="instruction">
             <h3>Reload</h3>

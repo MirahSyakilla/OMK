@@ -106,7 +106,7 @@ async function saveTarget(): Promise<void> {
 const mainMenu = new MainMenu()
 const keybox = new Keybox(cli, config, fileSelector, snackbar)
 const keyboxRepo = new KeyboxRepo(keybox, history, snackbar)
-const dialogController = new DialogController(cli, config, appList)
+const dialogController = new DialogController(cli, config, appList, fileSelector, snackbar)
 await keybox.loadSlotNames()
 appList.setSlotLabel((slot) => keybox.slotLabel(slot))
 keybox.onNamesChanged(() => {
@@ -152,6 +152,7 @@ mainMenu.on('menu-keybox-local', () => {
   void keybox.setLocalKey()
 })
 mainMenu.on('menu-keybox-repo', () => keyboxRepo.show())
+mainMenu.on('menu-integrity-settings', () => dialogController.showIntegrity())
 mainMenu.on('menu-trust-settings', () => dialogController.showTrust())
 mainMenu.on('menu-core-settings', () => dialogController.showCore())
 mainMenu.on('menu-injector-settings', () => dialogController.showInjector())

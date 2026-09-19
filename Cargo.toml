@@ -69,6 +69,7 @@ members = [
   "wire",
   "watchdog",
   "injector",
+  "integrity",
 ]
 
 [patch.crates-io]

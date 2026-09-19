@@ -1,4 +1,6 @@
 import type { MdDialog, MdFilledButton, MdOutlinedTextField, MdTextButton } from '@material/web/all'
+import * as asn1js from 'asn1js'
+import * as pkijs from 'pkijs'
 import { i18n } from '../i18n'
 import { Cli } from '../cli'
 import { File } from '../file'
@@ -22,6 +24,28 @@ function algorithmsFromXml(xml: string): string[] {
   if (ecCount > 0) found.push('EC')
   if (looksLikeRkp(xml, ecCount)) found.push('RKP')
   return found
+}
+
+function expiryFromXml(xml: string): Date | null {
+  let earliest: Date | null = null
+  for (const match of xml.matchAll(/-----BEGIN CERTIFICATE-----([^-]+)-----END CERTIFICATE-----/g)) {
+    try {
+      const der = Uint8Array.from(atob(match[1].replace(/\s+/g, '')), (ch) => ch.charCodeAt(0))
+      const asn1 = asn1js.fromBER(der.buffer)
+      if (asn1.offset === -1) continue
+      const cert = new pkijs.Certificate({ schema: asn1.result })
+      const notAfter = cert.notAfter.value
+      if (!(notAfter instanceof Date) || Number.isNaN(notAfter.getTime())) continue
+      if (!earliest || notAfter < earliest) earliest = notAfter
+    } catch {
+      // ignore malformed PEM
+    }
+  }
+  return earliest
+}
+
+function isExpired(expiry: Date | null): boolean {
+  return expiry !== null && expiry.getTime() <= Date.now()
 }
 
 function looksLikeRkp(xml: string, ecCount: number): boolean {
@@ -410,8 +434,14 @@ export class Keybox {
       }
     }
     this.#slotList.innerHTML = ''
-    this.#appendSlotOption(0, currentSlot === 0)
-    for (const slot of slots) this.#appendSlotOption(slot, currentSlot === slot)
+    const xmlBySlot = new Map<number, string>()
+    await Promise.all([0, ...slots].map(async (slot) => {
+      xmlBySlot.set(slot, await File.read(this.getKeyboxPath(slot)).catch(() => ''))
+    }))
+    this.#appendSlotOption(0, currentSlot === 0, isExpired(expiryFromXml(xmlBySlot.get(0) ?? '')))
+    for (const slot of slots) {
+      this.#appendSlotOption(slot, currentSlot === slot, isExpired(expiryFromXml(xmlBySlot.get(slot) ?? '')))
+    }
 
     if (!packageName) {
       const newSlot = document.createElement('button')
@@ -458,7 +488,7 @@ export class Keybox {
     })
   }
 
-  #appendSlotOption(slot: number, selected: boolean): void {
+  #appendSlotOption(slot: number, selected: boolean, expired: boolean): void {
     if (!this.#slotList) return
     const option = document.createElement('button')
     option.type = 'button'
@@ -466,12 +496,23 @@ export class Keybox {
     const name = document.createElement('span')
     name.className = 'keybox-pill-name'
     name.textContent = this.#slotLabel(slot)
+    const badges = document.createElement('span')
+    badges.className = 'keybox-pill-badges'
+    if (expired) badges.appendChild(this.#expiredPill())
     const id = document.createElement('span')
     id.className = 'keybox-pill-id'
     id.textContent = slot === 0 ? 'keybox.xml' : i18n.t('keybox_slot_short', slot)
-    option.append(name, id)
+    badges.appendChild(id)
+    option.append(name, badges)
     option.onclick = () => this.#finishSlotSelection(slot)
     this.#slotList.appendChild(option)
+  }
+
+  #expiredPill(): HTMLElement {
+    const pill = document.createElement('span')
+    pill.className = 'keybox-expired-pill'
+    pill.textContent = i18n.t('keybox_expired')
+    return pill
   }
 
   #finishSlotSelection(slot: number | null): void {
@@ -552,6 +593,8 @@ export class Keybox {
       name.textContent = this.#slotLabel(slot)
       const algos = document.createElement('div')
       algos.className = 'keybox-manage-algos'
+      const expiry = expiryFromXml(xml)
+      const expired = isExpired(expiry)
       for (const algo of algorithmsFromXml(xml)) {
         const pill = document.createElement('span')
         pill.className = 'keybox-algo-pill'
@@ -564,6 +607,7 @@ export class Keybox {
         pill.textContent = i18n.t('keybox_algo_unknown')
         algos.appendChild(pill)
       }
+      if (expired) algos.appendChild(this.#expiredPill())
       head.append(name, algos)
 
       const file = document.createElement('div')
@@ -583,6 +627,12 @@ export class Keybox {
         ? i18n.t('keybox_assigned_default')
         : i18n.t('keybox_assigned_apps', this.#config.packagesForSlot(slot).length)
       meta.append(created, apps)
+      if (expiry) {
+        const expires = document.createElement('span')
+        expires.className = expired ? 'keybox-meta-pill keybox-meta-expired' : 'keybox-meta-pill'
+        expires.textContent = i18n.t('keybox_expires', expiry.toLocaleString())
+        meta.append(expires)
+      }
 
       const actions = document.createElement('div')
       actions.className = 'keybox-manage-actions'

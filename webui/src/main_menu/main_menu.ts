@@ -10,6 +10,7 @@ const MENU_ITEMS: Array<[string, string]> = [
   ['keybox-local', 'menu-keybox-local'],
   ['keybox-repo', 'menu-keybox-repo'],
   ['keybox-custom', 'menu-keybox-custom'],
+  ['integrity-settings', 'menu-integrity-settings'],
   ['trust-settings', 'menu-trust-settings'],
   ['core-settings', 'menu-core-settings'],
   ['injector-settings', 'menu-injector-settings'],
@@ -76,6 +77,9 @@ export class MainMenu {
             </md-menu-item>
           </md-menu>
         </md-sub-menu>
+        <md-menu-item id="integrity-settings">
+          <div slot="headline">Integrity Settings</div>
+        </md-menu-item>
         <md-menu-item id="trust-settings">
           <div slot="headline">Trust Settings</div>
         </md-menu-item>

@@ -120,7 +120,7 @@
     <string name="prompt_custom_removed">Custom keybox entry removed</string>
     <string name="prompt_keybox_slot_assigned">%s will use %s</string>
     <string name="prompt_keybox_slot_assign_error">Failed to assign keybox slot</string>
-    <string name="keybox_select_title">Select Keybox</string>
+    <string name="keybox_select_title">Manage App</string>
     <string name="keybox_app_actions_title">App Keybox</string>
     <string name="keybox_select_action">Select Keybox</string>
     <string name="keybox_save_title">Save Keybox</string>
@@ -142,6 +142,8 @@
     <string name="keybox_algo_unknown">Unknown</string>
     <string name="keybox_created">Created %s</string>
     <string name="keybox_created_unknown">Created date unknown</string>
+    <string name="keybox_expires">Expires %s</string>
+    <string name="keybox_expired">Expired</string>
     <string name="keybox_assigned_apps">%d apps</string>
     <string name="keybox_assigned_default">Default for unassigned apps</string>
     <string name="keybox_action_rename">Rename</string>

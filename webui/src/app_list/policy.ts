@@ -1,10 +1,10 @@
-import type { MdOutlinedTextField, MdSwitch } from '@material/web/all'
-import type { Policy, PolicySchema, TextFieldMeta, ButtonFieldMeta } from '../config'
+import type { MdOutlinedSelect, MdOutlinedTextField, MdSwitch } from '@material/web/all'
+import type { Policy, PolicySchema, SelectFieldMeta, TextFieldMeta, ButtonFieldMeta } from '../config'
 import { snakeToLabel } from '../config'
 import { i18n } from '../i18n'
 
 export class PolicyEditor {
-  readonly #fields: Map<string, MdOutlinedTextField | MdSwitch | HTMLElement>
+  readonly #fields: Map<string, MdOutlinedTextField | MdOutlinedSelect | MdSwitch | HTMLElement>
   readonly #schema: PolicySchema
 
   constructor(fieldsEl: HTMLElement, schema: PolicySchema) {
@@ -16,7 +16,7 @@ export class PolicyEditor {
     }
   }
 
-  getField(key: string): MdOutlinedTextField | MdSwitch | HTMLElement | undefined {
+  getField(key: string): MdOutlinedTextField | MdOutlinedSelect | MdSwitch | HTMLElement | undefined {
     return this.#fields.get(key)
   }
 
@@ -33,7 +33,7 @@ export class PolicyEditor {
         continue
       }
 
-      if (meta.type === 'boolean') {
+      if (meta.type === 'boolean' || meta.type === 'select') {
         continue
       }
 
@@ -57,6 +57,13 @@ export class PolicyEditor {
 
   isValid(): boolean {
     for (const [key, meta] of this.#schema.getFields()) {
+      if (meta.type === 'select') {
+        const field = this.#fields.get(key) as MdOutlinedSelect | undefined
+        if (!field) continue
+        const val = field.value?.trim() ?? ''
+        if (val && !(meta as SelectFieldMeta).options.includes(val)) return false
+        continue
+      }
       if (meta.type !== 'text') continue
       const field = this.#fields.get(key) as MdOutlinedTextField | undefined
       if (!field) continue
@@ -78,6 +85,13 @@ export class PolicyEditor {
           <span>${meta.label}</span>
           <md-switch icons="true" id="policy-${key}" class="policy-${key}"${meta.defaultValue ? ' selected' : ''}></md-switch>
         </label>`
+      }
+
+      if (meta.type === 'select') {
+        const options = meta.options.map((option) =>
+          `<md-select-option value="${option}"><div slot="headline">${option}</div></md-select-option>`
+        ).join('')
+        return `<md-outlined-select class="policy-${key}" label="${meta.label}" menu-positioning="popover">${options}</md-outlined-select>`
       }
 
       // text field
@@ -103,6 +117,14 @@ export class PolicyEditor {
         continue
       }
 
+      if (meta.type === 'select') {
+        const field = this.#fields.get(key) as MdOutlinedSelect | undefined
+        if (!field) continue
+        const raw = String(policy?.[key] ?? meta.defaultValue ?? meta.options[0] ?? '')
+        field.value = meta.options.includes(raw) ? raw : (meta.defaultValue ?? meta.options[0] ?? '')
+        continue
+      }
+
       const field = this.#fields.get(key) as MdOutlinedTextField | undefined
       if (!field) continue
       field.value = (policy?.[key] as string) ?? ''
@@ -121,6 +143,17 @@ export class PolicyEditor {
         if (!field) continue
         policy[key] = field.selected
         if (allowEmpty || field.selected) hasValue = true
+        continue
+      }
+
+      if (meta.type === 'select') {
+        const field = this.#fields.get(key) as MdOutlinedSelect | undefined
+        if (!field) continue
+        const val = field.value?.trim() ?? ''
+        if (val) {
+          policy[key] = val
+          hasValue = true
+        }
         continue
       }
 

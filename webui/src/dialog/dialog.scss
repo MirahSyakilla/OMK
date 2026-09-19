@@ -6,6 +6,34 @@
     margin-bottom: 8px;
   }
 
+  #injector-settings-dialog {
+    --md-dialog-container-min-inline-size: min(92vw, 420px);
+    --md-dialog-container-max-inline-size: min(94vw, 480px);
+    --md-dialog-container-min-block-size: 360px;
+  }
+
+  #injector-settings-dialog [slot="content"] {
+    overflow: visible;
+    min-block-size: 240px;
+  }
+
+  #injector-settings-dialog md-outlined-select {
+    width: 100%;
+  }
+
+  #integrity-settings-dialog {
+    --md-dialog-container-min-inline-size: min(92vw, 420px);
+    --md-dialog-container-max-inline-size: min(94vw, 480px);
+  }
+
+  .integrity-status,
+  .integrity-fingerprint {
+    margin: 0 0 12px;
+    font-size: 13px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+
   .full-width-button {
     width: 100%;
   }

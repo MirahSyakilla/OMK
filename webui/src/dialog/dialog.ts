@@ -6,12 +6,16 @@ import { RuntimeDialog } from './runtime'
 import { AboutDialog } from './about'
 import { HelpDialog } from './help'
 import { SystemAppDialog } from './system_app'
+import { IntegrityDialog } from './integrity'
+import { FileSelector } from '../file_selector/file_selector'
+import { Snackbar } from '../snackbar/snackbar'
 import './dialog.scss'
 
 export class DialogController {
   readonly about: AboutDialog
   readonly help: HelpDialog
   readonly systemApp: SystemAppDialog
+  readonly integrity: IntegrityDialog
   readonly trust: SectionDialog
   readonly core: SectionDialog
   readonly injector: SectionDialog
@@ -21,10 +25,11 @@ export class DialogController {
   readonly crypto: SectionDialog
   readonly runtime: RuntimeDialog
 
-  constructor(cli: Cli, config: Config, appList: AppList) {
+  constructor(cli: Cli, config: Config, appList: AppList, fileSelector: FileSelector, snackbar: Snackbar) {
     this.about = new AboutDialog(cli)
     this.help = new HelpDialog()
     this.systemApp = new SystemAppDialog(appList)
+    this.integrity = new IntegrityDialog(cli, config, fileSelector, snackbar)
     this.trust = new SectionDialog(config, 'trust', 'trust-settings-dialog')
     this.core = new SectionDialog(config, 'omk_main', 'core-settings-dialog')
     this.injector = new SectionDialog(config, 'injector_main', 'injector-settings-dialog')
@@ -40,6 +45,7 @@ export class DialogController {
       this.about,
       this.help,
       this.systemApp,
+      this.integrity,
       this.trust,
       this.core,
       this.injector,
@@ -66,6 +72,10 @@ export class DialogController {
 
   async showSystemApp(): Promise<void> {
     await this.systemApp.show()
+  }
+
+  showIntegrity(): void {
+    void this.integrity.show()
   }
 
   showTrust(): void {

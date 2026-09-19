@@ -175,10 +175,31 @@ def build_binary(
     return binary_path
 
 
+def build_zygisk(*, abi: str, target: str, release: bool) -> Path:
+    build_type = "release" if release else "debug"
+    print(f"Building omk-integrity zygisk for {abi} ({target}, {build_type})...")
+    cmd = ["cargo", "build", "--target", target, "-p", "omk-integrity"]
+    if release:
+        cmd.append("--release")
+    run(cmd, env=cargo_env_for_target(target))
+    binary_path = TARGET_ROOT / target / build_type / "libomk_integrity.so"
+    if not binary_path.exists():
+        raise FileNotFoundError(f"Built zygisk library not found at {binary_path}")
+    return binary_path
+
+
 def copy_binary(binary: Path, output_name: str, abi: str, stage_dir: Path) -> None:
     dest_dir = stage_dir / "libs" / abi
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest_path = dest_dir / output_name
+    shutil.copy2(binary, dest_path)
+    print(f"Copied {binary} to {dest_path}")
+
+
+def copy_zygisk(binary: Path, abi: str, stage_dir: Path) -> None:
+    dest_dir = stage_dir / "zygisk"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_path = dest_dir / f"{abi}.so"
     shutil.copy2(binary, dest_path)
     print(f"Copied {binary} to {dest_path}")
 
@@ -335,6 +356,7 @@ def build_package_for_abi(
                 abi,
                 stage_dir,
             )
+        copy_zygisk(build_zygisk(abi=abi, target=target, release=release), abi, stage_dir)
 
         modify_module_prop(stage_dir, version, git_count, git_hash)
         normalize_module_text_files(stage_dir)

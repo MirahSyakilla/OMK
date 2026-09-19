@@ -1,17 +1,22 @@
 # Configuration Guide
 
-OhMyKeymint (OMK) uses two active configuration files:
+OhMyKeymint (OMK) uses three active configuration files:
 
 - `/data/misc/keystore/omk/config.toml` controls the KeyMint service, the
   identity it reports, and the secrets used for OMK-created keys.
 - `/data/misc/keystore/omk/injector.toml` selects which apps use OMK and which
   KeyStore requests are routed to it.
+- `/data/misc/keystore/omk/data/integrity.toml` and
+  `/data/misc/keystore/omk/data/integrity.prop` control the optional Play
+  Integrity zygisk companion. They are unused unless Integrity Settings is
+  enabled.
 
 This guide describes the active configuration used by the current build. The
 examples are followed by a separate field-by-field reference so that the short
 comments in the examples are not the only explanation.
 
-**Jump to:** [`config.toml`](#configtoml) | [`injector.toml`](#injectortoml)
+**Jump to:** [`config.toml`](#configtoml) | [`injector.toml`](#injectortoml) |
+[`integrity.toml`](#integritytoml)
 
 ## Before editing
 
@@ -702,3 +707,31 @@ boundary after a route change. A syntax error, an unknown field, or an
 unsupported future `version` leaves the last valid runtime configuration
 active; if present at injector startup, it leaves OMK request routing disabled
 until the file is corrected.
+
+## `integrity.toml`
+
+Integrity Settings writes:
+
+- `/data/misc/keystore/omk/data/integrity.toml`
+- `/data/misc/keystore/omk/data/integrity.prop`
+
+The zygisk companion specializes only `com.google.android.gms.unstable` and
+`com.android.vending`. It does not inject DEX and does not spoof Keystore
+providers. Enable requires ReZygisk, ZygiskNext, NeoZygisk, or Magisk Zygisk,
+and stays off when Play Integrity Fix/Fork or a TrickyStore zygisk module is
+loaded.
+
+```toml
+enabled = false
+spoof_build = true
+spoof_props = true
+spoof_vending_finger = true
+sync_trust_patch = true
+sync_device_ids = true
+unify_product_props = false
+```
+
+`integrity.prop` uses Play Integrity Fix key=value fields. `FINGERPRINT` is
+required to enable. Saving an enabled configuration restarts keymint and the
+injector, then kills `com.google.android.gms.unstable` and force-stops
+`com.android.vending`. A new zygisk `.so` takes effect after a reboot.

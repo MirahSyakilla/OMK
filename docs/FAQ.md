@@ -14,8 +14,10 @@ Android has a secure key service that apps use to create keys and check device
 information. OMK provides an alternative version of that service for the apps
 you select.
 
-OMK only covers this part of Android. It is not a general root-hiding tool, a
-Play Integrity module, or a repair tool for damaged security hardware.
+OMK only covers this part of Android. It is not a general root-hiding tool or
+a repair tool for damaged security hardware. Integrity Settings can spoof
+DroidGuard and Play Store build fields when Zygisk is present; it does not
+replace a full Play Integrity Fix install and does not hide root.
 
 ### Will OMK make every banking app, payment app, or detector work?
 

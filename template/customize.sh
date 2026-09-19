@@ -96,6 +96,12 @@ fi
 [ -f "$BINDIR/inject" ] || abort "! Missing $BINDIR/inject"
 chmod 755 "$BINDIR/keymint" "$BINDIR/inject"
 
+ui_print "- Extracting Integrity zygisk (optional)"
+unzip -o "$ZIPFILE" 'zygisk/*' -d "$MODPATH" >&2 || true
+if [ -d "$MODPATH/zygisk" ]; then
+  find "$MODPATH/zygisk" -type f -name '*.so' -exec chmod 755 {} +
+fi
+
 CONFIG_DIR=/data/adb/omk
 mkdir -p "$CONFIG_DIR"
 rm -f "$CONFIG_DIR/restart.keymint" "$CONFIG_DIR/restart.injector" "$CONFIG_DIR/restart.all"

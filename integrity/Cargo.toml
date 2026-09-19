@@ -1,0 +1,16 @@
+[package]
+name = "omk-integrity"
+version = "1.3.3"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+
+[lib]
+name = "omk_integrity"
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[dependencies]
+libc = "0.2.189"
+
+[build-dependencies]
+cc = "1.2.16"

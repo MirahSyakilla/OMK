@@ -29,7 +29,15 @@ export interface ButtonFieldMeta {
   onClick: () => void
 }
 
-export type PolicyFieldMeta = TextFieldMeta | BooleanFieldMeta | ButtonFieldMeta
+export interface SelectFieldMeta {
+  type: 'select'
+  label: string
+  options: string[]
+  defaultValue?: string
+  required?: boolean
+}
+
+export type PolicyFieldMeta = TextFieldMeta | BooleanFieldMeta | ButtonFieldMeta | SelectFieldMeta
 
 export type SectionKey =
   | 'omk_main'
@@ -83,6 +91,11 @@ export class PolicySchema {
         result[key] = true
         continue
       }
+      if (meta.type === 'select') {
+        const value = values[key] ?? ''
+        result[key] = (!value && !meta.required) || meta.options.includes(value)
+        continue
+      }
       const value = values[key] ?? ''
       if (!value && !meta.required) {
         result[key] = true
@@ -97,7 +110,13 @@ export class PolicySchema {
 const PACKAGE_LIST_HINT = 'one package per line or comma separated'
 const MAX_KEYBOX_SLOT = 1024
 const HEX_64 = /^[0-9a-f]{64}$/i
-const LOG_LEVELS = ['off', 'error', 'warn', 'warning', 'info', 'debug', 'trace']
+const LOG_LEVEL_OPTIONS = ['off', 'error', 'warn', 'info', 'debug', 'trace']
+
+function normalizeLogLevel(value: string): string {
+  const level = value.trim().toLowerCase()
+  if (level === 'warning') return 'warn'
+  return LOG_LEVEL_OPTIONS.includes(level) ? level : 'off'
+}
 
 function isSecurityPatch(value: string): boolean {
   return value === 'auto'
@@ -235,11 +254,11 @@ export const INJECTOR_MAIN_SCHEMA = new PolicySchema({
     defaultValue: true,
   },
   log_level: {
+    type: 'select',
     label: 'Log Level',
     required: true,
-    options: LOG_LEVELS,
-    placeholder: 'off',
-    validate: (v) => LOG_LEVELS.includes(v.toLowerCase()) || LOG_LEVELS.join(' | '),
+    options: LOG_LEVEL_OPTIONS,
+    defaultValue: 'off',
   },
   debug_logging: {
     type: 'boolean',
@@ -541,7 +560,7 @@ export class Config {
       : []
     data.injector_main = {
       enabled: boolValue(injectorMain.enabled, true),
-      log_level: stringValue(injectorMain.log_level, 'off'),
+      log_level: normalizeLogLevel(stringValue(injectorMain.log_level, 'off')),
       debug_logging: boolValue(injectorMain.debug_logging, false),
     }
     data.filter = {
@@ -626,7 +645,7 @@ export class Config {
     const injectorMain = {
       ...recordValue(injector.main),
       enabled: data.injector_main?.enabled === true,
-      log_level: stringValue(data.injector_main?.log_level, 'off').toLowerCase(),
+      log_level: normalizeLogLevel(stringValue(data.injector_main?.log_level, 'off')),
       debug_logging: data.injector_main?.debug_logging === true,
     }
     const filter = {

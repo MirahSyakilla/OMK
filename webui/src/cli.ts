@@ -125,6 +125,69 @@ export class Cli {
     return `https://github.com/${GITHUB_REPO}`
   }
 
+  async detectIntegrityZygisk(): Promise<{ provider: string | null; conflict: string | null }> {
+    if (import.meta.env.DEV) return { provider: 'rezygisk', conflict: null }
+    const result = await exec(`
+provider=none
+if [ -d /data/adb/modules/rezygisk ] && [ ! -f /data/adb/modules/rezygisk/disable ]; then
+  provider=rezygisk
+elif [ -d /data/adb/modules/zygisksu ] && [ ! -f /data/adb/modules/zygisksu/disable ]; then
+  provider=zygisk_next
+elif [ -d /data/adb/modules/zygisk_next ] && [ ! -f /data/adb/modules/zygisk_next/disable ]; then
+  provider=zygisk_next
+elif [ -d /data/adb/modules/neozygisk ] && [ ! -f /data/adb/modules/neozygisk/disable ]; then
+  provider=neozygisk
+elif command -v magisk >/dev/null 2>&1; then
+  v=$(magisk --sqlite "SELECT value FROM settings WHERE key='zygisk'" 2>/dev/null)
+  [ "$v" = 1 ] && provider=magisk
+fi
+conflict=none
+for id in playintegrityfix playintegrityfork; do
+  if [ -d "/data/adb/modules/$id" ] && [ ! -f "/data/adb/modules/$id/disable" ]; then
+    conflict=$id
+    break
+  fi
+done
+if [ "$conflict" = none ] && [ -d /data/adb/modules/tricky_store/zygisk ] && [ ! -f /data/adb/modules/tricky_store/disable ]; then
+  conflict=tricky_store
+fi
+printf '%s %s\\n' "$provider" "$conflict"
+`)
+    const [provider, conflict] = result.stdout.trim().split(/\s+/)
+    return {
+      provider: !provider || provider === 'none' ? null : provider,
+      conflict: !conflict || conflict === 'none' ? null : conflict,
+    }
+  }
+
+  async killIntegrityTargets(): Promise<void> {
+    if (import.meta.env.DEV) return
+    await exec(
+      'killall -9 com.google.android.gms.unstable >/dev/null 2>&1; am force-stop com.android.vending >/dev/null 2>&1; true',
+    )
+  }
+
+  async unifyProductProps(prop: Record<string, string>): Promise<void> {
+    if (import.meta.env.DEV) return
+    const fingerprint = prop.FINGERPRINT ?? ''
+    const parts = fingerprint.split(/[/:]/)
+    const pairs: Array<[string, string]> = [
+      ['ro.product.brand', prop.BRAND || parts[0] || ''],
+      ['ro.product.name', prop.PRODUCT || parts[1] || ''],
+      ['ro.product.device', prop.DEVICE || parts[2] || ''],
+      ['ro.product.model', prop.MODEL || ''],
+      ['ro.product.manufacturer', prop.MANUFACTURER || prop.BRAND || parts[0] || ''],
+    ]
+    const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`
+    const cmds = pairs
+      .filter(([, value]) => value)
+      .map(([key, value]) => `resetprop -n ${quote(key)} ${quote(value)}`)
+      .join('; ')
+    if (!cmds) return
+    const result = await exec(cmds)
+    if (result.errno !== 0) throw new Error(result.stderr || 'resetprop failed')
+  }
+
   async #resolveBasePath(): Promise<string> {
     const candidates = [
       `/data/adb/modules/${MOD_ID}`,
