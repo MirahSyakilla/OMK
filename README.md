@@ -1,36 +1,48 @@
 # Oh My Keymint
 
-[![Telegram](https://img.shields.io/static/v1?label=Telegram&message=@OhMyKeymint&color=0088cc)](https://t.me/OhMyKeymint)  [![CI Build](https://github.com/qwq233/OhMyKeymint/actions/workflows/ci.yml/badge.svg)](https://github.com/qwq233/OhMyKeymint/actions/workflows/ci.yml)
+[![Telegram](https://img.shields.io/static/v1?label=Telegram&message=@meowcomfylair&color=0088cc)](https://t.me/meowcomfylair)
 
-Custom keystore implementation for Android Keystore Spoofer
+Fork of [qwq233/OhMyKeymint](https://github.com/qwq233/OhMyKeymint). A full Android Keystore 2.0 / KeyMint stand-in: scooped apps talk only to OMK, not the vendor TEE.
 
-## What is this?
+## What it does
 
-This is a complete implementation of the keystore, which fully implements the AOSP AIDL interface, referencing the official AOSP implementation.
+OMK implements the AOSP Keystore2 AIDL surface in-process and injects into `keystore2`. Packages listed in `scoop` are routed to OMK. Everything else stays on hardware.
 
-In theory, this would make it harder for detectors to identify behavior inconsistent with AOSP, thus achieving greater stealth than the FOSS branch of TrickyStore or other TrickyStore-based module like TEESimulator.
+Compared with TrickyStore / TEESimulator, OMK owns the whole Keystore path for those apps (not only KeyMint generate/attest). Detectors that probe binder shape, grants, and operation timing hit the same service.
 
-## Install and configure
+## Requirements
 
-**Android 12 or above required.**
+- Android 12–17
+- KernelSU, APatch, or Magisk
+- arm64-v8a
 
-1. Install this module.
+## Install
 
-2. [Configure OMK](docs/CONFIGURATION.md) if needed.
+1. Flash the module zip and reboot.
+2. Open the module WebUI (KernelSU / APatch) or edit the files under `/data/misc/keystore/omk/`.
+3. Put apps in `scoop` (`injector.toml`) and install a keybox if you need hardware-looking attestation.
 
-3. Replace template keybox.xml (if you need)
+Active files:
 
-The keybox file should be a **valid** XML file with both EC and RSA chain, which means there should be no extra content in it like watermark or invisible characters.
+- `/data/misc/keystore/omk/config.toml` — KeyMint identity, trust, crypto seeds
+- `/data/misc/keystore/omk/injector.toml` — scoop, intercept switches
+- `/data/misc/keystore/omk/keybox.xml` — attestation signing keys
 
-The active files are `/data/misc/keystore/omk/config.toml` and
-`/data/misc/keystore/omk/injector.toml`. Read the
-[Configuration Guide](docs/CONFIGURATION.md) for complete annotated examples,
-field-by-field explanations, safety notes, and restart requirements.
+See [Configuration Guide](docs/CONFIGURATION.md).
 
-## Restarting keymint and injector
+## Keybox
 
-The module ships two background daemons: one for `keymint`, one for `injector`.
-You can restart them by following commands.
+A valid box has at least one RSA or EC entry whose private key matches its chain. PKCS#1, SEC1, and PKCS#8 PEM are accepted. RKP-style EC-only boxes work; RSA attest requests are signed with that EC key.
+
+If `keybox.xml` is missing, OMK writes the bundled AOSP software template. If the file is invalid, it is left on disk and OMK keeps the last valid box (or the bundled template) in memory so keymint still starts.
+
+WebUI Keybox menu: AOSP (bundled), Self-Signed (local dummy), AlwaysStrong (Evoker fetch), Local file, Repo (KOWX712), Custom URL.
+
+## Restart
+
+WebUI: restart icon (between search and the overflow menu) → Daemon, Injector, or All. Confirm first.
+
+Shell:
 
 ```sh
 touch /data/adb/omk/restart.keymint
@@ -38,8 +50,7 @@ touch /data/adb/omk/restart.injector
 touch /data/adb/omk/restart.all
 ```
 
-See the [Configuration Guide](docs/CONFIGURATION.md#how-changes-are-loaded) for
-which changes need a component restart or a full device reboot.
+Injector-only setting changes do not need a keymint restart. Trust fields other than the four patch levels do.
 
 ## License
 
@@ -86,22 +97,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ## Credit
 
-Some code from [AOSP](https://source.android.com/)
+Upstream: [qwq233/OhMyKeymint](https://github.com/qwq233/OhMyKeymint) (James Clef).
 
-License: `Apache-2.0`
-
-```plaintext
-Copyright 2022, The Android Open Source Project
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-```
+Some code from [AOSP](https://source.android.com/) (`Apache-2.0`).

@@ -13,6 +13,7 @@ import { DialogController } from './dialog/dialog'
 import { SearchBar } from './search_bar/search_bar'
 import { Keybind } from './keybind'
 import { MainMenu } from './main_menu/main_menu'
+import { ReloadMenu } from './reload_menu/reload_menu'
 import './style.scss'
 
 await i18n.init()
@@ -32,6 +33,11 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = /* html */ `
     <md-outlined-text-field class="search-bar hide" placeholder="Search packages">
       <md-icon-button slot="trailing-icon" id="search-close"><md-icon>close</md-icon></md-icon-button>
     </md-outlined-text-field>
+    <div class="reload-menu">
+      <md-icon-button id="reload-button">
+        <md-icon>restart_alt</md-icon>
+      </md-icon-button>
+    </div>
     <div class="main-menu">
       <md-icon-button id="menu-button">
         <md-icon>more_vert</md-icon>
@@ -106,6 +112,8 @@ appList.setLongPressHandler(async (packageName) => {
 
 const mainMenuContainer = document.querySelector<HTMLElement>('.main-menu')!
 mainMenu.appendTo(mainMenuContainer)
+const reloadMenu = new ReloadMenu(cli, snackbar)
+reloadMenu.appendTo(document.querySelector<HTMLElement>('.reload-menu')!)
 mainMenu.on('menu-open', () => {
   appList.menuOpen = true
 })

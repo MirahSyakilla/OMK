@@ -30,6 +30,10 @@ export class HelpDialog {
             <h3>Keybox</h3>
             <p>AOSP is the bundled keybox. AlwaysStrong fetches from Evoker. Repo opens the KOWX712 picker. Self-Signed generates a local dummy. Long-press an app for <b>Select Keybox</b> to assign a slot.</p>
           </div>
+          <div class="instruction">
+            <h3>Reload</h3>
+            <p>The restart icon restarts the keymint daemon, the injector, or both. Confirm first. Apps using Keystore may fail until the process is back.</p>
+          </div>
         </div>
         <div slot="actions">
           <md-text-button id="close-help">Close</md-text-button>

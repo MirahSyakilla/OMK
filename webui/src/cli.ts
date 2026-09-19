@@ -2,6 +2,14 @@ import { exec } from 'kernelsu-alt'
 import { File } from './file'
 import { GITHUB_REPO, KEYBOX_ALWAYSSTRONG_URL, MOD_ID } from './constant'
 
+export type OmKRestartTarget = 'keymint' | 'injector' | 'all'
+
+const RESTART_MARKERS: Record<OmKRestartTarget, string> = {
+  keymint: '/data/adb/omk/restart.keymint',
+  injector: '/data/adb/omk/restart.injector',
+  all: '/data/adb/omk/restart.all',
+}
+
 export class Cli {
   static #basePathPromise: Promise<string> | null = null
 
@@ -35,8 +43,22 @@ export class Cli {
   }
 
   async linkRedirect(url: string): Promise<void> {
-    const result = await exec(`am start -a android.intent.action.VIEW -d '${url}'`)
+    if (!/^https:\/\/[-a-zA-Z0-9./?#=&_%]+$/.test(url)) {
+      throw new Error('unsupported link')
+    }
+    const result = await exec(
+      `am start -a android.intent.action.VIEW -c android.intent.category.BROWSABLE -d '${url}'`,
+    )
     if (result.errno !== 0) window.open(url, '_blank')
+  }
+
+  async requestRestart(target: OmKRestartTarget): Promise<void> {
+    const marker = RESTART_MARKERS[target]
+    if (!marker) throw new Error('unsupported restart target')
+    if (!(await File.isDirectory('/data/adb/omk'))) {
+      throw new Error('OMK state dir missing')
+    }
+    await File.createFile(marker)
   }
 
   async getAospKey(): Promise<string> {

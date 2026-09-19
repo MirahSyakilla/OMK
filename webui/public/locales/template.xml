@@ -61,6 +61,17 @@
     <string name="menu_help">Help</string>
     <string name="menu_language">Language</string>
     <string name="menu_about">About</string>
+    <string name="menu_restart_keymint">Restart Daemon</string>
+    <string name="menu_restart_injector">Restart Injector</string>
+    <string name="menu_restart_all">Restart All</string>
+    <string name="reload_confirm_title">Restart</string>
+    <string name="reload_confirm_body">Confirm restart.</string>
+    <string name="reload_confirm_title_keymint">Restart daemon?</string>
+    <string name="reload_confirm_body_keymint">Keymint will stop and start again. Keystore calls may fail until it is back.</string>
+    <string name="reload_confirm_title_injector">Restart injector?</string>
+    <string name="reload_confirm_body_injector">The injector will re-hook keystore2. Keystore calls may fail until it is back.</string>
+    <string name="reload_confirm_title_all">Restart all?</string>
+    <string name="reload_confirm_body_all">Keymint and the injector will both restart. Keystore calls may fail until they are back.</string>
     <!-- Prop Dialog -->
     <string name="prop_handler">Prop Handler</string>
     <string name="boot_hash_title">Boot Hash</string>
@@ -83,6 +94,9 @@
     <string name="prompt_boot_hash_set_error">Failed to update Verified Boot Hash</string>
     <string name="prompt_saved_target">Config saved</string>
     <string name="prompt_save_error">Failed to save config</string>
+    <string name="prompt_restart_requested">Restart requested</string>
+    <string name="prompt_restart_failed">Restart failed</string>
+    <string name="prompt_restart_busy">Wait a few seconds</string>
     <string name="prompt_uninstall_prompt">WebUI will be removed after reboot</string>
     <string name="prompt_uninstall_failed">Failed to uninstall WebUI</string>
     <string name="prompt_checking_update">Checking update...</string>

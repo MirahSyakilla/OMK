@@ -1,6 +1,6 @@
 export const MOD_ID = 'oh_my_keymint'
 export const LOCAL_STORAGE_PREFIX = 'OhMyKeymintWebUI'
-export const GITHUB_REPO = 'qwq233/OhMyKeymint'
-export const TELEGRAM_CHANNEL = 'https://t.me/OhMyKeymint'
+export const GITHUB_REPO = 'MirahSyakilla/OMK'
+export const TELEGRAM_CHANNEL = 'https://t.me/meowcomfylair'
 export const KEYBOX_REPO_URL = 'https://keybox.kowx712.cc'
 export const KEYBOX_ALWAYSSTRONG_URL = 'http://evoker.qzz.io/key'

@@ -1,0 +1,20 @@
+@scope (.reload-menu) {
+  :scope {
+    position: relative;
+  }
+
+  md-menu {
+    --md-menu-container-shape: 20px;
+    --md-sys-color-surface-container: var(--md-sys-color-surface-container-high);
+    max-width: 70vw;
+  }
+
+  md-menu-item {
+    width: max-content;
+    min-width: 100%;
+    max-width: 100%;
+    border-radius: 16px;
+    padding: 0 8px;
+    box-sizing: border-box;
+  }
+}
