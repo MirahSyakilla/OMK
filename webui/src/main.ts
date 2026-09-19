@@ -106,7 +106,7 @@ async function saveTarget(): Promise<void> {
 const mainMenu = new MainMenu()
 const keybox = new Keybox(cli, config, fileSelector, snackbar)
 const keyboxRepo = new KeyboxRepo(keybox, history, snackbar)
-const dialogController = new DialogController(cli, config, appList, fileSelector, snackbar)
+const dialogController = new DialogController(cli, config, appList, snackbar)
 await keybox.loadSlotNames()
 appList.setSlotLabel((slot) => keybox.slotLabel(slot))
 keybox.onNamesChanged(() => {

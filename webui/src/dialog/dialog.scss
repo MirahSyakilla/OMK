@@ -26,12 +26,37 @@
     --md-dialog-container-max-inline-size: min(94vw, 480px);
   }
 
-  .integrity-status,
+  .integrity-status-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container);
+    font-size: 0.85em;
+    font-weight: 600;
+    margin: 0 0 12px;
+  }
+
+  .integrity-status-pill.error {
+    background: var(--md-sys-color-error-container);
+    color: var(--md-sys-color-on-error-container);
+  }
+
   .integrity-fingerprint {
     margin: 0 0 12px;
     font-size: 13px;
     line-height: 1.4;
     overflow-wrap: anywhere;
+  }
+
+  .integrity-fp-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .integrity-fp-actions md-outlined-button {
+    flex: 1;
   }
 
   .full-width-button {

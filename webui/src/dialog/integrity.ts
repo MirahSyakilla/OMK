@@ -2,7 +2,6 @@ import type { MdDialog, MdFilledButton, MdOutlinedButton, MdSwitch } from '@mate
 import { Cli } from '../cli'
 import { Config } from '../config'
 import { File } from '../file'
-import { FileSelector } from '../file_selector/file_selector'
 import { Snackbar } from '../snackbar/snackbar'
 import { applyDialogAnimation } from './animation'
 
@@ -54,16 +53,15 @@ export class IntegrityDialog {
   #dialog: MdDialog | null = null
   #cli: Cli
   #config: Config
-  #fileSelector: FileSelector
   #snackbar: Snackbar
   #pendingProp: string | null = null
   #fingerprint = ''
+  #product = ''
   #canEnable = false
 
-  constructor(cli: Cli, config: Config, fileSelector: FileSelector, snackbar: Snackbar) {
+  constructor(cli: Cli, config: Config, snackbar: Snackbar) {
     this.#cli = cli
     this.#config = config
-    this.#fileSelector = fileSelector
     this.#snackbar = snackbar
   }
 
@@ -73,7 +71,7 @@ export class IntegrityDialog {
       <md-dialog id="integrity-settings-dialog">
         <div slot="headline">Integrity Settings</div>
         <div slot="content">
-          <p id="integrity-status" class="integrity-status"></p>
+          <div id="integrity-status" class="integrity-status-pill"></div>
           <div class="policy-fields">
             <label class="switch-item outlined" for="integrity-enabled">
               <md-ripple></md-ripple>
@@ -111,8 +109,11 @@ export class IntegrityDialog {
               <md-switch id="integrity-unify-props"></md-switch>
             </label>
           </div>
-          <p id="integrity-fingerprint" class="integrity-fingerprint">No fingerprint imported</p>
-          <md-outlined-button id="integrity-import" class="full-width-button">Import fingerprint</md-outlined-button>
+          <p id="integrity-fingerprint" class="integrity-fingerprint">No fingerprint fetched</p>
+          <div class="integrity-fp-actions">
+            <md-outlined-button id="integrity-fetch">Fetch</md-outlined-button>
+            <md-outlined-button id="integrity-update">Update</md-outlined-button>
+          </div>
         </div>
         <div slot="actions">
           <md-outlined-button id="integrity-close">Cancel</md-outlined-button>
@@ -127,8 +128,11 @@ export class IntegrityDialog {
     fragment.querySelector<MdFilledButton>('#integrity-save')!.onclick = () => {
       void this.#save()
     }
-    fragment.querySelector<MdOutlinedButton>('#integrity-import')!.onclick = () => {
-      void this.#importProp()
+    fragment.querySelector<MdOutlinedButton>('#integrity-fetch')!.onclick = () => {
+      void this.#fetchProp(false)
+    }
+    fragment.querySelector<MdOutlinedButton>('#integrity-update')!.onclick = () => {
+      void this.#fetchProp(true)
     }
     return fragment
   }
@@ -142,7 +146,10 @@ export class IntegrityDialog {
     const status = await this.#cli.detectIntegrityZygisk()
     this.#canEnable = status.provider !== null && status.conflict === null
     const statusEl = this.#dialog?.querySelector<HTMLElement>('#integrity-status')
-    if (statusEl) statusEl.textContent = this.#statusText(status)
+    if (statusEl) {
+      statusEl.textContent = this.#statusText(status)
+      statusEl.classList.toggle('error', !this.#canEnable)
+    }
 
     const state = await this.#readState()
     this.#setSwitch('integrity-enabled', state.enabled && this.#canEnable)
@@ -192,7 +199,7 @@ export class IntegrityDialog {
   #renderFingerprint(): void {
     const el = this.#dialog?.querySelector<HTMLElement>('#integrity-fingerprint')
     if (!el) return
-    el.textContent = this.#fingerprint || 'No fingerprint imported'
+    el.textContent = this.#fingerprint || 'No fingerprint fetched'
   }
 
   async #readState(): Promise<IntegrityState> {
@@ -216,23 +223,44 @@ export class IntegrityDialog {
   async #readFingerprint(): Promise<string> {
     if (!(await File.exist(PROP_PATH))) return ''
     try {
-      return parseKv(await File.read(PROP_PATH)).FINGERPRINT ?? ''
+      const map = parseKv(await File.read(PROP_PATH))
+      this.#product = map.PRODUCT || this.#productFromFingerprint(map.FINGERPRINT ?? '')
+      return map.FINGERPRINT ?? ''
     } catch {
       return ''
     }
   }
 
-  async #importProp(): Promise<void> {
-    const content = await this.#fileSelector.getFileContent('prop')
-    if (!content) return
-    const fingerprint = parseKv(content).FINGERPRINT
-    if (!fingerprint) {
-      this.#snackbar.show('Fingerprint file needs FINGERPRINT=', false)
-      return
+  #productFromFingerprint(fingerprint: string): string {
+    return fingerprint.split(/[/:]/)[1] ?? ''
+  }
+
+  async #fetchProp(update: boolean): Promise<void> {
+    try {
+      let product = this.#product || this.#productFromFingerprint(this.#fingerprint)
+      if (update && !product) {
+        this.#snackbar.show('Fetch a fingerprint first', false)
+        return
+      }
+      if (!product) {
+        const devices = await this.#cli.fetchPifDeviceList()
+        if (devices.length === 0) throw new Error('empty device list')
+        product = devices[Math.floor(Math.random() * devices.length)].product
+      }
+      const content = await this.#cli.fetchPifProp(product)
+      const fingerprint = parseKv(content).FINGERPRINT
+      if (!fingerprint) {
+        this.#snackbar.show('Fetched prop needs FINGERPRINT=', false)
+        return
+      }
+      this.#pendingProp = content
+      this.#fingerprint = fingerprint
+      this.#product = parseKv(content).PRODUCT || product
+      this.#renderFingerprint()
+      this.#snackbar.show(update ? 'Fingerprint updated' : 'Fingerprint fetched')
+    } catch {
+      this.#snackbar.show(update ? 'Failed to update fingerprint' : 'Failed to fetch fingerprint', false)
     }
-    this.#pendingProp = content
-    this.#fingerprint = fingerprint
-    this.#renderFingerprint()
   }
 
   async #save(): Promise<void> {
@@ -242,7 +270,7 @@ export class IntegrityDialog {
       return
     }
     if (enabled && !this.#fingerprint) {
-      this.#snackbar.show('Import a fingerprint before enabling', false)
+      this.#snackbar.show('Fetch a fingerprint before enabling', false)
       return
     }
 

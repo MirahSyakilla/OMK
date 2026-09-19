@@ -10,6 +10,7 @@ import { generateUnknownKeybox, isKeygenAvailable } from './unknown'
 import { CustomKeyboxProvider } from './custom'
 import { Config } from '../config'
 import { applyDialogAnimation } from '../dialog/animation'
+import { formatDeviceDate } from '../datetime'
 import './keybox.scss'
 
 export type KeyboxSaveResult = 'saved' | 'cancelled' | 'error'
@@ -619,7 +620,7 @@ export class Keybox {
       const created = document.createElement('span')
       created.className = 'keybox-meta-pill'
       created.textContent = mtime
-        ? i18n.t('keybox_created', new Date(mtime).toLocaleDateString())
+        ? i18n.t('keybox_created', await formatDeviceDate(new Date(mtime), true))
         : i18n.t('keybox_created_unknown')
       const apps = document.createElement('span')
       apps.className = 'keybox-meta-pill'
@@ -630,7 +631,7 @@ export class Keybox {
       if (expiry) {
         const expires = document.createElement('span')
         expires.className = expired ? 'keybox-meta-pill keybox-meta-expired' : 'keybox-meta-pill'
-        expires.textContent = i18n.t('keybox_expires', expiry.toLocaleString())
+        expires.textContent = i18n.t('keybox_expires', await formatDeviceDate(expiry, true))
         meta.append(expires)
       }
 

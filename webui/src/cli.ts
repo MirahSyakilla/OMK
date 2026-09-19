@@ -125,6 +125,50 @@ export class Cli {
     return `https://github.com/${GITHUB_REPO}`
   }
 
+  async fetchPifDeviceList(): Promise<Array<{ model: string; product: string }>> {
+    const raw = await this.#fetchFirst([
+      'https://fastly.jsdelivr.net/gh/KOWX712/PlayIntegrityFix@bot/device_list.json',
+      'https://raw.githubusercontent.com/KOWX712/PlayIntegrityFix/bot/device_list.json',
+      'https://cdn.jsdelivr.net/gh/KOWX712/PlayIntegrityFix@bot/device_list.json',
+    ])
+    const devices = JSON.parse(raw) as Array<{ model?: string; product?: string }>
+    if (!Array.isArray(devices)) throw new Error('invalid device list')
+    return devices.filter((device): device is { model: string; product: string } =>
+      !!(device.model && device.product),
+    )
+  }
+
+  async fetchPifProp(product: string): Promise<string> {
+    const encoded = encodeURIComponent(product)
+    const text = await this.#fetchFirst([
+      `https://fastly.jsdelivr.net/gh/KOWX712/PlayIntegrityFix@bot/device_prop/${encoded}.prop`,
+      `https://raw.githubusercontent.com/KOWX712/PlayIntegrityFix/bot/device_prop/${encoded}.prop`,
+      `https://cdn.jsdelivr.net/gh/KOWX712/PlayIntegrityFix@bot/device_prop/${encoded}.prop`,
+    ])
+    if (!text.includes('FINGERPRINT=')) throw new Error('fingerprint missing')
+    return text
+  }
+
+  async #fetchFirst(urls: string[]): Promise<string> {
+    for (const url of urls) {
+      try {
+        const response = await fetch(url)
+        if (response.ok) {
+          const text = await response.text()
+          if (text.trim()) return text
+        }
+      } catch {
+        // try curl next, then remaining URLs
+      }
+      const quoted = url.replace(/'/g, `'\\''`)
+      const result = await exec(
+        `curl -fsSL --connect-timeout 10 --max-time 30 '${quoted}' 2>/dev/null || wget -q -T 20 -O - '${quoted}'`,
+      )
+      if (result.errno === 0 && result.stdout.trim()) return result.stdout
+    }
+    throw new Error('fingerprint fetch failed')
+  }
+
   async detectIntegrityZygisk(): Promise<{ provider: string | null; conflict: string | null }> {
     if (import.meta.env.DEV) return { provider: 'rezygisk', conflict: null }
     const result = await exec(`

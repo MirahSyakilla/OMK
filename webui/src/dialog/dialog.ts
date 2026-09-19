@@ -7,7 +7,6 @@ import { AboutDialog } from './about'
 import { HelpDialog } from './help'
 import { SystemAppDialog } from './system_app'
 import { IntegrityDialog } from './integrity'
-import { FileSelector } from '../file_selector/file_selector'
 import { Snackbar } from '../snackbar/snackbar'
 import './dialog.scss'
 
@@ -25,11 +24,11 @@ export class DialogController {
   readonly crypto: SectionDialog
   readonly runtime: RuntimeDialog
 
-  constructor(cli: Cli, config: Config, appList: AppList, fileSelector: FileSelector, snackbar: Snackbar) {
+  constructor(cli: Cli, config: Config, appList: AppList, snackbar: Snackbar) {
     this.about = new AboutDialog(cli)
     this.help = new HelpDialog()
     this.systemApp = new SystemAppDialog(appList)
-    this.integrity = new IntegrityDialog(cli, config, fileSelector, snackbar)
+    this.integrity = new IntegrityDialog(cli, config, snackbar)
     this.trust = new SectionDialog(config, 'trust', 'trust-settings-dialog')
     this.core = new SectionDialog(config, 'omk_main', 'core-settings-dialog')
     this.injector = new SectionDialog(config, 'injector_main', 'injector-settings-dialog')
