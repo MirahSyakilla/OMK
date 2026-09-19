@@ -87,6 +87,8 @@
     <string name="about_acknowledgment">Acknowledgment</string>
     <!-- Prompt -->
     <string name="prompt_aosp_key_set">AOSP keybox set successfully</string>
+    <string name="prompt_original_key_set">Original keybox set</string>
+    <string name="prompt_original_key_set_error">Original keybox fetch failed</string>
     <string name="prompt_key_set_error">Failed to update keybox</string>
     <string name="prompt_unknown_key_set">Self-signed keybox set</string>
     <string name="prompt_alwaysstrong_key_set">AlwaysStrong keybox set</string>

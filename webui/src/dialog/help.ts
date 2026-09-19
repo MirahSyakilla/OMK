@@ -32,7 +32,7 @@ export class HelpDialog {
           </div>
           <div class="instruction">
             <h3>Keybox</h3>
-            <p>AOSP is the bundled keybox. AlwaysStrong fetches from Evoker. Repo opens the KOWX712 picker. Self-Signed generates a local dummy. <b>Manage Keybox</b> lists slots so you can rename, export, or delete them, and shows certificate expiry. Long-press an app to open <b>Manage App</b> and assign a slot. Expired boxes show an <b>Expired</b> pill.</p>
+            <p>AOSP is the bundled keybox. Original extracts the ROM software attestation keys from this device. AlwaysStrong fetches from Evoker. Repo opens the KOWX712 picker. Self-Signed generates a local dummy. <b>Manage Keybox</b> lists slots so you can rename, export, or delete them, and shows certificate expiry. Long-press an app to open <b>Manage App</b> and assign a slot. Expired boxes show an <b>Expired</b> pill.</p>
           </div>
           <div class="instruction">
             <h3>Reload</h3>

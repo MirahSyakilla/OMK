@@ -62,8 +62,50 @@ impl RetrieveAttestationIds for AttestationIdMgr {
         Ok(Some(ids))
     }
 
+    fn get_alternate_ids(&self) -> Result<Option<AttestationIdInfo>, kmr_common::Error> {
+        let Some(hardware) = hardware_product_ids() else {
+            return Ok(None);
+        };
+        let Some(configured) = self.get_ids()? else {
+            return Ok(Some(hardware));
+        };
+        if identities_match(&configured, &hardware) {
+            return Ok(None);
+        }
+        Ok(Some(hardware))
+    }
+
     fn destroy_all(&mut self) -> Result<(), kmr_common::Error> {
         // ignore this
         Ok(())
     }
+}
+
+fn hardware_product_ids() -> Option<AttestationIdInfo> {
+    let brand = crate::plat::vbmeta::read_build_prop_value("ro.product.brand")?;
+    let device = crate::plat::vbmeta::read_build_prop_value("ro.product.device")?;
+    let product = crate::plat::vbmeta::read_build_prop_value("ro.product.name")
+        .or_else(|| crate::plat::vbmeta::read_build_prop_value("ro.product.device"))?;
+    let manufacturer = crate::plat::vbmeta::read_build_prop_value("ro.product.manufacturer")
+        .unwrap_or_else(|| brand.clone());
+    let model = crate::plat::vbmeta::read_build_prop_value("ro.product.model").unwrap_or_default();
+    Some(AttestationIdInfo {
+        brand: brand.into_bytes(),
+        device: device.into_bytes(),
+        product: product.into_bytes(),
+        serial: Vec::new(),
+        imei: Vec::new(),
+        imei2: Vec::new(),
+        meid: Vec::new(),
+        manufacturer: manufacturer.into_bytes(),
+        model: model.into_bytes(),
+    })
+}
+
+fn identities_match(left: &AttestationIdInfo, right: &AttestationIdInfo) -> bool {
+    left.brand == right.brand
+        && left.device == right.device
+        && left.product == right.product
+        && left.manufacturer == right.manufacturer
+        && left.model == right.model
 }

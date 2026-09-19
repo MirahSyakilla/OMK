@@ -41,3 +41,50 @@ if [ -f "$TARGET_INJECTOR_CONFIG" ]; then
   chmod 0600 "$TARGET_INJECTOR_CONFIG"
   chown 1017:1017 "$TARGET_INJECTOR_CONFIG"
 fi
+
+apply_security_patch() {
+  local val=""
+  local cfg="$TARGET_DIR/config.toml"
+  local prop="$STATE_DIR/integrity.prop"
+  local rp=""
+
+  if [ -f "$cfg" ]; then
+    val=$(sed -n 's/^security_patch[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$cfg" | head -n 1)
+  fi
+
+  case "$val" in
+    auto|"")
+      return 0
+      ;;
+    latest)
+      if [ -f "$prop" ]; then
+        val=$(sed -n 's/^SECURITY_PATCH=//p' "$prop" | head -n 1)
+      fi
+      if [ -z "$val" ] || [ "$val" = "latest" ]; then
+        val=$(date +%Y-%m-05)
+      fi
+      ;;
+  esac
+
+  case "$val" in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+    *) return 0 ;;
+  esac
+
+  if [ -x /data/adb/ksu/bin/resetprop ]; then
+    rp=/data/adb/ksu/bin/resetprop
+  elif [ -x /data/adb/magisk/resetprop ]; then
+    rp=/data/adb/magisk/resetprop
+  elif [ -x /system/bin/resetprop ]; then
+    rp=/system/bin/resetprop
+  elif [ -x /data/adb/ksud ]; then
+    /data/adb/ksud resetprop -n ro.build.version.security_patch "$val" >/dev/null 2>&1
+    return 0
+  else
+    return 0
+  fi
+
+  "$rp" -n ro.build.version.security_patch "$val" >/dev/null 2>&1
+}
+
+apply_security_patch

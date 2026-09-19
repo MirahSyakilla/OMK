@@ -392,6 +392,7 @@ pub(crate) fn attestation_extension<'a>(
     app_id: &'a [u8],
     security_level: keymint::SecurityLevel,
     attestation_ids: Option<&'a crate::AttestationIdInfo>,
+    alt_attestation_ids: Option<&'a crate::AttestationIdInfo>,
     params: &'a [KeyParam],
     chars: &'a [KeyCharacteristics],
     unique_id: &'a Vec<u8>,
@@ -422,6 +423,7 @@ pub(crate) fn attestation_extension<'a>(
         sw_chars,
         sw_params,
         attestation_ids,
+        alt_attestation_ids,
         None,
         Some(app_id),
         additional_attestation_info,
@@ -430,6 +432,7 @@ pub(crate) fn attestation_extension<'a>(
         hw_chars,
         hw_params,
         attestation_ids,
+        alt_attestation_ids,
         Some(RootOfTrust::from(boot_info)),
         None,
         &[],
@@ -626,83 +629,87 @@ impl AttestationIds<'_> {
         *self == AttestationIds::default()
     }
 
-    fn check_match(&self, wanted: &crate::AttestationIdInfo) -> Result<(), Error> {
-        if self
-            .brand
-            .as_ref()
-            .is_some_and(|brand| *brand != wanted.brand)
-        {
+    fn check_match(
+        &self,
+        wanted: &crate::AttestationIdInfo,
+        alt: Option<&crate::AttestationIdInfo>,
+    ) -> Result<(), Error> {
+        if !field_matches(
+            &self.brand,
+            &wanted.brand,
+            alt.map(|ids| ids.brand.as_slice()),
+        ) {
             return Err(km_err!(
                 CannotAttestIds,
                 "attestation ID mismatch for brand"
             ));
         }
-        if self
-            .device
-            .as_ref()
-            .is_some_and(|device| *device != wanted.device)
-        {
+        if !field_matches(
+            &self.device,
+            &wanted.device,
+            alt.map(|ids| ids.device.as_slice()),
+        ) {
             return Err(km_err!(
                 CannotAttestIds,
                 "attestation ID mismatch for device"
             ));
         }
-        if self
-            .product
-            .as_ref()
-            .is_some_and(|product| *product != wanted.product)
-        {
+        if !field_matches(
+            &self.product,
+            &wanted.product,
+            alt.map(|ids| ids.product.as_slice()),
+        ) {
             return Err(km_err!(
                 CannotAttestIds,
                 "attestation ID mismatch for product"
             ));
         }
-        if self
-            .serial
-            .as_ref()
-            .is_some_and(|serial| *serial != wanted.serial)
-        {
+        if !field_matches(
+            &self.serial,
+            &wanted.serial,
+            alt.map(|ids| ids.serial.as_slice()),
+        ) {
             return Err(km_err!(
                 CannotAttestIds,
                 "attestation ID mismatch for serial"
             ));
         }
-        // The IMEI fields can match any valid IMEI value.
+        // The IMEI fields can match any valid IMEI value, including an alternate identity.
         if self
             .imei
             .as_ref()
-            .is_some_and(|imei| *imei != wanted.imei && *imei != wanted.imei2)
+            .is_some_and(|imei| !imei_matches(imei, wanted, alt))
         {
             return Err(km_err!(CannotAttestIds, "attestation ID mismatch for imei"));
         }
         if self
             .imei2
             .as_ref()
-            .is_some_and(|imei2| *imei2 != wanted.imei2 && *imei2 != wanted.imei)
+            .is_some_and(|imei2| !imei_matches(imei2, wanted, alt))
         {
             return Err(km_err!(
                 CannotAttestIds,
                 "attestation ID mismatch for imei2"
             ));
         }
-        if self.meid.as_ref().is_some_and(|meid| *meid != wanted.meid) {
+        if !field_matches(&self.meid, &wanted.meid, alt.map(|ids| ids.meid.as_slice())) {
             return Err(km_err!(CannotAttestIds, "attestation ID mismatch for meid"));
         }
-        if self
-            .manufacturer
-            .as_ref()
-            .is_some_and(|mfr| *mfr != wanted.manufacturer)
-        {
+        if !field_matches(
+            &self.manufacturer,
+            &wanted.manufacturer,
+            alt.map(|ids| ids.manufacturer.as_slice()),
+        ) {
             return Err(km_err!(
                 CannotAttestIds,
                 "attestation ID mismatch for manufacturer"
             ));
         }
-        if self
-            .model
-            .as_ref()
-            .is_some_and(|model| *model != wanted.model)
-        {
+        if !field_matches(
+            &self.model,
+            &wanted.model,
+            alt.map(|ids| ids.model.as_slice()),
+        ) {
             return Err(km_err!(
                 CannotAttestIds,
                 "attestation ID mismatch for model"
@@ -710,6 +717,27 @@ impl AttestationIds<'_> {
         }
         Ok(())
     }
+}
+
+fn field_matches(got: &Option<Cow<'_, [u8]>>, wanted: &[u8], alt: Option<&[u8]>) -> bool {
+    match got {
+        None => true,
+        Some(value) if value.as_ref() == wanted => true,
+        Some(value) => {
+            alt.is_some_and(|candidate| !candidate.is_empty() && value.as_ref() == candidate)
+        }
+    }
+}
+
+fn imei_matches(
+    got: &[u8],
+    wanted: &crate::AttestationIdInfo,
+    alt: Option<&crate::AttestationIdInfo>,
+) -> bool {
+    if got == wanted.imei.as_slice() || got == wanted.imei2.as_slice() {
+        return true;
+    }
+    alt.is_some_and(|ids| got == ids.imei.as_slice() || got == ids.imei2.as_slice())
 }
 
 impl<'a> AuthorizationList<'a> {
@@ -720,6 +748,7 @@ impl<'a> AuthorizationList<'a> {
         auths: &'a [KeyParam],
         keygen_params: &'a [KeyParam],
         attestation_ids: Option<&crate::AttestationIdInfo>,
+        alt_attestation_ids: Option<&crate::AttestationIdInfo>,
         rot_info: Option<RootOfTrust>,
         app_id: Option<&'a [u8]>,
         additional_attestation_info: &'a [KeyParam],
@@ -728,7 +757,9 @@ impl<'a> AuthorizationList<'a> {
         if !requested_ids.is_empty() {
             match attestation_ids {
                 None => return Err(km_err!(CannotAttestIds, "no attestation IDs provisioned")),
-                Some(attestation_ids) => requested_ids.check_match(attestation_ids)?,
+                Some(attestation_ids) => {
+                    requested_ids.check_match(attestation_ids, alt_attestation_ids)?
+                }
             }
         }
         let encoded_rot = if let Some(rot) = rot_info {
@@ -1628,10 +1659,11 @@ mod tests {
             keymint_security_level: sec_level,
             attestation_challenge: b"abc",
             unique_id: b"xxx",
-            sw_enforced: AuthorizationList::new(&[], &[], None, None, None, &[]).unwrap(),
+            sw_enforced: AuthorizationList::new(&[], &[], None, None, None, None, &[]).unwrap(),
             hw_enforced: AuthorizationList::new(
                 &[KeyParam::Algorithm(keymint::Algorithm::Ec)],
                 &[],
+                None,
                 None,
                 Some(RootOfTrust {
                     verified_boot_key: &[0xbbu8; 32],
@@ -1723,6 +1755,7 @@ mod tests {
             &[KeyParam::Algorithm(keymint::Algorithm::Ec)],
             &[],
             None,
+            None,
             Some(RootOfTrust {
                 verified_boot_key: &[0xbbu8; 32],
                 device_locked: false,
@@ -1777,6 +1810,7 @@ mod tests {
                 KeyParam::UserSecureId(44),
             ],
             &[],
+            None,
             None,
             Some(RootOfTrust {
                 verified_boot_key: &[0xbbu8; 32],
@@ -1850,6 +1884,7 @@ mod tests {
             ],
             &[],
             None,
+            None,
             Some(RootOfTrust {
                 verified_boot_key: &[0xbbu8; 32],
                 device_locked: false,
@@ -1871,10 +1906,60 @@ mod tests {
             ..Default::default()
         };
         let keygen_params = [KeyParam::AttestationIdBrand(b"bad".to_vec())];
-        let error =
-            AuthorizationList::new(&[], &keygen_params, Some(&attestation_ids), None, None, &[])
-                .unwrap_err();
+        let error = AuthorizationList::new(
+            &[],
+            &keygen_params,
+            Some(&attestation_ids),
+            None,
+            None,
+            None,
+            &[],
+        )
+        .unwrap_err();
 
+        assert!(matches!(
+            error.kind(),
+            CommonErrorKind::Hal(ErrorCode::CannotAttestIds, _)
+        ));
+    }
+
+    #[test]
+    fn test_authz_list_accepts_alternate_attestation_id() {
+        let configured = AttestationIdInfo {
+            brand: b"google".to_vec(),
+            device: b"cheetah".to_vec(),
+            ..Default::default()
+        };
+        let hardware = AttestationIdInfo {
+            brand: b"Xiaomi".to_vec(),
+            device: b"lisa".to_vec(),
+            ..Default::default()
+        };
+        let keygen_params = [
+            KeyParam::AttestationIdBrand(b"Xiaomi".to_vec()),
+            KeyParam::AttestationIdDevice(b"lisa".to_vec()),
+        ];
+        AuthorizationList::new(
+            &[],
+            &keygen_params,
+            Some(&configured),
+            Some(&hardware),
+            None,
+            None,
+            &[],
+        )
+        .unwrap();
+
+        let error = AuthorizationList::new(
+            &[],
+            &keygen_params,
+            Some(&configured),
+            None,
+            None,
+            None,
+            &[],
+        )
+        .unwrap_err();
         assert!(matches!(
             error.kind(),
             CommonErrorKind::Hal(ErrorCode::CannotAttestIds, _)
@@ -1894,9 +1979,16 @@ mod tests {
             KeyParam::AttestationIdImei(secondary.clone()),
             KeyParam::AttestationIdSecondImei(primary.clone()),
         ];
-        let authz_list =
-            AuthorizationList::new(&[], &keygen_params, Some(&attestation_ids), None, None, &[])
-                .unwrap();
+        let authz_list = AuthorizationList::new(
+            &[],
+            &keygen_params,
+            Some(&attestation_ids),
+            None,
+            None,
+            None,
+            &[],
+        )
+        .unwrap();
 
         assert_eq!(authz_list.ids.imei.as_deref(), Some(secondary.as_slice()));
         assert_eq!(authz_list.ids.imei2.as_deref(), Some(primary.as_slice()));
@@ -1906,9 +1998,16 @@ mod tests {
     fn test_authz_list_encodes_empty_second_imei() {
         let attestation_ids = AttestationIdInfo::default();
         let keygen_params = [KeyParam::AttestationIdSecondImei(vec![])];
-        let authz_list =
-            AuthorizationList::new(&[], &keygen_params, Some(&attestation_ids), None, None, &[])
-                .unwrap();
+        let authz_list = AuthorizationList::new(
+            &[],
+            &keygen_params,
+            Some(&attestation_ids),
+            None,
+            None,
+            None,
+            &[],
+        )
+        .unwrap();
 
         assert_eq!(authz_list.ids.imei2.as_deref(), Some([].as_slice()));
         assert_eq!(
@@ -1927,6 +2026,7 @@ mod tests {
                 KeyParam::Digest(Digest::Sha1), // duplicate value
             ],
             &[],
+            None,
             None,
             Some(RootOfTrust {
                 verified_boot_key: &[0xbbu8; 32],
@@ -1951,6 +2051,7 @@ mod tests {
                 KeyParam::Digest(Digest::None),
             ],
             &[],
+            None,
             None,
             Some(RootOfTrust {
                 verified_boot_key: &[0xbbu8; 32],

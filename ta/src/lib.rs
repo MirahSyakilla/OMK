@@ -155,6 +155,8 @@ pub struct KeyMintTa {
 
     /// Attestation ID information, fixed forever for a device, but retrieved on first use.
     attestation_id_info: RefCell<Option<Arc<AttestationIdInfo>>>,
+    /// ROM/hardware identity accepted alongside `[device]` after Integrity ID sync.
+    attestation_id_info_alt: RefCell<Option<Arc<AttestationIdInfo>>>,
 
     /// Public DICE artifacts (UDS certs and the DICE chain) included in the certificate signing
     /// requests (CSR) and the algorithm used to sign the CSR for IRemotelyProvisionedComponent
@@ -385,6 +387,7 @@ impl KeyMintTa {
             hal_info: None,
             attestation_chain_info: RefCell::new(BTreeMap::new()),
             attestation_id_info: RefCell::new(None),
+            attestation_id_info_alt: RefCell::new(None),
             dice_info: RefCell::new(None),
             additional_attestation_info: Vec::new(),
         }
@@ -797,6 +800,21 @@ impl KeyMintTa {
             }
         }
         self.attestation_id_info.borrow().as_ref().cloned()
+    }
+
+    fn get_alternate_attestation_ids(&self) -> Option<Arc<AttestationIdInfo>> {
+        if self.attestation_id_info_alt.borrow().is_none() {
+            if let Some(get_ids_impl) = self.dev.attest_ids.as_ref() {
+                match get_ids_impl.get_alternate_ids() {
+                    Ok(Some(ids)) => {
+                        *self.attestation_id_info_alt.borrow_mut() = Some(Arc::new(ids))
+                    }
+                    Ok(None) => {}
+                    Err(e) => error!("Failed to retrieve alternate attestation IDs: {e:?}"),
+                }
+            }
+        }
+        self.attestation_id_info_alt.borrow().as_ref().cloned()
     }
 
     /// Allow an implementation of the [`RetrieveCertSigningInfo`] trait to be provided

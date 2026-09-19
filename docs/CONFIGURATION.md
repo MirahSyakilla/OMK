@@ -674,7 +674,8 @@ OMK keeps the legacy keybox at
 stored as `keybox-slot-N.xml`, where `N` is `1` through `1024`.
 
 The WebUI can create a slot, assign it to an app with a long press, and
-prompt for a destination slot when a keybox is fetched or imported. **Manage
+prompt for a destination slot when a keybox is fetched or imported. **Original**
+builds a keybox from this device's ROM software attestation library. **Manage
 Keybox** lists every slot with its filename, created date, algorithms, and
 assigned app count, and can rename, delete, or export a copy to
 `/storage/emulated/0/Download/OMK/`. Display names are stored in

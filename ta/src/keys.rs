@@ -210,6 +210,9 @@ impl crate::KeyMintTa {
         let id_info = needs_attestation_ids(params)
             .then(|| self.get_attestation_ids())
             .flatten();
+        let alt_id_info = needs_attestation_ids(params)
+            .then(|| self.get_alternate_attestation_ids())
+            .flatten();
         let attest_ext_val = if let Some(SigningInfo {
             attestation_info: Some((challenge, app_id)),
             ..
@@ -223,6 +226,7 @@ impl crate::KeyMintTa {
                 app_id,
                 self.hw_info.security_level,
                 id_info.as_ref().map(|v| v.borrow()),
+                alt_id_info.as_ref().map(|v| v.borrow()),
                 params,
                 chars,
                 &unique_id,

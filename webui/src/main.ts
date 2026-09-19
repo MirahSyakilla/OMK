@@ -142,6 +142,9 @@ mainMenu.on('menu-keybox-manage', () => {
 mainMenu.on('menu-keybox-aosp', () => {
   void keybox.setAospKey()
 })
+mainMenu.on('menu-keybox-original', () => {
+  void keybox.setOriginalKey()
+})
 mainMenu.on('menu-keybox-unknown', () => {
   void keybox.setUnknownKey()
 })

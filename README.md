@@ -36,7 +36,7 @@ A valid box has at least one RSA or EC entry whose private key matches its chain
 
 If `keybox.xml` is missing, OMK writes the bundled AOSP software template. If the file is invalid, it is left on disk and OMK keeps the last valid box (or the bundled template) in memory so keymint still starts.
 
-WebUI Keybox menu: Manage Keybox, AOSP (bundled), Self-Signed (local dummy), AlwaysStrong (Evoker fetch), Local file, Repo (KOWX712), Custom URL. Manage can rename, delete, and export a slot to `/storage/emulated/0/Download/OMK/`. Long-press an app to assign a slot.
+WebUI Keybox menu: Manage Keybox, AOSP (bundled), Original (ROM `libsoft_attestation_cert.so`), Self-Signed (local dummy), AlwaysStrong (Evoker fetch), Local file, Repo (KOWX712), Custom URL. Manage can rename, delete, and export a slot to `/storage/emulated/0/Download/OMK/`. Long-press an app to assign a slot.
 
 ## Restart
 

@@ -1,6 +1,7 @@
 import { exec } from 'kernelsu-alt'
 import { File } from './file'
 import { GITHUB_REPO, KEYBOX_ALWAYSSTRONG_URL, MOD_ID } from './constant'
+import { extractKeyboxFromSoftAttestationSo, ORIGINAL_LIB_PATHS, ORIGINAL_XML_PATHS } from './keybox/original'
 
 export type OmKRestartTarget = 'keymint' | 'injector' | 'all'
 
@@ -64,6 +65,25 @@ export class Cli {
   async getAospKey(): Promise<string> {
     const basePath = await this.getBasePath()
     return File.read(`${basePath}/keybox.xml`)
+  }
+
+  async getOriginalKey(): Promise<string> {
+    for (const path of ORIGINAL_XML_PATHS) {
+      if (!(await File.exist(path))) continue
+      try {
+        const xml = await File.read(path)
+        if (xml.includes('AndroidAttestation') && xml.includes('BEGIN')) return xml
+      } catch {
+        // keep scanning
+      }
+    }
+    for (const path of ORIGINAL_LIB_PATHS) {
+      if (!(await File.exist(path))) continue
+      const result = await exec(`base64 "${path}"`)
+      if (result.errno !== 0 || !result.stdout.trim()) continue
+      return extractKeyboxFromSoftAttestationSo(result.stdout)
+    }
+    throw new Error('stock software attestation library not found')
   }
 
   async getAlwaysStrongKey(): Promise<string> {

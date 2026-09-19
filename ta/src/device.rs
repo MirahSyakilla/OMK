@@ -196,6 +196,12 @@ pub trait RetrieveAttestationIds: Send {
         self.get().map(Some)
     }
 
+    /// Additional identities that may appear in `ATTESTATION_ID_*` tags, such as the ROM
+    /// `build.prop` values after `[device]` has been overwritten for Play Integrity.
+    fn get_alternate_ids(&self) -> Result<Option<crate::AttestationIdInfo>, Error> {
+        Ok(None)
+    }
+
     /// Destroy all attestation IDs associated with the device.
     fn destroy_all(&mut self) -> Result<(), Error>;
 }

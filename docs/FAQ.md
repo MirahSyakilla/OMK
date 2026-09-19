@@ -210,6 +210,10 @@ Only if you have a valid replacement and understand where it came from. The
 bundled file is a fallback template; it is not a promise that every current
 service or detector will accept it.
 
+**Original** in the Keybox menu reads the software attestation keys from this
+device (`libsoft_attestation_cert.so`, or a vendor `keybox.xml` if one is
+present). Hardware TEE private keys cannot be exported.
+
 Never download private keyboxes from an untrusted source and never publish a
 keybox that you use.
 
