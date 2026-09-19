@@ -66,6 +66,7 @@
     <string name="menu_restart_keymint">Restart Daemon</string>
     <string name="menu_restart_injector">Restart Injector</string>
     <string name="menu_restart_all">Restart All</string>
+    <string name="menu_reapply_integrity">Reapply Integrity</string>
     <string name="reload_confirm_title">Restart</string>
     <string name="reload_confirm_body">Confirm restart.</string>
     <string name="reload_confirm_title_keymint">Restart daemon?</string>
@@ -73,7 +74,9 @@
     <string name="reload_confirm_title_injector">Restart injector?</string>
     <string name="reload_confirm_body_injector">The injector will re-hook keystore2. Keystore calls may fail until it is back.</string>
     <string name="reload_confirm_title_all">Restart all?</string>
-    <string name="reload_confirm_body_all">Keymint and the injector will both restart. Keystore calls may fail until they are back.</string>
+    <string name="reload_confirm_body_all">Keymint, the injector, and Integrity spoof targets will restart. Keystore and Play Integrity may fail until they are back.</string>
+    <string name="reload_confirm_title_integrity">Reapply Integrity?</string>
+    <string name="reload_confirm_body_integrity">Play Services and Play Store will be stopped so the Integrity spoof can attach again.</string>
     <!-- Prop Dialog -->
     <string name="prop_handler">Prop Handler</string>
     <string name="boot_hash_title">Boot Hash</string>

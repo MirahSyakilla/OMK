@@ -27,8 +27,9 @@ function algorithmsFromXml(xml: string): string[] {
   return found
 }
 
-function expiryFromXml(xml: string): Date | null {
-  let earliest: Date | null = null
+function expiriesFromXml(xml: string): Date[] {
+  const dates: Date[] = []
+  const seen = new Set<number>()
   for (const match of xml.matchAll(/-----BEGIN CERTIFICATE-----([^-]+)-----END CERTIFICATE-----/g)) {
     try {
       const der = Uint8Array.from(atob(match[1].replace(/\s+/g, '')), (ch) => ch.charCodeAt(0))
@@ -37,16 +38,20 @@ function expiryFromXml(xml: string): Date | null {
       const cert = new pkijs.Certificate({ schema: asn1.result })
       const notAfter = cert.notAfter.value
       if (!(notAfter instanceof Date) || Number.isNaN(notAfter.getTime())) continue
-      if (!earliest || notAfter < earliest) earliest = notAfter
+      const stamp = notAfter.getTime()
+      if (seen.has(stamp)) continue
+      seen.add(stamp)
+      dates.push(notAfter)
     } catch {
       // ignore malformed PEM
     }
   }
-  return earliest
+  dates.sort((a, b) => a.getTime() - b.getTime())
+  return dates
 }
 
-function isExpired(expiry: Date | null): boolean {
-  return expiry !== null && expiry.getTime() <= Date.now()
+function allExpiriesPassed(dates: Date[]): boolean {
+  return dates.length > 0 && dates.every((date) => date.getTime() <= Date.now())
 }
 
 function looksLikeRkp(xml: string, ecCount: number): boolean {
@@ -439,9 +444,9 @@ export class Keybox {
     await Promise.all([0, ...slots].map(async (slot) => {
       xmlBySlot.set(slot, await File.read(this.getKeyboxPath(slot)).catch(() => ''))
     }))
-    this.#appendSlotOption(0, currentSlot === 0, isExpired(expiryFromXml(xmlBySlot.get(0) ?? '')))
+    this.#appendSlotOption(0, currentSlot === 0, allExpiriesPassed(expiriesFromXml(xmlBySlot.get(0) ?? '')))
     for (const slot of slots) {
-      this.#appendSlotOption(slot, currentSlot === slot, isExpired(expiryFromXml(xmlBySlot.get(slot) ?? '')))
+      this.#appendSlotOption(slot, currentSlot === slot, allExpiriesPassed(expiriesFromXml(xmlBySlot.get(slot) ?? '')))
     }
 
     if (!packageName) {
@@ -594,8 +599,8 @@ export class Keybox {
       name.textContent = this.#slotLabel(slot)
       const algos = document.createElement('div')
       algos.className = 'keybox-manage-algos'
-      const expiry = expiryFromXml(xml)
-      const expired = isExpired(expiry)
+      const expiries = expiriesFromXml(xml)
+      const expired = allExpiriesPassed(expiries)
       for (const algo of algorithmsFromXml(xml)) {
         const pill = document.createElement('span')
         pill.className = 'keybox-algo-pill'
@@ -628,9 +633,10 @@ export class Keybox {
         ? i18n.t('keybox_assigned_default')
         : i18n.t('keybox_assigned_apps', this.#config.packagesForSlot(slot).length)
       meta.append(created, apps)
-      if (expiry) {
+      for (const expiry of expiries) {
         const expires = document.createElement('span')
-        expires.className = expired ? 'keybox-meta-pill keybox-meta-expired' : 'keybox-meta-pill'
+        const passed = expiry.getTime() <= Date.now()
+        expires.className = passed ? 'keybox-meta-pill keybox-meta-expired' : 'keybox-meta-pill'
         expires.textContent = i18n.t('keybox_expires', await formatDeviceDate(expiry, true))
         meta.append(expires)
       }

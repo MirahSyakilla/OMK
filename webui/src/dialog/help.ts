@@ -36,7 +36,7 @@ export class HelpDialog {
           </div>
           <div class="instruction">
             <h3>Reload</h3>
-            <p>The restart icon restarts the keymint daemon, the injector, or both. Confirm first. Apps using Keystore may fail until the process is back.</p>
+            <p>The restart icon restarts the keymint daemon, the injector, or both. <b>Restart All</b> also reapplies Integrity by stopping Play Services and Play Store. <b>Reapply Integrity</b> only does that GMS/Store restart. Confirm first. Apps using Keystore may fail until the process is back.</p>
           </div>
         </div>
         <div slot="actions">

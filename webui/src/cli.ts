@@ -95,13 +95,13 @@ export class Cli {
     return [...new Set(slots)].sort((a, b) => a - b)
   }
 
-  async getServiceStatus(): Promise<{ keymint: boolean; injector: boolean }> {
-    if (import.meta.env.DEV) return { keymint: true, injector: true }
+  async getServiceStatus(): Promise<{ keymint: boolean; injector: boolean; integrity: boolean }> {
+    if (import.meta.env.DEV) return { keymint: true, injector: true, integrity: true }
     const result = await exec(
-      'km=0; inj=0; pidof keymint >/dev/null 2>&1 && km=1; ks=$(pidof keystore2 2>/dev/null | awk \'{print $1}\'); if [ -n "$ks" ] && grep -qE \'/inject( |$)\' "/proc/$ks/maps" 2>/dev/null; then inj=1; fi; printf \'%s %s\\n\' "$km" "$inj"',
+      'km=0; inj=0; int=0; pidof keymint >/dev/null 2>&1 && km=1; ks=$(pidof keystore2 2>/dev/null | awk \'{print $1}\'); if [ -n "$ks" ] && grep -qE \'/inject( |$)\' "/proc/$ks/maps" 2>/dev/null; then inj=1; fi; if grep -qE "^enabled[[:space:]]*=[[:space:]]*true" /data/adb/omk/integrity.toml /data/misc/keystore/omk/data/integrity.toml 2>/dev/null; then for p in $(pidof com.google.android.gms.unstable 2>/dev/null); do if grep -q omk_integrity "/proc/$p/maps" 2>/dev/null; then int=1; break; fi; done; fi; printf \'%s %s %s\\n\' "$km" "$inj" "$int"',
     )
-    const [km, inj] = result.stdout.trim().split(/\s+/)
-    return { keymint: km === '1', injector: inj === '1' }
+    const [km, inj, integrity] = result.stdout.trim().split(/\s+/)
+    return { keymint: km === '1', injector: inj === '1', integrity: integrity === '1' }
   }
 
   async getFileMtime(path: string): Promise<number | null> {
@@ -207,7 +207,7 @@ printf '%s %s\\n' "$provider" "$conflict"
   async killIntegrityTargets(): Promise<void> {
     if (import.meta.env.DEV) return
     await exec(
-      'killall -9 com.google.android.gms.unstable >/dev/null 2>&1; am force-stop com.android.vending >/dev/null 2>&1; true',
+      'am force-stop com.google.android.gms >/dev/null 2>&1; am force-stop com.android.vending >/dev/null 2>&1; killall -9 com.google.android.gms.unstable >/dev/null 2>&1; true',
     )
   }
 

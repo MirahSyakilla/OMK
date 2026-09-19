@@ -438,8 +438,10 @@ fn reload_runtime_config(trigger: WatchTrigger) {
                 log::warn!(
                     "boot_patchlevel changed to auto; keeping the current runtime value until keymint restarts"
                 );
+                trust_to_resolve.boot_patchlevel = previous_trust.boot_patchlevel.clone();
+            } else if new_config_file.trust.security_patch.trim() == "auto" {
+                trust_to_resolve.boot_patchlevel = previous_trust.boot_patchlevel.clone();
             }
-            trust_to_resolve.boot_patchlevel = previous_trust.boot_patchlevel.clone();
         }
         match crate::plat::vbmeta::resolve_patch_levels(&trust_to_resolve) {
             Ok(patches) => {

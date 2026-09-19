@@ -5,10 +5,11 @@ import { Snackbar } from '../snackbar/snackbar'
 import { applyDialogAnimation } from '../dialog/animation'
 import './reload_menu.scss'
 
-const ACTIONS: Array<{ id: string; target: OmKRestartTarget }> = [
+const ACTIONS: Array<{ id: string; target: OmKRestartTarget | 'integrity' }> = [
   { id: 'restart-keymint', target: 'keymint' },
   { id: 'restart-injector', target: 'injector' },
   { id: 'restart-all', target: 'all' },
+  { id: 'reapply-integrity', target: 'integrity' },
 ]
 
 const COOLDOWN_MS = 8000
@@ -20,7 +21,7 @@ export class ReloadMenu {
   #dialog: MdDialog | null = null
   #dialogTitle: HTMLElement | null = null
   #dialogBody: HTMLElement | null = null
-  #pending: OmKRestartTarget | null = null
+  #pending: OmKRestartTarget | 'integrity' | null = null
   #busyUntil = 0
 
   constructor(cli: Cli, snackbar: Snackbar) {
@@ -44,6 +45,9 @@ export class ReloadMenu {
         </md-menu-item>
         <md-menu-item id="restart-all">
           <div slot="headline">${i18n.t('menu_restart_all')}</div>
+        </md-menu-item>
+        <md-menu-item id="reapply-integrity">
+          <div slot="headline">${i18n.t('menu_reapply_integrity')}</div>
         </md-menu-item>
       </md-menu>
       <md-dialog id="reload-confirm-dialog" type="alert">
@@ -85,7 +89,7 @@ export class ReloadMenu {
     return fragment
   }
 
-  #ask(target: OmKRestartTarget): void {
+  #ask(target: OmKRestartTarget | 'integrity'): void {
     this.#pending = target
     if (this.#dialogTitle) this.#dialogTitle.textContent = i18n.t(`reload_confirm_title_${target}`)
     if (this.#dialogBody) this.#dialogBody.textContent = i18n.t(`reload_confirm_body_${target}`)
@@ -103,7 +107,12 @@ export class ReloadMenu {
     }
     this.#busyUntil = Date.now() + COOLDOWN_MS
     try {
-      await this.#cli.requestRestart(target)
+      if (target === 'integrity') {
+        await this.#cli.killIntegrityTargets()
+      } else {
+        await this.#cli.requestRestart(target)
+        if (target === 'all') await this.#cli.killIntegrityTargets()
+      }
       this.#snackbar.show(i18n.t('prompt_restart_requested'), true)
     } catch {
       this.#busyUntil = 0

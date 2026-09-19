@@ -21,11 +21,10 @@ export class TitleStatus {
   async #refresh(): Promise<void> {
     try {
       const status = await this.#cli.getServiceStatus()
-      const both = status.keymint && status.injector
-      const none = !status.keymint && !status.injector
-      this.#el.classList.toggle('title-pill-ok', both)
-      this.#el.classList.toggle('title-pill-warn', !both && !none)
-      this.#el.classList.toggle('title-pill-bad', none)
+      const up = [status.keymint, status.injector, status.integrity].filter(Boolean).length
+      this.#el.classList.toggle('title-pill-ok', up === 3)
+      this.#el.classList.toggle('title-pill-warn', up === 1 || up === 2)
+      this.#el.classList.toggle('title-pill-bad', up === 0)
     } catch {
       this.#el.classList.remove('title-pill-ok', 'title-pill-warn')
       this.#el.classList.add('title-pill-bad')
