@@ -3,6 +3,7 @@ import './main_menu.scss'
 
 const MENU_ITEMS: Array<[string, string]> = [
   ['add-system-app', 'menu-add-system-app'],
+  ['keybox-manage', 'menu-keybox-manage'],
   ['keybox-aosp', 'menu-keybox-aosp'],
   ['keybox-unknown', 'menu-keybox-unknown'],
   ['keybox-alwaysstrong', 'menu-keybox-alwaysstrong'],
@@ -48,6 +49,9 @@ export class MainMenu {
             <md-icon slot="end">key</md-icon>
           </md-menu-item>
           <md-menu positioning="popover" slot="menu" x-offset="2">
+            <md-menu-item id="keybox-manage">
+              <div slot="headline">Manage Keybox</div>
+            </md-menu-item>
             <md-menu-item id="keybox-aosp">
               <div slot="headline">AOSP</div>
             </md-menu-item>

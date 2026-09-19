@@ -28,7 +28,7 @@ export class HelpDialog {
           </div>
           <div class="instruction">
             <h3>Keybox</h3>
-            <p>AOSP is the bundled keybox. AlwaysStrong fetches from Evoker. Repo opens the KOWX712 picker. Self-Signed generates a local dummy. Long-press an app for <b>Select Keybox</b> to assign a slot.</p>
+            <p>AOSP is the bundled keybox. AlwaysStrong fetches from Evoker. Repo opens the KOWX712 picker. Self-Signed generates a local dummy. <b>Manage Keybox</b> lists slots so you can rename, export, or delete them. Long-press an app to assign a slot.</p>
           </div>
           <div class="instruction">
             <h3>Reload</h3>

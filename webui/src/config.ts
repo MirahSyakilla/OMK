@@ -780,6 +780,18 @@ export class Config {
     this.#keyboxSlots[packageName] = slot
   }
 
+  packagesForSlot(slot: number): string[] {
+    return Object.entries(this.#keyboxSlots)
+      .filter(([, assigned]) => assigned === slot)
+      .map(([packageName]) => packageName)
+  }
+
+  clearKeyboxSlot(slot: number): void {
+    for (const packageName of Object.keys(this.#keyboxSlots)) {
+      if (this.#keyboxSlots[packageName] === slot) this.#keyboxSlots[packageName] = 0
+    }
+  }
+
   get configPath(): string {
     return this.CONFIG_PATH
   }

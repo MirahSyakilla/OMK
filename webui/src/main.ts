@@ -14,6 +14,7 @@ import { SearchBar } from './search_bar/search_bar'
 import { Keybind } from './keybind'
 import { MainMenu } from './main_menu/main_menu'
 import { ReloadMenu } from './reload_menu/reload_menu'
+import { TitleStatus } from './title_status'
 import './style.scss'
 
 await i18n.init()
@@ -27,7 +28,9 @@ const config = new Config()
 
 document.querySelector<HTMLDivElement>('#app')!.innerHTML = /* html */ `
   <section class="header">
-    <div id="title" class="search-hide">OhMyKeymint</div>
+    <div id="title" class="search-hide title-pill title-pill-ok">
+      <span class="title-pill-label">OhMyKeymint</span>
+    </div>
     <div class="spacer"></div>
     <md-icon-button id="search-button" class="search-hide"><md-icon>search</md-icon></md-icon-button>
     <md-outlined-text-field class="search-bar hide" placeholder="Search packages">
@@ -114,6 +117,7 @@ const mainMenuContainer = document.querySelector<HTMLElement>('.main-menu')!
 mainMenu.appendTo(mainMenuContainer)
 const reloadMenu = new ReloadMenu(cli, snackbar)
 reloadMenu.appendTo(document.querySelector<HTMLElement>('.reload-menu')!)
+new TitleStatus(cli, document.querySelector<HTMLElement>('#title')!).start()
 mainMenu.on('menu-open', () => {
   appList.menuOpen = true
 })
@@ -126,6 +130,9 @@ mainMenu.on('menu-refresh', () => {
 mainMenu.on('menu-select-all', () => appList.selectAll())
 mainMenu.on('menu-deselect-all', () => appList.deselectAll())
 mainMenu.on('menu-add-system-app', () => dialogController.showSystemApp())
+mainMenu.on('menu-keybox-manage', () => {
+  void keybox.showManage()
+})
 mainMenu.on('menu-keybox-aosp', () => {
   void keybox.setAospKey()
 })

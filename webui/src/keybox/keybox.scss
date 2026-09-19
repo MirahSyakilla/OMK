@@ -14,44 +14,193 @@
   margin-top: 16px;
 }
 
+#keybox-slot-dialog {
+  --md-dialog-container-min-inline-size: min(92vw, 400px);
+  --md-dialog-container-max-inline-size: min(94vw, 440px);
+}
+
+#keybox-manage-dialog {
+  --md-dialog-container-min-inline-size: min(94vw, 480px);
+  --md-dialog-container-max-inline-size: min(96vw, 560px);
+  --md-dialog-container-max-block-size: 85vh;
+}
+
+.keybox-package-chip {
+  display: block;
+  text-align: center;
+  margin: 0 auto 16px;
+  padding: 8px 16px;
+  max-width: 100%;
+  border-radius: 999px;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+  box-sizing: border-box;
+
+  &.hidden {
+    display: none;
+  }
+}
+
 .keybox-slot-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  min-width: 240px;
+  gap: 10px;
+  min-width: 0;
+}
 
-  md-outlined-button {
-    width: 100%;
-    justify-content: flex-start;
+.keybox-pill {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 10px 18px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 999px;
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface);
+  box-sizing: border-box;
+  cursor: pointer;
+  text-align: start;
+  appearance: none;
+  font: inherit;
+
+  &:active {
+    background: var(--md-sys-color-surface-container-high);
   }
+
+  &.selected {
+    border-color: var(--md-sys-color-primary);
+    background: var(--md-sys-color-primary-container);
+    color: var(--md-sys-color-on-primary-container);
+  }
+
+  &.new {
+    justify-content: center;
+    border-style: dashed;
+    color: var(--md-sys-color-primary);
+    background: transparent;
+  }
+}
+
+.keybox-pill-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.keybox-pill-id {
+  flex-shrink: 0;
+  font-size: 0.75em;
+  opacity: 0.7;
 }
 
 .keybox-new-slot-form {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 24px;
+  background: var(--md-sys-color-surface-container-low);
 
   &.hidden {
     display: none;
   }
 
   md-outlined-text-field {
-    flex: 1 1 auto;
-    min-width: 0;
+    width: 100%;
   }
 
   md-filled-button {
-    flex-shrink: 0;
+    align-self: flex-end;
+    border-radius: 999px;
   }
 }
 
-.keybox-app-action-content {
+.keybox-manage-list {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
+}
 
-  #keybox-app-package {
-    color: var(--md-sys-color-on-surface-variant);
-    overflow-wrap: anywhere;
-  }
+.keybox-manage-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: 24px;
+  background: var(--md-sys-color-surface-container);
+}
+
+.keybox-manage-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.keybox-manage-name {
+  font-weight: 650;
+  font-size: 1.05em;
+  overflow-wrap: anywhere;
+}
+
+.keybox-manage-algos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.keybox-algo-pill,
+.keybox-meta-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.72em;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.keybox-manage-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.keybox-meta-pill {
+  font-weight: 500;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.keybox-manage-file {
+  font-size: 0.78em;
+  color: var(--md-sys-color-on-surface-variant);
+  overflow-wrap: anywhere;
+}
+
+.keybox-manage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.keybox-action-pill {
+  --md-filled-tonal-button-container-shape: 999px;
+  --md-outlined-button-container-shape: 999px;
+}
+
+#keybox-rename-dialog,
+#keybox-delete-dialog {
+  --md-dialog-container-min-inline-size: min(88vw, 360px);
+}
+
+#keybox-rename-input {
+  width: 100%;
 }

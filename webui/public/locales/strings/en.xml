@@ -52,6 +52,7 @@
     <string name="menu_deselect_unnecessary">Deselect Unnecessary</string>
     <string name="menu_add_system_app">Add System App</string>
     <string name="menu_keybox">Keybox</string>
+    <string name="menu_keybox_manage">Manage Keybox</string>
     <string name="menu_keybox_aosp">AOSP</string>
     <string name="menu_keybox_unknown">Self-Signed</string>
     <string name="menu_keybox_alwaysstrong">AlwaysStrong</string>
@@ -135,6 +136,27 @@
     <string name="keybox_slot_invalid">Invalid keybox slot</string>
     <string name="keybox_overwrite_title">Overwrite Keybox?</string>
     <string name="keybox_overwrite_confirm">Overwrite %s? The existing keybox will be backed up.</string>
+    <string name="keybox_manage_title">Manage Keybox</string>
+    <string name="keybox_rename_title">Rename Keybox</string>
+    <string name="keybox_rename_label">Name</string>
+    <string name="keybox_rename_invalid">Enter a name</string>
+    <string name="keybox_delete_title">Delete Keybox?</string>
+    <string name="keybox_delete_confirm">Delete %s? Apps using it will fall back to the default keybox.</string>
+    <string name="keybox_slot_short">slot %d</string>
+    <string name="keybox_algo_unknown">Unknown</string>
+    <string name="keybox_created">Created %s</string>
+    <string name="keybox_created_unknown">Created date unknown</string>
+    <string name="keybox_assigned_apps">%d apps</string>
+    <string name="keybox_assigned_default">Default for unassigned apps</string>
+    <string name="keybox_action_rename">Rename</string>
+    <string name="keybox_action_export">Export</string>
+    <string name="keybox_action_delete">Delete</string>
+    <string name="prompt_keybox_renamed">Keybox renamed</string>
+    <string name="prompt_keybox_rename_error">Failed to rename keybox</string>
+    <string name="prompt_keybox_deleted">Keybox deleted</string>
+    <string name="prompt_keybox_delete_error">Failed to delete keybox</string>
+    <string name="prompt_keybox_exported">Exported to %s</string>
+    <string name="prompt_keybox_export_error">Failed to export keybox</string>
     <!-- Security Patch -->
     <string name="default_policy_title">Default Policy</string>
     <string name="security_patch_invalid_all">Invalid format</string>

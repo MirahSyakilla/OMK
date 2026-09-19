@@ -95,6 +95,32 @@ export class Cli {
     return [...new Set(slots)].sort((a, b) => a - b)
   }
 
+  async getServiceStatus(): Promise<{ keymint: boolean; injector: boolean }> {
+    if (import.meta.env.DEV) return { keymint: true, injector: true }
+    const result = await exec(
+      'km=0; inj=0; pidof keymint >/dev/null 2>&1 && km=1; ks=$(pidof keystore2 2>/dev/null | awk \'{print $1}\'); if [ -n "$ks" ] && grep -qE \'/inject( |$)\' "/proc/$ks/maps" 2>/dev/null; then inj=1; fi; printf \'%s %s\\n\' "$km" "$inj"',
+    )
+    const [km, inj] = result.stdout.trim().split(/\s+/)
+    return { keymint: km === '1', injector: inj === '1' }
+  }
+
+  async getFileMtime(path: string): Promise<number | null> {
+    if (import.meta.env.DEV) return Date.now()
+    const result = await exec(`stat -c %Y "${path}"`)
+    if (result.errno !== 0) return null
+    const value = Number.parseInt(result.stdout.trim(), 10)
+    return Number.isFinite(value) ? value * 1000 : null
+  }
+
+  async exportKeybox(src: string, fileName: string): Promise<string> {
+    if (!/^[A-Za-z0-9._-]+\.xml$/.test(fileName)) throw new Error('invalid export name')
+    const dir = '/storage/emulated/0/Download/OMK'
+    const dest = `${dir}/${fileName}`
+    await File.createDirectory(dir)
+    await File.copy(src, dest)
+    return dest
+  }
+
   getRepositoryUrl(): string {
     return `https://github.com/${GITHUB_REPO}`
   }

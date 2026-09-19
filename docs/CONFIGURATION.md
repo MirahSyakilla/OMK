@@ -668,10 +668,14 @@ OMK keeps the legacy keybox at
 `/data/misc/keystore/omk/keybox.xml` (slot `0`). Additional keyboxes can be
 stored as `keybox-slot-N.xml`, where `N` is `1` through `1024`.
 
-The WebUI can create a slot, assign it to an app with a long press and
-**Select Keybox**, and prompt for a destination slot when a keybox is fetched
-or imported. It asks before overwriting an existing slot and keeps the active
-files owned and protected for the KeyMint service.
+The WebUI can create a slot, assign it to an app with a long press, and
+prompt for a destination slot when a keybox is fetched or imported. **Manage
+Keybox** lists every slot with its filename, created date, algorithms, and
+assigned app count, and can rename, delete, or export a copy to
+`/storage/emulated/0/Download/OMK/`. Display names are stored in
+`/data/misc/keystore/omk/data/keybox-slots.json`. It asks before overwriting
+an existing slot and keeps the active files owned and protected for the
+KeyMint service.
 
 Assignments are stored in `injector.toml` using a per-package table:
 
