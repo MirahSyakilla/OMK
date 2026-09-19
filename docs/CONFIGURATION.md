@@ -273,16 +273,18 @@ merely because parsing later fails. OMK does not write the vendor property.
 
 #### `boot_patchlevel`
 
-This controls the KeyMint boot patch level. `"auto"` first reads
-`com.android.build.boot.security_patch` from the active top-level vbmeta image.
-If the property is absent, OMK reads the same property from the active boot
-image's standalone or AVB-footer embedded vbmeta, then falls back to the boot
-header. The legacy header field stores a year and month but no day, so its wire
-value ends in `00`; an all-zero field therefore becomes `20000000`, but only
-after neither vbmeta location supplied the property. If boot-metadata resolution
-fails, OMK uses this fallback order: nonempty runtime
-`ro.vendor.boot_security_patch`, the exact key from the standard `build.prop`
-locations, then the effective `os_patchlevel`.
+This controls the KeyMint boot patch level. When `security_patch` is an
+explicit date or `"latest"`, `"auto"` follows the effective `os_patchlevel` so
+the attested boot/kernel patch matches the Android patch. When `security_patch`
+is `"auto"`, `"auto"` first reads `com.android.build.boot.security_patch` from
+the active top-level vbmeta image. If the property is absent, OMK reads the same
+property from the active boot image's standalone or AVB-footer embedded vbmeta,
+then falls back to the boot header. The legacy header field stores a year and
+month but no day, so its wire value ends in `00`; an all-zero field therefore
+becomes `20000000`, but only after neither vbmeta location supplied the
+property. If boot-metadata resolution fails, OMK uses this fallback order:
+nonempty runtime `ro.vendor.boot_security_patch`, the exact key from the
+standard `build.prop` locations, then the effective `os_patchlevel`.
 
 `"latest"`, an exact `"YYYY-MM-DD"` date, and a decimal `u32` wire value are
 also accepted. The decimal form preserves bootloader wire values such as
@@ -674,8 +676,7 @@ OMK keeps the legacy keybox at
 stored as `keybox-slot-N.xml`, where `N` is `1` through `1024`.
 
 The WebUI can create a slot, assign it to an app with a long press, and
-prompt for a destination slot when a keybox is fetched or imported. **Original**
-builds a keybox from this device's ROM software attestation library. **Manage
+prompt for a destination slot when a keybox is fetched or imported. **Manage
 Keybox** lists every slot with its filename, created date, algorithms, and
 assigned app count, and can rename, delete, or export a copy to
 `/storage/emulated/0/Download/OMK/`. Display names are stored in

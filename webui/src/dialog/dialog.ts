@@ -28,7 +28,9 @@ export class DialogController {
     this.about = new AboutDialog(cli)
     this.help = new HelpDialog()
     this.systemApp = new SystemAppDialog(appList)
-    this.integrity = new IntegrityDialog(cli, config, snackbar)
+    this.integrity = new IntegrityDialog(cli, config, snackbar, () => {
+      void appList.refresh(false)
+    })
     this.trust = new SectionDialog(config, 'trust', 'trust-settings-dialog')
     this.core = new SectionDialog(config, 'omk_main', 'core-settings-dialog')
     this.injector = new SectionDialog(config, 'injector_main', 'injector-settings-dialog')

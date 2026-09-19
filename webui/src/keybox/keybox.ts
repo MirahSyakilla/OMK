@@ -318,21 +318,6 @@ export class Keybox {
     }
   }
 
-  async setOriginalKey(): Promise<void> {
-    try {
-      const content = await this.cli.getOriginalKey()
-      const result = await this.setKeybox(content)
-      if (result !== 'cancelled') {
-        this.#snackbar.show(
-          i18n.t(result === 'saved' ? 'prompt_original_key_set' : 'prompt_original_key_set_error'),
-          result === 'saved',
-        )
-      }
-    } catch {
-      this.#snackbar.show(i18n.t('prompt_original_key_set_error'), false)
-    }
-  }
-
   async setUnknownKey(): Promise<void> {
     try {
       const keyboxContent = await generateUnknownKeybox()

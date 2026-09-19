@@ -93,22 +93,38 @@
     font-size: 0.9em;
   }
 
-  .keybox-slot {
-    display: inline-flex;
-    align-items: center;
+  .app-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
     align-self: flex-start;
     max-width: 100%;
     margin-top: 2px;
+  }
+
+  .keybox-slot,
+  .pif-pill {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
     padding: 2px 10px;
     border-radius: 999px;
-    background: var(--md-sys-color-secondary-container);
-    color: var(--md-sys-color-on-secondary-container);
     font-size: 0.72em;
     font-weight: 600;
     letter-spacing: 0.02em;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .keybox-slot {
+    background: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container);
+  }
+
+  .pif-pill {
+    background: var(--md-sys-color-tertiary-container);
+    color: var(--md-sys-color-on-tertiary-container);
   }
 
   .loader {

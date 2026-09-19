@@ -658,6 +658,10 @@ impl AttestationIds<'_> {
             &self.product,
             &wanted.product,
             alt.map(|ids| ids.product.as_slice()),
+        ) && !field_matches(
+            &self.product,
+            &wanted.device,
+            alt.map(|ids| ids.device.as_slice()),
         ) {
             return Err(km_err!(
                 CannotAttestIds,
@@ -1942,6 +1946,18 @@ mod tests {
         AuthorizationList::new(
             &[],
             &keygen_params,
+            Some(&configured),
+            Some(&hardware),
+            None,
+            None,
+            &[],
+        )
+        .unwrap();
+
+        let product_params = [KeyParam::AttestationIdProduct(b"lisa".to_vec())];
+        AuthorizationList::new(
+            &[],
+            &product_params,
             Some(&configured),
             Some(&hardware),
             None,

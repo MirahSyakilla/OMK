@@ -5,7 +5,6 @@ const MENU_ITEMS: Array<[string, string]> = [
   ['add-system-app', 'menu-add-system-app'],
   ['keybox-manage', 'menu-keybox-manage'],
   ['keybox-aosp', 'menu-keybox-aosp'],
-  ['keybox-original', 'menu-keybox-original'],
   ['keybox-unknown', 'menu-keybox-unknown'],
   ['keybox-alwaysstrong', 'menu-keybox-alwaysstrong'],
   ['keybox-local', 'menu-keybox-local'],
@@ -56,9 +55,6 @@ export class MainMenu {
             </md-menu-item>
             <md-menu-item id="keybox-aosp">
               <div slot="headline">AOSP</div>
-            </md-menu-item>
-            <md-menu-item id="keybox-original">
-              <div slot="headline">Original</div>
             </md-menu-item>
             <md-menu-item id="keybox-unknown">
               <div slot="headline">Self-Signed</div>

@@ -1,10 +1,18 @@
 import { exec, listPackages, getPackagesInfo } from 'kernelsu-alt'
 import type { PackagesInfo } from 'kernelsu-alt'
+import type { MdDialog, MdFilledButton } from '@material/web/all'
 import { Config } from '../config'
+import { File } from '../file'
 import { i18n } from '../i18n'
+import { applyDialogAnimation } from '../dialog/animation'
 import './app_list.scss'
 
 const SYSTEM_APPS_KEY = 'OhMyKeymintWebUIAdditionalApps'
+const PIF_PACKAGES = ['com.google.android.gms', 'com.android.vending']
+const INTEGRITY_TOML_PATHS = [
+  '/data/adb/omk/integrity.toml',
+  '/data/misc/keystore/omk/data/integrity.toml',
+]
 const DEFAULT_ADDITIONAL_APPS = [
   'com.google.android.gms',
   'com.android.vending',
@@ -29,6 +37,9 @@ export class AppList {
   #onLongPress: ((packageName: string) => void | Promise<void>) | null = null
   #slotLabel: ((slot: number) => string) | null = null
   #longPressedCards = new WeakSet<HTMLElement>()
+  #pifEnabled = false
+  #pifDialog: MdDialog | null = null
+  #pifResolve: ((proceed: boolean) => void) | null = null
   menuOpen = false
 
   constructor(config: Config) {
@@ -83,6 +94,7 @@ export class AppList {
 
   async reloadPackages(): Promise<void> {
     await this.fetch()
+    await this.#refreshIntegrity()
     this.syncSystemAppsWithConfig()
   }
 
@@ -100,6 +112,7 @@ export class AppList {
       await this.refreshPackages()
       return
     }
+    await this.#refreshIntegrity()
     if (this.#container) {
       this.renderAppList(this.#container)
     }
@@ -136,7 +149,14 @@ export class AppList {
   }
 
   deselectAll(): void {
+    void this.#deselectAll()
+  }
+
+  async #deselectAll(): Promise<void> {
     if (!this.#container) return
+    if (this.#pifEnabled && this.#targetedPifPackages().length > 0) {
+      if (!await this.#confirmPifUntick()) return
+    }
     this.#config.set('target', [])
     this.#container.querySelectorAll<HTMLElement>('.card').forEach((card) => {
       const checkbox = card.querySelector('md-checkbox')!
@@ -234,9 +254,12 @@ export class AppList {
     const selectedClass = targeted ? ' selected' : ''
     const checkedAttr = targeted ? 'checked' : ''
     const keyboxSlot = this.#config.getKeyboxSlot(entry.packageName)
-    const keyboxSlotLabel = keyboxSlot > 0
-      ? `<div class="keybox-slot"></div>`
-      : ''
+    const pills: string[] = []
+    if (keyboxSlot > 0) pills.push('<div class="keybox-slot"></div>')
+    if (this.#pifEnabled && PIF_PACKAGES.includes(entry.packageName)) {
+      pills.push('<div class="pif-pill">PIF</div>')
+    }
+    const pillsHtml = pills.length ? `<div class="app-pills">${pills.join('')}</div>` : ''
 
     const wrapper = document.createElement('div')
     wrapper.innerHTML = /* html */ `
@@ -254,7 +277,7 @@ export class AppList {
             <div class="app-info">
               <div class="app-name">${entry.appName}</div>
               <div class="package-name">${entry.packageName}</div>
-              ${keyboxSlotLabel}
+              ${pillsHtml}
             </div>
           </label>
           <md-checkbox class="checkbox" id="checkbox-${entry.packageName}" touch-target="wrapper" ${checkedAttr}></md-checkbox>
@@ -304,28 +327,103 @@ export class AppList {
       card.addEventListener('pointercancel', clearLongPress)
 
       card.onclick = () => {
-        if (this.menuOpen) return
-        if (this.#longPressedCards.has(card)) {
-          this.#longPressedCards.delete(card)
-          return
-        }
-        const pkg = card.dataset.package!
-        const checkbox = card.querySelector('md-checkbox')!
-        const target = (this.#config.get('target') as string[]) || []
-
-        if (checkbox.checked) {
-          this.#config.removeMatch('target', (value) => value === pkg)
-          checkbox.checked = false
-          card.classList.remove('selected')
-        } else {
-          if (!target.includes(pkg)) {
-            this.#config.push('target', pkg)
-          }
-          checkbox.checked = true
-          card.classList.add('selected')
-        }
+        void this.#onCardClick(card)
       }
     })
+  }
+
+  async #onCardClick(card: HTMLElement): Promise<void> {
+    if (this.menuOpen) return
+    if (this.#longPressedCards.has(card)) {
+      this.#longPressedCards.delete(card)
+      return
+    }
+    const pkg = card.dataset.package!
+    const checkbox = card.querySelector('md-checkbox')!
+    const target = (this.#config.get('target') as string[]) || []
+
+    if (checkbox.checked) {
+      if (this.#pifEnabled && PIF_PACKAGES.includes(pkg)) {
+        if (!await this.#confirmPifUntick()) return
+      }
+      this.#config.removeMatch('target', (value) => value === pkg)
+      checkbox.checked = false
+      card.classList.remove('selected')
+    } else {
+      if (!target.includes(pkg)) {
+        this.#config.push('target', pkg)
+      }
+      checkbox.checked = true
+      card.classList.add('selected')
+    }
+  }
+
+  #targetedPifPackages(): string[] {
+    const target = (this.#config.get('target') as string[]) || []
+    return PIF_PACKAGES.filter((pkg) => target.includes(pkg))
+  }
+
+  async #refreshIntegrity(): Promise<void> {
+    this.#pifEnabled = await this.#readIntegrityEnabled()
+  }
+
+  async #readIntegrityEnabled(): Promise<boolean> {
+    if (import.meta.env.DEV) return true
+    for (const path of INTEGRITY_TOML_PATHS) {
+      if (!(await File.exist(path))) continue
+      try {
+        const raw = await File.read(path)
+        const line = raw.split('\n').find((entry) => entry.trim().startsWith('enabled'))
+        if (line && /=\s*true\b/i.test(line)) return true
+      } catch {
+        // keep scanning
+      }
+    }
+    return false
+  }
+
+  #ensurePifDialog(): MdDialog {
+    if (this.#pifDialog) return this.#pifDialog
+    const template = document.createElement('template')
+    template.innerHTML = /* html */ `
+      <md-dialog id="pif-untick-dialog" type="alert">
+        <div slot="headline">${i18n.t('prompt_pif_untick_title')}</div>
+        <div slot="content">${i18n.t('prompt_pif_untick_message')}</div>
+        <div slot="actions">
+          <md-outlined-button id="pif-untick-cancel">${i18n.t('functional_button_cancel')}</md-outlined-button>
+          <md-filled-button id="pif-untick-got-it">${i18n.t('functional_button_got_it')}</md-filled-button>
+        </div>
+      </md-dialog>`
+    const fragment = template.content
+    const dialog = fragment.querySelector<MdDialog>('#pif-untick-dialog')!
+    fragment.querySelector<HTMLElement>('#pif-untick-cancel')!.onclick = () => {
+      this.#finishPifUntick(false)
+    }
+    fragment.querySelector<MdFilledButton>('#pif-untick-got-it')!.onclick = () => {
+      this.#finishPifUntick(true)
+    }
+    dialog.addEventListener('closed', () => {
+      if (this.#pifResolve) this.#finishPifUntick(false)
+    })
+    applyDialogAnimation(dialog)
+    document.querySelector('.dialog-content')?.appendChild(fragment)
+    this.#pifDialog = dialog
+    return dialog
+  }
+
+  #confirmPifUntick(): Promise<boolean> {
+    const dialog = this.#ensurePifDialog()
+    return new Promise((resolve) => {
+      this.#pifResolve = resolve
+      dialog.show()
+    })
+  }
+
+  #finishPifUntick(proceed: boolean): void {
+    const resolve = this.#pifResolve
+    this.#pifResolve = null
+    this.#pifDialog?.close()
+    resolve?.(proceed)
   }
 
   #setupSystemAppListeners(container: HTMLElement): void {

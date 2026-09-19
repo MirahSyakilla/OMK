@@ -60,6 +60,7 @@ const BUILD_PROP_PATHS: &[&str] = &[
     "/system/build.prop",
     "/system/system/build.prop",
     "/product/build.prop",
+    "/product/etc/build.prop",
     "/system_ext/build.prop",
     "/vendor/build.prop",
     "/odm/build.prop",
@@ -287,7 +288,11 @@ fn resolve_patch_levels_from(
         vendor_auto,
         latest,
     )?;
-    let boot_auto = boot_property.unwrap_or(&os_patchlevel);
+    let boot_auto = if trust.security_patch.trim() == "auto" {
+        boot_property.unwrap_or(&os_patchlevel)
+    } else {
+        os_patchlevel.as_str()
+    };
     let boot_patchlevel =
         resolve_patchlevel_mode("boot_patchlevel", &trust.boot_patchlevel, boot_auto, latest)?;
     let write_security_patch = observed_security_property.is_some()
@@ -1156,6 +1161,26 @@ mod tests {
         assert_eq!(resolved.vendor_patchlevel, "2025-11-05");
         assert_eq!(resolved.boot_patchlevel, "2025-10-05");
         assert!(!resolved.write_security_patch);
+    }
+
+    #[test]
+    fn boot_auto_follows_explicit_security_patch() {
+        let trust = RawTrustConfig {
+            security_patch: "2026-09-05".to_string(),
+            ..Default::default()
+        };
+        let resolved = resolve_patch_levels_from(
+            &trust,
+            Some("2026-05-05"),
+            Some("2026-07-27"),
+            Some("2026-07-27"),
+            Some("2026-09-05"),
+            None,
+        )
+        .unwrap();
+        assert_eq!(resolved.security_patch, "2026-09-05");
+        assert_eq!(resolved.os_patchlevel, "2026-09-05");
+        assert_eq!(resolved.boot_patchlevel, "2026-09-05");
     }
 
     #[test]

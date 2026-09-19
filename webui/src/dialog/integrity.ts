@@ -61,11 +61,13 @@ export class IntegrityDialog {
   #fingerprint = ''
   #product = ''
   #canEnable = false
+  #onSaved: (() => void) | null = null
 
-  constructor(cli: Cli, config: Config, snackbar: Snackbar) {
+  constructor(cli: Cli, config: Config, snackbar: Snackbar, onSaved?: () => void) {
     this.#cli = cli
     this.#config = config
     this.#snackbar = snackbar
+    this.#onSaved = onSaved ?? null
   }
 
   getElement(): DocumentFragment {
@@ -325,6 +327,7 @@ export class IntegrityDialog {
       await this.#cli.requestRestart('all')
       await this.#cli.killIntegrityTargets()
       this.#snackbar.show('Integrity settings saved')
+      this.#onSaved?.()
       this.close()
     } catch {
       this.#snackbar.show('Failed to save Integrity settings', false)

@@ -72,6 +72,11 @@ impl RetrieveAttestationIds for AttestationIdMgr {
         if identities_match(&configured, &hardware) {
             return Ok(None);
         }
+        log::info!(
+            "alternate attestation IDs from ROM: brand={} device={}",
+            String::from_utf8_lossy(&hardware.brand),
+            String::from_utf8_lossy(&hardware.device)
+        );
         Ok(Some(hardware))
     }
 
@@ -82,13 +87,11 @@ impl RetrieveAttestationIds for AttestationIdMgr {
 }
 
 fn hardware_product_ids() -> Option<AttestationIdInfo> {
-    let brand = crate::plat::vbmeta::read_build_prop_value("ro.product.brand")?;
-    let device = crate::plat::vbmeta::read_build_prop_value("ro.product.device")?;
-    let product = crate::plat::vbmeta::read_build_prop_value("ro.product.name")
-        .or_else(|| crate::plat::vbmeta::read_build_prop_value("ro.product.device"))?;
-    let manufacturer = crate::plat::vbmeta::read_build_prop_value("ro.product.manufacturer")
-        .unwrap_or_else(|| brand.clone());
-    let model = crate::plat::vbmeta::read_build_prop_value("ro.product.model").unwrap_or_default();
+    let brand = product_prop("ro.product.brand")?;
+    let device = product_prop("ro.product.device")?;
+    let product = product_prop("ro.product.name").unwrap_or_else(|| device.clone());
+    let manufacturer = product_prop("ro.product.manufacturer").unwrap_or_else(|| brand.clone());
+    let model = product_prop("ro.product.model").unwrap_or_default();
     Some(AttestationIdInfo {
         brand: brand.into_bytes(),
         device: device.into_bytes(),
@@ -100,6 +103,11 @@ fn hardware_product_ids() -> Option<AttestationIdInfo> {
         manufacturer: manufacturer.into_bytes(),
         model: model.into_bytes(),
     })
+}
+
+fn product_prop(key: &str) -> Option<String> {
+    crate::plat::vbmeta::read_build_prop_value(key)
+        .or_else(|| crate::plat::resetprop::read_string_property(key))
 }
 
 fn identities_match(left: &AttestationIdInfo, right: &AttestationIdInfo) -> bool {
