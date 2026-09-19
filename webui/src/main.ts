@@ -107,11 +107,17 @@ const mainMenu = new MainMenu()
 const keybox = new Keybox(cli, config, fileSelector, snackbar)
 const keyboxRepo = new KeyboxRepo(keybox, history, snackbar)
 const dialogController = new DialogController(cli, config, appList)
+await keybox.loadSlotNames()
+appList.setSlotLabel((slot) => keybox.slotLabel(slot))
+keybox.onNamesChanged(() => {
+  void appList.refresh(false)
+})
 appList.setLongPressHandler(async (packageName) => {
   if (await keybox.showAppKeyboxMenu(packageName)) {
     await appList.refresh(false)
   }
 })
+void appList.refresh(false)
 
 const mainMenuContainer = document.querySelector<HTMLElement>('.main-menu')!
 mainMenu.appendTo(mainMenuContainer)

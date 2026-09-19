@@ -59,6 +59,7 @@ export class Keybox {
   #deleteSlot: number | null = null
   #slotNames: Record<string, string> = {}
   #pendingNewName = ''
+  #onNamesChanged: (() => void) | null = null
 
   constructor(cli: Cli, config: Config, fileSelector: FileSelector, snackbar: Snackbar) {
     this.cli = cli
@@ -346,12 +347,24 @@ export class Keybox {
     this.#manageDialog.show()
   }
 
-  #slotLabel(slot: number): string {
+  slotLabel(slot: number): string {
     const named = this.#slotNames[String(slot)]
     if (named) return named
     return slot === 0
       ? i18n.t('keybox_slot_default')
       : i18n.t('keybox_slot_label', slot)
+  }
+
+  async loadSlotNames(): Promise<void> {
+    await this.#loadSlotNames()
+  }
+
+  onNamesChanged(handler: () => void): void {
+    this.#onNamesChanged = handler
+  }
+
+  #slotLabel(slot: number): string {
+    return this.slotLabel(slot)
   }
 
   #fileName(slot: number): string {
@@ -496,6 +509,7 @@ export class Keybox {
       this.#slotNames[String(slot)] = cleaned
     }
     await this.#saveSlotNames()
+    this.#onNamesChanged?.()
   }
 
   async #renderManageList(): Promise<void> {
@@ -620,6 +634,7 @@ export class Keybox {
       if (await File.exist(`${path}.bak`)) await File.delete(`${path}.bak`)
       delete this.#slotNames[String(slot)]
       await this.#saveSlotNames()
+      this.#onNamesChanged?.()
       this.#config.clearKeyboxSlot(slot)
       if (!import.meta.env.DEV) await this.#config.write()
       await this.#renderManageList()

@@ -27,6 +27,7 @@ export class AppList {
   #systemAppIconObserver: IntersectionObserver | null = null
   #container: HTMLElement | null = null
   #onLongPress: ((packageName: string) => void | Promise<void>) | null = null
+  #slotLabel: ((slot: number) => string) | null = null
   #longPressedCards = new WeakSet<HTMLElement>()
   menuOpen = false
 
@@ -36,6 +37,10 @@ export class AppList {
 
   setLongPressHandler(handler: (packageName: string) => void | Promise<void>): void {
     this.#onLongPress = handler
+  }
+
+  setSlotLabel(handler: (slot: number) => string): void {
+    this.#slotLabel = handler
   }
 
   async fetch(): Promise<void> {
@@ -230,7 +235,7 @@ export class AppList {
     const checkedAttr = targeted ? 'checked' : ''
     const keyboxSlot = this.#config.getKeyboxSlot(entry.packageName)
     const keyboxSlotLabel = keyboxSlot > 0
-      ? `<div class="keybox-slot">${i18n.t('keybox_slot_label', keyboxSlot)}</div>`
+      ? `<div class="keybox-slot"></div>`
       : ''
 
     const wrapper = document.createElement('div')
@@ -255,7 +260,14 @@ export class AppList {
           <md-checkbox class="checkbox" id="checkbox-${entry.packageName}" touch-target="wrapper" ${checkedAttr}></md-checkbox>
         </div>
       </div>`
-    return wrapper.firstElementChild as HTMLElement
+    const card = wrapper.firstElementChild as HTMLElement
+    if (keyboxSlot > 0) {
+      const label = card.querySelector<HTMLElement>('.keybox-slot')
+      if (label) {
+        label.textContent = this.#slotLabel?.(keyboxSlot) ?? i18n.t('keybox_slot_label', keyboxSlot)
+      }
+    }
+    return card
   }
 
   #setupCardListeners(container: HTMLElement): void {
