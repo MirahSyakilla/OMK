@@ -818,6 +818,9 @@ impl KeystoreSecurityLevel {
         let keybox_slot = ctx
             .and_then(|caller| u32::try_from(caller.keyboxSlot).ok())
             .unwrap_or(0);
+        let rkp_credential = ctx
+            .and_then(|caller| u32::try_from(caller.rkpCredential).ok())
+            .unwrap_or(0);
         let keybox_uuid = if keybox_attestation_allowed {
             crate::keybox::identity_digest_for_slot(keybox_slot)
                 .ok()
@@ -826,46 +829,49 @@ impl KeystoreSecurityLevel {
             None
         };
         let (mut creation_result, attest_chain_suffix) =
-            crate::keybox::with_active_slot(keybox_slot, || match attestation_key_info {
-                Some(AttestationKeyInfo::UserGenerated {
-                    key_id_guard,
-                    blob,
-                    blob_metadata,
-                    issuer_subject,
-                    cert,
-                    cert_chain,
-                }) => self
-                    .upgrade_keyblob_if_required_with(
-                        Some(key_id_guard),
-                        &KeyBlob::Ref(&blob),
-                        blob_metadata.km_uuid().copied(),
-                        &params,
-                        |blob| {
-                            let attest_key = Some(AttestationKey {
-                                keyBlob: blob.to_vec(),
-                                attestKeyParams: vec![],
-                                issuerSubjectName: issuer_subject.clone(),
-                            });
-                            self.generate_key_and_retry_on_att_id_mismatch(
-                                &params,
-                                attest_key.as_ref(),
-                            )
-                        },
-                    )
-                    .context(ks_err!(
-                        "While generating with a user-generated \
+            crate::keybox::with_active_slot(keybox_slot, || {
+                crate::keybox::with_active_credential(rkp_credential, || match attestation_key_info
+                {
+                    Some(AttestationKeyInfo::UserGenerated {
+                        key_id_guard,
+                        blob,
+                        blob_metadata,
+                        issuer_subject,
+                        cert,
+                        cert_chain,
+                    }) => self
+                        .upgrade_keyblob_if_required_with(
+                            Some(key_id_guard),
+                            &KeyBlob::Ref(&blob),
+                            blob_metadata.km_uuid().copied(),
+                            &params,
+                            |blob| {
+                                let attest_key = Some(AttestationKey {
+                                    keyBlob: blob.to_vec(),
+                                    attestKeyParams: vec![],
+                                    issuerSubjectName: issuer_subject.clone(),
+                                });
+                                self.generate_key_and_retry_on_att_id_mismatch(
+                                    &params,
+                                    attest_key.as_ref(),
+                                )
+                            },
+                        )
+                        .context(ks_err!(
+                            "While generating with a user-generated \
                       attestation key, params: {:?}.",
-                        log_security_safe_params(&params)
-                    ))
-                    .map(|(result, _)| (result, Some((cert, cert_chain)))),
-                None => self
-                    .generate_key_and_retry_on_att_id_mismatch(&params, None)
-                    .context(ks_err!(
-                        "While generating without a provided \
+                            log_security_safe_params(&params)
+                        ))
+                        .map(|(result, _)| (result, Some((cert, cert_chain)))),
+                    None => self
+                        .generate_key_and_retry_on_att_id_mismatch(&params, None)
+                        .context(ks_err!(
+                            "While generating without a provided \
                  attestation key and params: {:?}.",
-                        log_security_safe_params(&params)
-                    ))
-                    .map(|result| (result, None)),
+                            log_security_safe_params(&params)
+                        ))
+                        .map(|result| (result, None)),
+                })
             })
             .context(ks_err!())?;
         if let Some((cert, cert_chain)) = attest_chain_suffix {
@@ -1626,6 +1632,7 @@ mod tests {
             sid: "u:r:untrusted_app:s0".to_string(),
             pid: 1234,
             keyboxSlot: 0,
+            rkpCredential: 0,
         }
     }
 

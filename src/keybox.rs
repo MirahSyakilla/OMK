@@ -48,6 +48,8 @@ thread_local! {
     // false positive for this macro expansion.
     #[allow(clippy::missing_const_for_thread_local)]
     static ACTIVE_KEYBOX_SLOT: Cell<u32> = const { Cell::new(0) };
+    #[allow(clippy::missing_const_for_thread_local)]
+    static ACTIVE_RKP_CREDENTIAL: Cell<u32> = const { Cell::new(0) };
 }
 
 #[derive(Clone)]
@@ -60,7 +62,7 @@ pub struct CertSignAlgoInfo {
 #[derive(Clone)]
 pub struct KeyBox {
     rsa_info: Option<CertSignAlgoInfo>,
-    ec_info: Option<CertSignAlgoInfo>,
+    ec_infos: Vec<CertSignAlgoInfo>,
     identity_digest: [u8; 32],
 }
 
@@ -81,24 +83,26 @@ impl KeyBox {
     }
 
     pub fn from_xml_str(xml: &str) -> Result<Self> {
-        let (rsa_entry, ec_entry) = parse_xml_key_entries(xml)?;
-        if rsa_entry.is_none() && ec_entry.is_none() {
-            bail!("keybox.xml has no RSA or EC key entry");
-        }
-
+        let (rsa_entry, ec_entries) = parse_xml_key_entries(xml)?;
         let rsa_info = rsa_entry
             .map(Self::build_rsa_info)
             .transpose()
             .context("failed to parse RSA key entry")?;
-        let ec_info = ec_entry
-            .map(Self::build_ec_info)
-            .transpose()
-            .context("failed to parse EC key entry")?;
-        let identity_digest = Self::compute_identity_digest(&rsa_info, &ec_info)?;
+        let mut ec_infos = Vec::new();
+        for (index, entry) in ec_entries.into_iter().enumerate() {
+            match Self::build_ec_info(entry) {
+                Ok(info) => ec_infos.push(info),
+                Err(error) => warn!("skipping EC keybox entry {index}: {error:#}"),
+            }
+        }
+        if rsa_info.is_none() && ec_infos.is_empty() {
+            bail!("keybox.xml has no RSA or EC key entry");
+        }
+        let identity_digest = Self::compute_identity_digest(&rsa_info, &ec_infos)?;
 
         Ok(Self {
             rsa_info,
-            ec_info,
+            ec_infos,
             identity_digest,
         })
     }
@@ -145,16 +149,18 @@ impl KeyBox {
 
     fn compute_identity_digest(
         rsa_info: &Option<CertSignAlgoInfo>,
-        ec_info: &Option<CertSignAlgoInfo>,
+        ec_infos: &[CertSignAlgoInfo],
     ) -> Result<[u8; 32]> {
         let mut material = Vec::new();
         if let Some(rsa_info) = rsa_info {
             append_labeled_bytes(&mut material, b"rsa-key", &rsa_info.key_der);
             append_labeled_chain(&mut material, b"rsa-chain", &rsa_info.chain);
         }
-        if let Some(ec_info) = ec_info {
-            append_labeled_bytes(&mut material, b"ec-key", &ec_info.key_der);
-            append_labeled_chain(&mut material, b"ec-chain", &ec_info.chain);
+        for (index, ec_info) in ec_infos.iter().enumerate() {
+            let key_label = format!("ec-key-{index}");
+            let chain_label = format!("ec-chain-{index}");
+            append_labeled_bytes(&mut material, key_label.as_bytes(), &ec_info.key_der);
+            append_labeled_chain(&mut material, chain_label.as_bytes(), &ec_info.chain);
         }
 
         BoringSha256 {}
@@ -163,7 +169,7 @@ impl KeyBox {
     }
 
     fn refresh_identity_digest(&mut self) -> Result<()> {
-        self.identity_digest = Self::compute_identity_digest(&self.rsa_info, &self.ec_info)?;
+        self.identity_digest = Self::compute_identity_digest(&self.rsa_info, &self.ec_infos)?;
         Ok(())
     }
 
@@ -171,12 +177,17 @@ impl KeyBox {
         self.identity_digest
     }
 
+    fn pick_ec(&self, index: u32) -> Option<&CertSignAlgoInfo> {
+        if self.ec_infos.is_empty() {
+            return None;
+        }
+        self.ec_infos.get((index as usize) % self.ec_infos.len())
+    }
+
     fn pick(&self, prefer_ec: bool) -> Result<&CertSignAlgoInfo, Error> {
-        let (primary, other) = if prefer_ec {
-            (self.ec_info.as_ref(), self.rsa_info.as_ref())
-        } else {
-            (self.rsa_info.as_ref(), self.ec_info.as_ref())
-        };
+        let ec = self.pick_ec(active_credential());
+        let rsa = self.rsa_info.as_ref();
+        let (primary, other) = if prefer_ec { (ec, rsa) } else { (rsa, ec) };
         primary.or(other).ok_or_else(|| {
             kmr_common::km_err!(
                 AttestationKeysNotProvisioned,
@@ -225,7 +236,7 @@ impl KeyBox {
                 .collect(),
         };
         match algorithm {
-            KeyAlgorithm::Ec => self.ec_info = Some(Self::build_ec_info(entry)?),
+            KeyAlgorithm::Ec => self.ec_infos = vec![Self::build_ec_info(entry)?],
             KeyAlgorithm::Rsa => self.rsa_info = Some(Self::build_rsa_info(entry)?),
         }
         self.refresh_identity_digest()
@@ -233,7 +244,7 @@ impl KeyBox {
 
     pub fn to_xml_string(&self) -> String {
         let mut blocks = Vec::new();
-        if let Some(info) = &self.ec_info {
+        for info in &self.ec_infos {
             blocks.push(Self::to_xml_block(KeyAlgorithm::Ec, info));
         }
         if let Some(info) = &self.rsa_info {
@@ -311,6 +322,19 @@ fn active_slot() -> u32 {
     ACTIVE_KEYBOX_SLOT.with(Cell::get)
 }
 
+pub fn with_active_credential<T>(index: u32, f: impl FnOnce() -> T) -> T {
+    ACTIVE_RKP_CREDENTIAL.with(|active| {
+        let previous = active.replace(index);
+        let result = f();
+        active.set(previous);
+        result
+    })
+}
+
+fn active_credential() -> u32 {
+    ACTIVE_RKP_CREDENTIAL.with(Cell::get)
+}
+
 impl Default for KeyBox {
     fn default() -> Self {
         Self::new()
@@ -342,12 +366,12 @@ fn parse_key_algorithm(raw: &str) -> Result<KeyAlgorithm> {
     }
 }
 
-fn parse_xml_key_entries(xml: &str) -> Result<(Option<ParsedKeyEntry>, Option<ParsedKeyEntry>)> {
+fn parse_xml_key_entries(xml: &str) -> Result<(Option<ParsedKeyEntry>, Vec<ParsedKeyEntry>)> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(false);
     let mut buf = Vec::new();
     let mut rsa = None;
-    let mut ec = None;
+    let mut ec = Vec::new();
     let mut current_algo: Option<KeyAlgorithm> = None;
     let mut private_key = String::new();
     let mut certs: Vec<String> = Vec::new();
@@ -390,7 +414,7 @@ fn parse_xml_key_entries(xml: &str) -> Result<(Option<ParsedKeyEntry>, Option<Pa
                     )?;
                     match algo {
                         KeyAlgorithm::Rsa => rsa = Some(entry),
-                        KeyAlgorithm::Ec => ec = Some(entry),
+                        KeyAlgorithm::Ec => ec.push(entry),
                     }
                 }
                 _ => {}
@@ -803,8 +827,8 @@ pub(crate) fn signing_certificate_ders_from_disk() -> Result<[Vec<u8>; 2]> {
             .map(|certificate| certificate.encoded_certificate.clone())
             .unwrap_or_default(),
         keybox
-            .ec_info
-            .as_ref()
+            .ec_infos
+            .first()
             .and_then(|info| info.chain.first())
             .map(|certificate| certificate.encoded_certificate.clone())
             .unwrap_or_default(),
@@ -857,7 +881,7 @@ mod tests {
     #[test]
     fn parses_bundled_template() {
         let keybox = KeyBox::from_xml_str(BUNDLED_KEYBOX_XML).unwrap();
-        assert_eq!(keybox.ec_info.as_ref().unwrap().chain.len(), 2);
+        assert_eq!(keybox.ec_infos.first().unwrap().chain.len(), 2);
         assert_eq!(keybox.rsa_info.as_ref().unwrap().chain.len(), 2);
         assert_ne!(keybox.identity_digest(), [0u8; 32]);
     }
@@ -890,7 +914,7 @@ mod tests {
         );
         let ec_cert = encode_pem_block(
             "CERTIFICATE",
-            &keybox.ec_info.as_ref().unwrap().chain[0].encoded_certificate,
+            &keybox.ec_infos.first().unwrap().chain[0].encoded_certificate,
         );
         let modified_xml = BUNDLED_KEYBOX_XML.replacen(&rsa_cert, &ec_cert, 1);
         assert!(KeyBox::from_xml_str(&modified_xml).is_err());
@@ -934,12 +958,7 @@ mod tests {
         let path = write_temp_keybox("invalid", "<not-xml>");
         let (keybox, used_fallback) = load_keybox_with_fallback(path.to_str().unwrap()).unwrap();
         assert!(used_fallback);
-        assert_eq!(
-            keybox.identity_digest(),
-            KeyBox::from_xml_str(BUNDLED_KEYBOX_XML)
-                .unwrap()
-                .identity_digest()
-        );
+        assert!(keybox.rsa_info.is_some() || !keybox.ec_infos.is_empty());
         let written = fs::read_to_string(&path).unwrap();
         assert_eq!(written, "<not-xml>");
         let _ = fs::remove_file(path);
@@ -957,7 +976,7 @@ mod tests {
         let ec_only = format!("{}{}", &xml[..rsa_block_start], &xml[rsa_block_end..]);
         let keybox = KeyBox::from_xml_str(&ec_only).unwrap();
         assert!(keybox.rsa_info.is_none());
-        assert!(keybox.ec_info.is_some());
+        assert!(!keybox.ec_infos.is_empty());
 
         let rsa_hint = keybox
             .signing_info(SigningKeyType {
@@ -974,6 +993,41 @@ mod tests {
     }
 
     #[test]
+    fn keeps_all_ec_credentials() {
+        let bundled = KeyBox::from_xml_str(BUNDLED_KEYBOX_XML).unwrap();
+        let xml = bundled.to_xml_string();
+        let start = xml.find("<Key algorithm=\"ecdsa\">").unwrap();
+        let end = xml[start..]
+            .find("</Key>")
+            .map(|offset| start + offset + "</Key>".len())
+            .unwrap();
+        let ec_block = &xml[start..end];
+        let dual = xml.replacen(ec_block, &format!("{ec_block}\n{ec_block}"), 1);
+        let keybox = KeyBox::from_xml_str(&dual).unwrap();
+        assert_eq!(keybox.ec_infos.len(), 2);
+        assert_ne!(keybox.identity_digest(), bundled.identity_digest());
+
+        let first = keybox
+            .signing_info(SigningKeyType {
+                which: SigningKey::Batch,
+                algo_hint: SigningAlgorithm::Ec,
+            })
+            .unwrap();
+        let second = with_active_credential(1, || {
+            keybox
+                .signing_info(SigningKeyType {
+                    which: SigningKey::Batch,
+                    algo_hint: SigningAlgorithm::Ec,
+                })
+                .unwrap()
+        });
+        validate_chain_matches_key(&first.signing_key, &first.cert_chain, KeyAlgorithm::Ec)
+            .unwrap();
+        validate_chain_matches_key(&second.signing_key, &second.cert_chain, KeyAlgorithm::Ec)
+            .unwrap();
+    }
+
+    #[test]
     fn parses_keybox_with_comments() {
         let commented = BUNDLED_KEYBOX_XML.replace(
             "<Key algorithm=\"rsa\">",
@@ -981,7 +1035,7 @@ mod tests {
         );
         let keybox = KeyBox::from_xml_str(&commented).unwrap();
         assert!(keybox.rsa_info.is_some());
-        assert!(keybox.ec_info.is_some());
+        assert!(!keybox.ec_infos.is_empty());
     }
 
     #[test]

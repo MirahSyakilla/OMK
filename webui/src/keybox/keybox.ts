@@ -16,11 +16,30 @@ const MAX_KEYBOX_SLOT = 1024
 const SLOT_NAMES_FILE = 'keybox-slots.json'
 
 function algorithmsFromXml(xml: string): string[] {
-  const found = new Set<string>()
-  for (const match of xml.matchAll(/algorithm\s*=\s*"(rsa|ecdsa)"/gi)) {
-    found.add(match[1].toUpperCase() === 'RSA' ? 'RSA' : 'EC')
+  const found: string[] = []
+  const ecCount = [...xml.matchAll(/algorithm\s*=\s*"ecdsa"/gi)].length
+  if (/algorithm\s*=\s*"rsa"/i.test(xml)) found.push('RSA')
+  if (ecCount > 0) found.push('EC')
+  if (looksLikeRkp(xml, ecCount)) found.push('RKP')
+  return found
+}
+
+function looksLikeRkp(xml: string, ecCount: number): boolean {
+  if (ecCount >= 2) return true
+  const certCounts = [...xml.matchAll(/<NumberOfCertificates>\s*(\d+)\s*<\/NumberOfCertificates>/gi)]
+    .map((match) => Number.parseInt(match[1], 10))
+  if (ecCount >= 1 && !/algorithm\s*=\s*"rsa"/i.test(xml) && certCounts.some((count) => count >= 4)) {
+    return true
   }
-  return [...found]
+  for (const match of xml.matchAll(/-----BEGIN CERTIFICATE-----([^-]+)-----END CERTIFICATE-----/g)) {
+    try {
+      const der = atob(match[1].replace(/\s+/g, ''))
+      if (der.includes('Droid CA3') || der.includes('Key Attestation CA1')) return true
+    } catch {
+      // ignore malformed PEM
+    }
+  }
+  return false
 }
 
 function sanitizeSlotName(name: string): string {

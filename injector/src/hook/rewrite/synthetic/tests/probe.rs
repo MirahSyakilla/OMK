@@ -148,6 +148,7 @@ fn persistent_node_query_errors_back_off_without_retiring_backend() {
             sid: String::new(),
             pid: 2000,
             keyboxSlot: 0,
+            rkpCredential: 0,
         },
     )
     .expect("synthetic operation carrier should register");

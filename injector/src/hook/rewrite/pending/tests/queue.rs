@@ -85,6 +85,7 @@ fn pending_reply_queue_consumes_nested_requests_from_the_top() {
                 sid: String::new(),
                 pid: 2000,
                 keyboxSlot: 0,
+                rkpCredential: 0,
             },
             packages: vec!["com.example".to_string()],
             route: RouteTarget::Omk,
@@ -103,6 +104,7 @@ fn pending_reply_queue_consumes_nested_requests_from_the_top() {
                 sid: String::new(),
                 pid: 2000,
                 keyboxSlot: 0,
+                rkpCredential: 0,
             },
             packages: vec!["com.example".to_string()],
             route: RouteTarget::Omk,
@@ -131,6 +133,7 @@ fn pending_reply_queue_consumes_nested_requests_from_the_top() {
             sid: String::new(),
             pid: 2000,
             keyboxSlot: 0,
+            rkpCredential: 0,
         },
         mirror_update: None,
     });

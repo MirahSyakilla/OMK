@@ -324,6 +324,7 @@ pub(crate) fn resolve_caller_info(ctx: Option<&CallerInfo>) -> CallerInfo {
                 .unwrap_or_default(),
             pid: i64::from(calling.pid),
             keyboxSlot: 0,
+            rkpCredential: 0,
         }
     })
 }

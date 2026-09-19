@@ -682,7 +682,12 @@ Assignments are stored in `injector.toml` using a per-package table:
 ```toml
 [scoop.com.example.app]
 keybox_slot = 1
+rkp_credential = 0
 ```
+
+RKP-style boxes may contain more than one EC credential. `rkp_credential` selects
+which EC key is used for that package (`0` is the first). Conflicting values
+for packages that share a UID fall back to `0`.
 
 If multiple packages share one UID, the slot is selected only when all
 configured packages agree. Conflicting assignments deliberately fall back to

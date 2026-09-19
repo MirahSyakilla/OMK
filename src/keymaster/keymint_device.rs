@@ -1234,7 +1234,7 @@ fn init_keymint_ta(security_level: SecurityLevel, config: &Config) -> Result<Key
     let rpc_info_v3 = RpcInfoV3 {
         author_name: profile.author_name,
         unique_id: profile.unique_id,
-        fused: false,
+        fused: true,
         supported_num_of_keys_in_csr: MINIMUM_SUPPORTED_KEYS_IN_CSR,
     };
 
@@ -1702,7 +1702,7 @@ mod tests {
         let rpc_info = RpcInfoV3 {
             author_name: "test",
             unique_id: "test",
-            fused: false,
+            fused: true,
             supported_num_of_keys_in_csr: MINIMUM_SUPPORTED_KEYS_IN_CSR,
         };
         let dev = kmr_ta::device::Implementation {

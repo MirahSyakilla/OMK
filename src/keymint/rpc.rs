@@ -174,13 +174,10 @@ impl<T: DeriveBytes + Send> Artifacts<T> {
             // Issuer
             (
                 Value::Integer(1.into()),
-                Value::Text(String::from("Issuer"))
+                Value::Text(String::from("Android"))
             ),
             // Subject
-            (
-                Value::Integer(2.into()),
-                Value::Text(String::from("Subject"))
-            ),
+            (Value::Integer(2.into()), Value::Text(String::from("TEE"))),
             // Subject public key
             (
                 Value::Integer((-4670552).into()),

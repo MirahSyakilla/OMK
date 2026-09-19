@@ -47,6 +47,7 @@ fn synthetic_operation_missing_args_keep_not_enough_data_status() {
                 sid: String::new(),
                 pid: 2000,
                 keyboxSlot: 0,
+                rkpCredential: 0,
             }),
             native_generation: None,
         };
@@ -102,6 +103,7 @@ fn synthetic_operation_trailing_abort_finalizes_operation() {
             sid: String::new(),
             pid: 2000,
             keyboxSlot: 0,
+            rkpCredential: 0,
         }),
         native_generation: None,
     };
@@ -154,6 +156,7 @@ fn synthetic_operation_bad_interface_marker_rejects_abort() {
             sid: String::new(),
             pid: 2000,
             keyboxSlot: 0,
+            rkpCredential: 0,
         }),
         native_generation: None,
     };
@@ -235,6 +238,7 @@ fn synthetic_operation_dispatch_uses_registered_caller_identity() {
                 sid: String::new(),
                 pid: 2000,
                 keyboxSlot: 0,
+                rkpCredential: 0,
             }),
             native_generation: None,
         };
@@ -312,6 +316,7 @@ fn synthetic_unexpected_null_parse_errors_are_status_replies() {
             sid: String::new(),
             pid: 2000,
             keyboxSlot: 0,
+            rkpCredential: 0,
         }),
         native_generation: None,
     };
@@ -385,6 +390,7 @@ fn synthetic_operation_unexpected_interface_returns_bad_type_status() {
             sid: String::new(),
             pid: 2000,
             keyboxSlot: 0,
+            rkpCredential: 0,
         }),
         native_generation: None,
     };
@@ -402,6 +408,7 @@ fn synthetic_transaction_caller_uses_registered_sid_when_secctx_is_absent() {
         sid: "u:r:untrusted_app:s0:c123,c456".into(),
         pid: 2000,
         keyboxSlot: 0,
+        rkpCredential: 0,
     };
     let mut tr: binder_transaction_data = unsafe { std::mem::zeroed() };
     tr.sender_euid = 10002;

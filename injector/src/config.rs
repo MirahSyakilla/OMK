@@ -379,7 +379,8 @@ fn render_config(config: &InjectorConfig) -> io::Result<String> {
          # Example:\n\
          # [scoop.io.github.vvb2060.keyattestation]\n\
          # mode = \"strict\"\n\
-         # keybox_slot = 1\n\n",
+         # keybox_slot = 1\n\
+         # rkp_credential = 0\n\n",
     );
     let base = toml::to_string_pretty(&WritableConfig {
         version: config.version,
@@ -719,6 +720,41 @@ impl InjectorConfig {
                 Some(existing) => {
                     log::warn!(
                         "packages {:?} requested conflicting keybox slots {existing} and {slot}; using legacy slot 0",
+                        packages
+                    );
+                    return 0;
+                }
+            }
+        }
+        selected.unwrap_or(0)
+    }
+
+    /// Resolve which RKP EC credential in a keybox a caller should use.
+    ///
+    /// `0` is the first EC credential. Conflicting per-package values fall back
+    /// to `0` rather than picking one arbitrarily.
+    pub fn rkp_credential_for_packages(&self, packages: &[String]) -> u32 {
+        let mut selected = None;
+        for package in packages {
+            let Some(table) = self.scoop_details.get(package) else {
+                continue;
+            };
+            let Some(raw) = table
+                .get("rkp_credential")
+                .and_then(toml::Value::as_integer)
+            else {
+                continue;
+            };
+            let Ok(index) = u32::try_from(raw) else {
+                log::warn!("ignoring invalid rkp_credential={raw} for package {package}");
+                continue;
+            };
+            match selected {
+                None => selected = Some(index),
+                Some(existing) if existing == index => {}
+                Some(existing) => {
+                    log::warn!(
+                        "packages {:?} requested conflicting rkp_credential {existing} and {index}; using 0",
                         packages
                     );
                     return 0;

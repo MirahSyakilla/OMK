@@ -92,6 +92,11 @@ impl CallerInfo {
         self.keyboxSlot = i64::from(keybox_slot);
         self
     }
+
+    fn with_rkp_credential(mut self, index: u32) -> Self {
+        self.rkpCredential = i64::from(index);
+        self
+    }
 }
 
 fn evaluate_caller(

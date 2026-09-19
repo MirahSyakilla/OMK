@@ -15,6 +15,7 @@ fn one_way_synthetic_operation_abort_finalizes_mapping() {
         sid: "u:r:untrusted_app:s0:c123,c456".into(),
         pid: 2000,
         keyboxSlot: 0,
+        rkpCredential: 0,
     };
     let (carrier, _) = register_synthetic_operation_carrier(backend, true, &caller)
         .expect("operation carrier should register");

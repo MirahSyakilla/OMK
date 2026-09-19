@@ -39,6 +39,7 @@ fn grant_and_ungrant_preserve_system_only_when_omk_unavailable() {
         sid: String::new(),
         pid: 2000,
         keyboxSlot: 0,
+        rkpCredential: 0,
     };
 
     let result = precompute_omk_grant_service_reply_with(
@@ -59,6 +60,7 @@ fn grant_and_ungrant_preserve_system_only_when_omk_unavailable() {
         sid: String::new(),
         pid: 2000,
         keyboxSlot: 0,
+        rkpCredential: 0,
     };
 
     let result = precompute_omk_grant_service_reply_with(
@@ -83,6 +85,7 @@ fn grant_precompute_returns_reachable_omk_business_error() {
         sid: String::new(),
         pid: 2000,
         keyboxSlot: 0,
+        rkpCredential: 0,
     };
 
     let result = precompute_omk_grant_service_reply_with(
@@ -172,6 +175,7 @@ fn unconfirmed_grant_readback_stays_rejected() {
         sid: String::new(),
         pid: 2000,
         keyboxSlot: 0,
+        rkpCredential: 0,
     };
     let grant = KeyDescriptor {
         domain: Domain::GRANT,
@@ -217,6 +221,7 @@ fn soft_rejected_grant_probe_error_is_fail_closed() {
         sid: String::new(),
         pid: 2000,
         keyboxSlot: 0,
+        rkpCredential: 0,
     };
 
     let error = should_allow_omk_grant_service_request_with_probe(
@@ -249,6 +254,7 @@ fn soft_rejected_grant_positive_probe_works_for_service_and_security_level() {
         sid: String::new(),
         pid: 2000,
         keyboxSlot: 0,
+        rkpCredential: 0,
     };
 
     assert!(should_allow_omk_grant_service_request_with_probe(
@@ -311,6 +317,7 @@ fn denylisted_grant_readback_does_not_probe_omk() {
         sid: String::new(),
         pid: 2000,
         keyboxSlot: 0,
+        rkpCredential: 0,
     };
 
     assert!(!should_allow_omk_grant_service_request_with_probe(

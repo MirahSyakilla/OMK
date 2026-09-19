@@ -5,6 +5,7 @@
 # Example:
 # [scoop.io.github.vvb2060.keyattestation]
 # keybox_slot = 1
+# rkp_credential = 0
 # attest_key_fallback = true
 
 version = 1

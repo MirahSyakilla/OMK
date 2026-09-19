@@ -6,4 +6,5 @@ parcelable CallerInfo {
      String sid;
      long pid;
      long keyboxSlot;
+     long rkpCredential;
 }

@@ -26,6 +26,7 @@ fn system_invalid_update_aad_preserves_native_reply() {
             sid: String::new(),
             pid: 2000,
             keyboxSlot: 0,
+            rkpCredential: 0,
         },
         target,
     })
@@ -73,6 +74,7 @@ fn omk_invalid_update_aad_returns_business_error() {
             sid: String::new(),
             pid: 2000,
             keyboxSlot: 0,
+            rkpCredential: 0,
         },
         target,
     })
@@ -125,6 +127,7 @@ fn omk_route_operation_transaction_error_uses_omk_status_mapping() {
             sid: String::new(),
             pid: 2000,
             keyboxSlot: 0,
+            rkpCredential: 0,
         },
         target,
     })

@@ -9,6 +9,7 @@ fn mirror_recovery_retries_sensitive_events_in_global_sequence() {
         sid: "u:r:keystore:s0".into(),
         pid: 2000,
         keyboxSlot: 0,
+        rkpCredential: 0,
     };
 
     reserve_mirror_update(
@@ -131,6 +132,7 @@ fn mirror_reservation_holds_global_order_and_lost_reply_fails_closed() {
         sid: String::new(),
         pid: 2000,
         keyboxSlot: 0,
+        rkpCredential: 0,
     };
     let earlier = reserve_mirror_update(
         MirrorStateKind::Authorization,
@@ -196,6 +198,7 @@ fn full_mirror_queue_rejects_only_the_new_fail_closed_mutation() {
         sid: String::new(),
         pid: 2000,
         keyboxSlot: 0,
+        rkpCredential: 0,
     };
     for _ in 0..MAX_PENDING_MIRROR_REPLAYS {
         reserve_mirror_update(
@@ -258,6 +261,7 @@ fn non_ok_system_reply_cancels_mirror_reservation() {
             sid: String::new(),
             pid: 2000,
             keyboxSlot: 0,
+            rkpCredential: 0,
         },
         mirror_update: Some(
             reserve_mirror_update(
@@ -283,6 +287,7 @@ fn best_effort_add_auth_token_failures_do_not_block_later_events() {
         sid: String::new(),
         pid: 2000,
         keyboxSlot: 0,
+        rkpCredential: 0,
     };
 
     for _ in 0..2 {
@@ -344,6 +349,7 @@ fn lost_best_effort_reply_does_not_poison_mirror_state() {
         sid: String::new(),
         pid: 2000,
         keyboxSlot: 0,
+        rkpCredential: 0,
     };
     let lost = reserve_mirror_update(
         MirrorStateKind::Authorization,
@@ -395,6 +401,7 @@ fn missing_best_effort_reservation_preserves_system_success() {
             sid: String::new(),
             pid: 2000,
             keyboxSlot: 0,
+            rkpCredential: 0,
         },
         mirror_update: None,
     };
@@ -420,6 +427,7 @@ fn mirror_business_error_preserves_event_and_blocks_routes() {
             sid: String::new(),
             pid: 2000,
             keyboxSlot: 0,
+            rkpCredential: 0,
         },
     })
     .expect("onUserRemoved should queue");

@@ -1071,6 +1071,7 @@ mod tests {
             sid: "u:r:system_server:s0".to_string(),
             pid: 2000,
             keyboxSlot: 0,
+            rkpCredential: 0,
         }
     }
 

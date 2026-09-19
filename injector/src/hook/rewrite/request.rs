@@ -104,6 +104,7 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
         sid: caller_sid.unwrap_or_default(),
         pid: i64::from(tr.sender_pid),
         keyboxSlot: 0,
+        rkpCredential: 0,
     };
     let caller_uid = caller.uid;
     // Authorization events are emitted by system auth components, not by the
@@ -232,7 +233,9 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
             }
             _ => (RouteTarget::System, 0, Vec::new(), None),
         };
-        let caller = caller.with_keybox_slot(keybox_slot);
+        let caller = caller
+            .with_keybox_slot(keybox_slot)
+            .with_rkp_credential(cfg.rkp_credential_for_packages(&packages));
         let mut pending = PendingMaintenanceCall {
             request,
             caller,
@@ -325,7 +328,9 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
 
     if request_interface == identify::KEYSTORE_SERVICE_INTERFACE {
         let decision = evaluate_caller(&caller, &cfg);
-        let caller = caller.with_keybox_slot(cfg.keybox_slot_for_packages(&decision.packages));
+        let caller = caller
+            .with_keybox_slot(cfg.keybox_slot_for_packages(&decision.packages))
+            .with_rkp_credential(cfg.rkp_credential_for_packages(&decision.packages));
         let request =
             match parcel::parse_service_request(data, data_size, offsets, offsets_size, tr.code) {
                 Ok(request) => request,
@@ -505,7 +510,9 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
 
     if request_interface == identify::KEYSTORE_SECURITY_LEVEL_INTERFACE {
         let decision = evaluate_caller(&caller, &cfg);
-        let caller = caller.with_keybox_slot(cfg.keybox_slot_for_packages(&decision.packages));
+        let caller = caller
+            .with_keybox_slot(cfg.keybox_slot_for_packages(&decision.packages))
+            .with_rkp_credential(cfg.rkp_credential_for_packages(&decision.packages));
         let Some(target_info) = tracker::lookup_security_level_target(target) else {
             trace!(
                 "event=decision skipping IKeystoreSecurityLevel request for unmapped target ptr=0x{:x} cookie=0x{:x}",

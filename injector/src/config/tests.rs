@@ -112,6 +112,7 @@ scoop = ["com.example.app", "com.other.app", "com.example.app"]
 [scoop."com.example.app"]
 mode = "strict"
 keybox_slot = 2
+rkp_credential = 1
 
 [main]
 enabled = false
@@ -161,6 +162,14 @@ get_supplementary_attestation_info = true
     );
     assert_eq!(
         parsed.keybox_slot_for_packages(&["com.other.app".to_string()]),
+        0
+    );
+    assert_eq!(
+        parsed.rkp_credential_for_packages(&["com.example.app".to_string()]),
+        1
+    );
+    assert_eq!(
+        parsed.rkp_credential_for_packages(&["com.other.app".to_string()]),
         0
     );
     assert!(!parsed.intercept.get_security_level);

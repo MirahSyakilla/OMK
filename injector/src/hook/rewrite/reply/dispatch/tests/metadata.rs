@@ -8,6 +8,7 @@ fn operation_info() -> SyntheticTargetInfo {
             sid: String::new(),
             pid: 2000,
             keyboxSlot: 0,
+            rkpCredential: 0,
         }),
         native_generation: None,
     }

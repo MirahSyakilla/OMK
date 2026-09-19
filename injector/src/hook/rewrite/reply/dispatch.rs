@@ -226,6 +226,7 @@ fn synthetic_transaction_caller(
         sid,
         pid,
         keyboxSlot: fallback.map_or(0, |caller| caller.keyboxSlot),
+        rkpCredential: fallback.map_or(0, |caller| caller.rkpCredential),
     }
 }
 
@@ -398,7 +399,9 @@ unsafe fn build_synthetic_br_transaction_reply_inner(
     let caller = synthetic_transaction_caller(fallback, tr, caller_sid);
     if kind == SyntheticTargetKind::SecurityLevel {
         let decision = evaluate_caller(&caller, &cfg);
-        let caller = caller.with_keybox_slot(cfg.keybox_slot_for_packages(&decision.packages));
+        let caller = caller
+            .with_keybox_slot(cfg.keybox_slot_for_packages(&decision.packages))
+            .with_rkp_credential(cfg.rkp_credential_for_packages(&decision.packages));
         let request = match parcel::parse_security_level_request(
             data,
             data_size,
