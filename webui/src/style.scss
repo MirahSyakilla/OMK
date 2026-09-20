@@ -132,9 +132,6 @@ body {
   position: absolute;
   left: 16px;
   width: calc(100% - 32px - 80px);
-  border-radius: 999px;
-  --md-outlined-text-field-container-shape: 999px;
-  --md-outlined-field-container-shape: 999px;
   transition: all 0.3s ease;
 
   &.hide {
