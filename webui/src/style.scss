@@ -132,7 +132,11 @@ body {
   position: absolute;
   left: 16px;
   width: calc(100% - 32px - 80px);
-  transition: all 0.3s ease;
+  --md-outlined-field-container-shape-start-start: 28px;
+  --md-outlined-field-container-shape-start-end: 28px;
+  --md-outlined-field-container-shape-end-end: 28px;
+  --md-outlined-field-container-shape-end-start: 28px;
+  transition: all 0.4s cubic-bezier(0.2, 0, 0, 1);
 
   &.hide {
     width: calc(80% - 32px - 32px);
