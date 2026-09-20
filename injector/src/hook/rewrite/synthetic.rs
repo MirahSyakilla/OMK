@@ -171,6 +171,7 @@ pub(in crate::hook::rewrite) fn forget_operation_target(target: LocalBinderTarge
         .lock()
         .expect("operation target map poisoned")
         .remove(&target);
+    tracker::forget_binder_interface(target);
 }
 
 #[cfg(test)]
@@ -206,6 +207,7 @@ pub(crate) fn drop_synthetic_operation_retirement(retirement: NativeBinderRetire
         let info = operations.remove(&retirement.target);
         synthetic.remove(&retirement.target);
         let native = binders.remove(&retirement.target);
+        tracker::forget_binder_interface(retirement.target);
         (info, native)
     };
 
@@ -384,7 +386,9 @@ pub(crate) fn retire_native_operation_target(retirement: NativeBinderRetirement)
             return;
         }
         synthetic.remove(&retirement.target);
-        operations.remove(&retirement.target)
+        let info = operations.remove(&retirement.target);
+        tracker::forget_binder_interface(retirement.target);
+        info
     };
 
     {

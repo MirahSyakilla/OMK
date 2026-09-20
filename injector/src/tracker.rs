@@ -12,7 +12,7 @@ pub struct SecurityLevelTargetInfo {
 static SECURITY_LEVEL_TARGETS: LazyLock<
     Mutex<HashMap<LocalBinderTarget, SecurityLevelTargetInfo>>,
 > = LazyLock::new(|| Mutex::new(HashMap::new()));
-static BINDER_INTERFACES: LazyLock<Mutex<HashMap<libc::c_ulong, &'static str>>> =
+static BINDER_INTERFACES: LazyLock<Mutex<HashMap<LocalBinderTarget, &'static str>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 #[cfg(test)]
 static STATE_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -24,8 +24,8 @@ fn intern_keystore_interface(interface: &str) -> Option<&'static str> {
         .find(|&known| known == interface)
 }
 
-pub(crate) fn accept_binder_interface(ptr: libc::c_ulong, interface: &str) -> bool {
-    if ptr == 0 {
+pub(crate) fn accept_binder_interface(target: LocalBinderTarget, interface: &str) -> bool {
+    if target.ptr == 0 {
         return true;
     }
     let Some(interface) = intern_keystore_interface(interface) else {
@@ -34,7 +34,7 @@ pub(crate) fn accept_binder_interface(ptr: libc::c_ulong, interface: &str) -> bo
     let mut map = BINDER_INTERFACES
         .lock()
         .expect("binder interface map poisoned");
-    match map.entry(ptr) {
+    match map.entry(target) {
         std::collections::hash_map::Entry::Occupied(entry) => *entry.get() == interface,
         std::collections::hash_map::Entry::Vacant(entry) => {
             entry.insert(interface);
@@ -43,12 +43,19 @@ pub(crate) fn accept_binder_interface(ptr: libc::c_ulong, interface: &str) -> bo
     }
 }
 
-#[cfg(test)]
-pub(crate) fn lookup_binder_interface_for_tests(ptr: libc::c_ulong) -> Option<&'static str> {
+pub(crate) fn forget_binder_interface(target: LocalBinderTarget) {
     BINDER_INTERFACES
         .lock()
         .expect("binder interface map poisoned")
-        .get(&ptr)
+        .remove(&target);
+}
+
+#[cfg(test)]
+pub(crate) fn lookup_binder_interface_for_tests(target: LocalBinderTarget) -> Option<&'static str> {
+    BINDER_INTERFACES
+        .lock()
+        .expect("binder interface map poisoned")
+        .get(&target)
         .copied()
 }
 
@@ -100,34 +107,62 @@ mod tests {
     #[test]
     fn binder_interface_pin_rejects_mismatched_token() {
         let _guard = state_test_guard();
-        let ptr = 0x1000;
+        let service = LocalBinderTarget {
+            ptr: 0x1000,
+            cookie: 0x2000,
+        };
+        let maintenance = LocalBinderTarget {
+            ptr: 0x1001,
+            cookie: 0x2001,
+        };
+        let reused = LocalBinderTarget {
+            ptr: 0x1000,
+            cookie: 0x2002,
+        };
         assert!(accept_binder_interface(
-            ptr,
+            service,
             crate::identify::KEYSTORE_SERVICE_INTERFACE
         ));
         assert!(!accept_binder_interface(
-            ptr,
+            service,
             crate::identify::KEYSTORE_MAINTENANCE_INTERFACE
         ));
         assert!(accept_binder_interface(
-            ptr,
+            service,
             crate::identify::KEYSTORE_SERVICE_INTERFACE
         ));
         assert_eq!(
-            lookup_binder_interface_for_tests(ptr),
+            lookup_binder_interface_for_tests(service),
             Some(crate::identify::KEYSTORE_SERVICE_INTERFACE)
         );
         assert!(accept_binder_interface(
-            0x1001,
+            maintenance,
             crate::identify::KEYSTORE_MAINTENANCE_INTERFACE
         ));
         assert_eq!(
-            lookup_binder_interface_for_tests(0x1001),
+            lookup_binder_interface_for_tests(maintenance),
             Some(crate::identify::KEYSTORE_MAINTENANCE_INTERFACE)
         );
         assert!(accept_binder_interface(
-            0,
+            LocalBinderTarget { ptr: 0, cookie: 1 },
             crate::identify::KEYSTORE_MAINTENANCE_INTERFACE
         ));
+        assert!(accept_binder_interface(
+            reused,
+            crate::identify::KEYSTORE_SECURITY_LEVEL_INTERFACE
+        ));
+        assert_eq!(
+            lookup_binder_interface_for_tests(reused),
+            Some(crate::identify::KEYSTORE_SECURITY_LEVEL_INTERFACE)
+        );
+        forget_binder_interface(service);
+        assert!(accept_binder_interface(
+            service,
+            crate::identify::KEYSTORE_SECURITY_LEVEL_INTERFACE
+        ));
+        assert_eq!(
+            lookup_binder_interface_for_tests(service),
+            Some(crate::identify::KEYSTORE_SECURITY_LEVEL_INTERFACE)
+        );
     }
 }

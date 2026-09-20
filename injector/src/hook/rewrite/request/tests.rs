@@ -348,7 +348,7 @@ fn mismatched_interface_token_on_pinned_binder_is_not_intercepted() {
         transaction_for_parcel(service_target, service_tx::r#getKeyEntry, &service_request);
     unsafe { handle_br_transaction(fd, &mut service_tr, None, "BR_TRANSACTION") };
     assert_eq!(
-        tracker::lookup_binder_interface_for_tests(service_target.ptr),
+        tracker::lookup_binder_interface_for_tests(service_target),
         Some(identify::KEYSTORE_SERVICE_INTERFACE)
     );
     let _ = take_top_pending(fd);
@@ -364,7 +364,7 @@ fn mismatched_interface_token_on_pinned_binder_is_not_intercepted() {
     let rewritten = unsafe { handle_br_transaction(fd, &mut spoof_tr, None, "BR_TRANSACTION") };
     assert!(!rewritten);
     assert_eq!(
-        tracker::lookup_binder_interface_for_tests(service_target.ptr),
+        tracker::lookup_binder_interface_for_tests(service_target),
         Some(identify::KEYSTORE_SERVICE_INTERFACE)
     );
     assert!(!matches!(
@@ -383,7 +383,7 @@ fn mismatched_interface_token_on_pinned_binder_is_not_intercepted() {
     );
     unsafe { handle_br_transaction(fd, &mut maintenance_tr, None, "BR_TRANSACTION") };
     assert_eq!(
-        tracker::lookup_binder_interface_for_tests(maintenance_target.ptr),
+        tracker::lookup_binder_interface_for_tests(maintenance_target),
         Some(identify::KEYSTORE_MAINTENANCE_INTERFACE)
     );
 }

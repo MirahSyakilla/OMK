@@ -85,8 +85,11 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
     if !is_known_keystore_interface(&request_interface) {
         return false;
     }
-    let binder_ptr = unsafe { tr.target.ptr };
-    if !tracker::accept_binder_interface(binder_ptr, &request_interface) {
+    let pin_target = LocalBinderTarget {
+        ptr: unsafe { tr.target.ptr },
+        cookie: tr.cookie,
+    };
+    if !tracker::accept_binder_interface(pin_target, &request_interface) {
         trace!(
             "event=decision command={} code=0x{:x} uid={} pid={} interface={} binder ptr=0x{:x} cookie=0x{:x} token_mismatch=true; passing through",
             command_name,
@@ -94,8 +97,8 @@ pub(in crate::hook) unsafe fn handle_br_transaction(
             tr.sender_euid,
             tr.sender_pid,
             request_interface,
-            binder_ptr,
-            tr.cookie
+            pin_target.ptr,
+            pin_target.cookie
         );
         return false;
     }
