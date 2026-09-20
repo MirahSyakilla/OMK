@@ -680,6 +680,8 @@ export class Keybox {
 
       const details = document.createElement('div')
       details.className = 'keybox-manage-certs'
+      const certInner = document.createElement('div')
+      certInner.className = 'keybox-manage-certs-inner'
       for (const cert of certs) {
         const row = document.createElement('span')
         const passed = cert.notAfter.getTime() <= Date.now()
@@ -689,8 +691,9 @@ export class Keybox {
         row.textContent = cert.cn
           ? i18n.t('keybox_cert_expires_cn', cert.algo, role, cert.cn, expiry)
           : i18n.t('keybox_cert_expires', cert.algo, role, expiry)
-        details.appendChild(row)
+        certInner.appendChild(row)
       }
+      details.appendChild(certInner)
 
       const actions = document.createElement('div')
       actions.className = 'keybox-manage-actions'

@@ -152,6 +152,10 @@
   border-radius: 24px;
   background: var(--md-sys-color-surface-container);
   cursor: pointer;
+  outline: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
 }
 
 .keybox-manage-head {
@@ -194,13 +198,23 @@
 }
 
 .keybox-manage-certs {
-  display: none;
-  flex-direction: column;
-  gap: 6px;
+  display: grid;
+  grid-template-rows: 0fr;
+  margin-top: -12px;
+  transition: grid-template-rows 0.28s ease, margin-top 0.28s ease;
 
   .keybox-manage-card.expanded & {
-    display: flex;
+    grid-template-rows: 1fr;
+    margin-top: 0;
   }
+}
+
+.keybox-manage-certs-inner {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .keybox-cert-pill {
