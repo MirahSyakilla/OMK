@@ -25,6 +25,8 @@ const MENU_ITEMS: Array<[string, string]> = [
 
 export class MainMenu {
   #callbacks = new Map<string, Array<() => void>>()
+  #integrityBlocked = false
+  #integrityItem: MdMenuItem | null = null
 
   appendTo(container: HTMLElement): void {
     container.appendChild(this.#getElement(container))
@@ -139,10 +141,16 @@ export class MainMenu {
       }
     })
 
+    this.#integrityItem = fragment.querySelector<MdMenuItem>('#integrity-settings')
     MENU_ITEMS.forEach(([id, event]) => {
       const el = fragment.querySelector<MdMenuItem>(`#${id}`)
       if (!el) return
       el.onclick = () => {
+        if (id === 'integrity-settings' && this.#integrityBlocked) {
+          menuOptions.open = false
+          this.#emit('menu-integrity-blocked')
+          return
+        }
         this.#emit(event)
         menuOptions.open = false
       }
@@ -166,6 +174,11 @@ export class MainMenu {
     })
 
     return fragment
+  }
+
+  setIntegrityBlocked(blocked: boolean): void {
+    this.#integrityBlocked = blocked
+    this.#integrityItem?.classList.toggle('menu-item-disabled', blocked)
   }
 
   on(event: string, callback: () => void): void {

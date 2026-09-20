@@ -44,6 +44,8 @@
     <string name="functional_button_close">Close</string>
     <string name="functional_button_cancel">Cancel</string>
     <string name="functional_button_got_it">Got it</string>
+    <string name="prompt_external_pif_title">Integrity Settings</string>
+    <string name="prompt_external_pif_message">You already have external PIF. This feature has been disabled for compatibility.</string>
     <string name="functional_button_confirm">Confirm</string>
     <string name="functional_button_reset">Reset</string>
     <string name="functional_button_remove">Remove</string>

@@ -3,10 +3,14 @@ use std::{
     sync::OnceLock,
 };
 
-static ANDROID_MAJOR_VERSION: OnceLock<Option<i32>> = OnceLock::new();
+static ANDROID_MAJOR_VERSION: OnceLock<i32> = OnceLock::new();
 
 pub fn android_major_version() -> Option<i32> {
-    *ANDROID_MAJOR_VERSION.get_or_init(|| android_major_version_with(read_string_property))
+    if let Some(&value) = ANDROID_MAJOR_VERSION.get() {
+        return Some(value);
+    }
+    let resolved = android_major_version_with(read_string_property)?;
+    Some(*ANDROID_MAJOR_VERSION.get_or_init(|| resolved))
 }
 
 pub fn android_major_version_with(read_property: impl Fn(&str) -> Option<String>) -> Option<i32> {

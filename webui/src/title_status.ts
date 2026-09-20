@@ -21,9 +21,12 @@ export class TitleStatus {
   async #refresh(): Promise<void> {
     try {
       const status = await this.#cli.getServiceStatus()
-      const up = [status.keymint, status.injector, status.integrity].filter(Boolean).length
-      this.#el.classList.toggle('title-pill-ok', up === 3)
-      this.#el.classList.toggle('title-pill-warn', up === 1 || up === 2)
+      const parts = [status.keymint, status.injector]
+      if (status.integrityExpected) parts.push(status.integrity)
+      const up = parts.filter(Boolean).length
+      const need = parts.length
+      this.#el.classList.toggle('title-pill-ok', need > 0 && up === need)
+      this.#el.classList.toggle('title-pill-warn', up > 0 && up < need)
       this.#el.classList.toggle('title-pill-bad', up === 0)
     } catch {
       this.#el.classList.remove('title-pill-ok', 'title-pill-warn')

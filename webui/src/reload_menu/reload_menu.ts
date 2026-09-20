@@ -8,8 +8,8 @@ import './reload_menu.scss'
 const ACTIONS: Array<{ id: string; target: OmKRestartTarget | 'integrity' }> = [
   { id: 'restart-keymint', target: 'keymint' },
   { id: 'restart-injector', target: 'injector' },
-  { id: 'restart-all', target: 'all' },
   { id: 'reapply-integrity', target: 'integrity' },
+  { id: 'restart-all', target: 'all' },
 ]
 
 const COOLDOWN_MS = 8000
@@ -23,6 +23,9 @@ export class ReloadMenu {
   #dialogBody: HTMLElement | null = null
   #pending: OmKRestartTarget | 'integrity' | null = null
   #busyUntil = 0
+  #integrityBlocked = false
+  #reapplyItem: MdMenuItem | null = null
+  #blockedCb: (() => void) | null = null
 
   constructor(cli: Cli, snackbar: Snackbar) {
     this.#cli = cli
@@ -43,11 +46,11 @@ export class ReloadMenu {
         <md-menu-item id="restart-injector">
           <div slot="headline">${i18n.t('menu_restart_injector')}</div>
         </md-menu-item>
-        <md-menu-item id="restart-all">
-          <div slot="headline">${i18n.t('menu_restart_all')}</div>
-        </md-menu-item>
         <md-menu-item id="reapply-integrity">
           <div slot="headline">${i18n.t('menu_reapply_integrity')}</div>
+        </md-menu-item>
+        <md-menu-item id="restart-all">
+          <div slot="headline">${i18n.t('menu_restart_all')}</div>
         </md-menu-item>
       </md-menu>
       <md-dialog id="reload-confirm-dialog" type="alert">
@@ -71,8 +74,14 @@ export class ReloadMenu {
       if (this.#menu) this.#menu.open = !this.#menu.open
     }
 
+    this.#reapplyItem = fragment.querySelector<MdMenuItem>('#reapply-integrity')
     ACTIONS.forEach(({ id, target }) => {
       fragment.querySelector<MdMenuItem>(`#${id}`)!.onclick = () => {
+        if (id === 'reapply-integrity' && this.#integrityBlocked) {
+          if (this.#menu) this.#menu.open = false
+          this.#emitBlocked()
+          return
+        }
         if (this.#menu) this.#menu.open = false
         this.#ask(target)
       }
@@ -87,6 +96,19 @@ export class ReloadMenu {
     }
 
     return fragment
+  }
+
+  setIntegrityBlocked(blocked: boolean): void {
+    this.#integrityBlocked = blocked
+    this.#reapplyItem?.classList.toggle('menu-item-disabled', blocked)
+  }
+
+  onBlocked(callback: () => void): void {
+    this.#blockedCb = callback
+  }
+
+  #emitBlocked(): void {
+    this.#blockedCb?.()
   }
 
   #ask(target: OmKRestartTarget | 'integrity'): void {

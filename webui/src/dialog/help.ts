@@ -20,7 +20,7 @@ export class HelpDialog {
           </div>
           <div class="instruction">
             <h3>Integrity settings</h3>
-            <p>Spoofs DroidGuard and Play Store build fields when ReZygisk (preferred), ZygiskNext, NeoZygisk, or Magisk Zygisk is loaded. <b>Fetch</b> pulls a Pixel <code>pif.prop</code> from Play Integrity Fix's GitHub dump; <b>Update</b> refreshes the current product. Enable stays off if Play Integrity Fix/Fork or TrickyStore zygisk is present. Save restarts KeyMint and the injector, then kills <code>gms.unstable</code> and force-stops Play Store.</p>
+            <p>Spoofs DroidGuard and Play Store build fields when ReZygisk (preferred), ZygiskNext, NeoZygisk, or Magisk Zygisk is loaded. <b>Fetch</b> pulls a Pixel <code>pif.prop</code> from Play Integrity Fix's GitHub dump; <b>Update</b> refreshes the current product. If Play Integrity Fix or Play Integrity Fork is already installed, Integrity Settings and Reapply Integrity stay disabled. Save restarts KeyMint and the injector, then force-stops Play Services and Play Store.</p>
           </div>
           <div class="instruction">
             <h3>Trust settings</h3>

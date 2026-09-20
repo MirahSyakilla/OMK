@@ -15,6 +15,7 @@ import { Keybind } from './keybind'
 import { MainMenu } from './main_menu/main_menu'
 import { ReloadMenu } from './reload_menu/reload_menu'
 import { TitleStatus } from './title_status'
+import { applyDialogAnimation } from './dialog/animation'
 import './style.scss'
 
 await i18n.init()
@@ -124,8 +125,39 @@ mainMenu.appendTo(mainMenuContainer)
 const reloadMenu = new ReloadMenu(cli, snackbar)
 reloadMenu.appendTo(document.querySelector<HTMLElement>('.reload-menu')!)
 new TitleStatus(cli, document.querySelector<HTMLElement>('#title')!).start()
+
+const pifDialogTemplate = document.createElement('template')
+pifDialogTemplate.innerHTML = /* html */ `
+  <md-dialog id="external-pif-dialog" type="alert">
+    <div slot="headline">${i18n.t('prompt_external_pif_title')}</div>
+    <div slot="content">${i18n.t('prompt_external_pif_message')}</div>
+    <div slot="actions">
+      <md-filled-button id="external-pif-got-it">${i18n.t('functional_button_got_it')}</md-filled-button>
+    </div>
+  </md-dialog>`
+const dialogContent = document.querySelector<HTMLElement>('.dialog-content')!
+dialogContent.appendChild(pifDialogTemplate.content)
+const externalPifDialog = document.querySelector<MdDialog>('#external-pif-dialog')!
+applyDialogAnimation(externalPifDialog)
+document.getElementById('external-pif-got-it')!.onclick = () => externalPifDialog.close()
+
+function showExternalPifDialog(): void {
+  externalPifDialog.show()
+}
+
+async function refreshIntegrityGate(): Promise<void> {
+  const status = await cli.detectIntegrityZygisk()
+  const blocked = cli.isExternalPif(status.conflict)
+  mainMenu.setIntegrityBlocked(blocked)
+  reloadMenu.setIntegrityBlocked(blocked)
+}
+void refreshIntegrityGate()
+reloadMenu.onBlocked(showExternalPifDialog)
+mainMenu.on('menu-integrity-blocked', showExternalPifDialog)
+
 mainMenu.on('menu-open', () => {
   appList.menuOpen = true
+  void refreshIntegrityGate()
 })
 mainMenu.on('menu-close', () => {
   appList.menuOpen = false
@@ -176,7 +208,6 @@ keybind.on('keybind-save', () => {
 })
 keybind.on('keybind-esc', () => history.back())
 
-const dialogContent = document.querySelector<HTMLElement>('.dialog-content')!
 fileSelector.appendTo(dialogContent)
 keybox.appendTo(dialogContent)
 keyboxRepo.appendTo(dialogContent)

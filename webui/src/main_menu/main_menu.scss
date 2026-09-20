@@ -28,6 +28,10 @@
     box-sizing: border-box;
   }
 
+  .menu-item-disabled {
+    opacity: 0.45;
+  }
+
   .menu-item-button-container {
     width: 100%;
     display: flex;
