@@ -40,6 +40,30 @@ function parseBool(value: string | undefined, fallback: boolean): boolean {
   return fallback
 }
 
+function androidMajor(value: string): string | null {
+  const match = value.trim().match(/^(\d+)/)
+  return match ? match[1] : null
+}
+
+function propAndroidMajor(content: string): string | null {
+  const map = parseKv(content)
+  const fromRelease = androidMajor(map.RELEASE ?? '')
+  if (fromRelease) return fromRelease
+  const fingerprint = map.FINGERPRINT ?? ''
+  return androidMajor(fingerprint.split(/[/:]/)[3] ?? '')
+}
+
+function shuffle<T>(items: T[]): T[] {
+  const next = [...items]
+  for (let i = next.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    const current = next[i]
+    next[i] = next[j]
+    next[j] = current
+  }
+  return next
+}
+
 function parseKv(content: string): Record<string, string> {
   const map: Record<string, string> = {}
   for (const raw of content.split('\n')) {
@@ -249,12 +273,40 @@ export class IntegrityDialog {
         this.#snackbar.show('Fetch a fingerprint first', false)
         return
       }
-      if (!product) {
-        const devices = await this.#cli.fetchPifDeviceList()
-        if (devices.length === 0) throw new Error('empty device list')
-        product = devices[Math.floor(Math.random() * devices.length)].product
+      const romMajor = androidMajor(await this.#cli.getBuildRelease())
+      const matchesRom = (content: string): boolean => {
+        if (!romMajor) return true
+        const got = propAndroidMajor(content)
+        return got === romMajor
       }
-      const content = await this.#cli.fetchPifProp(product)
+      let content = ''
+      if (product) {
+        const candidate = await this.#cli.fetchPifProp(product)
+        if (matchesRom(candidate)) content = candidate
+      }
+      if (!content) {
+        const devices = shuffle(await this.#cli.fetchPifDeviceList())
+        if (devices.length === 0) throw new Error('empty device list')
+        for (const device of devices) {
+          if (product && device.product === product) continue
+          try {
+            const candidate = await this.#cli.fetchPifProp(device.product)
+            if (!matchesRom(candidate)) continue
+            product = device.product
+            content = candidate
+            break
+          } catch {
+            continue
+          }
+        }
+      }
+      if (!content) {
+        this.#snackbar.show(
+          romMajor ? `No fingerprint matching Android ${romMajor}` : 'Failed to fetch fingerprint',
+          false,
+        )
+        return
+      }
       const fingerprint = parseKv(content).FINGERPRINT
       if (!fingerprint) {
         this.#snackbar.show('Fetched prop needs FINGERPRINT=', false)

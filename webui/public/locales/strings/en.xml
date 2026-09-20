@@ -156,6 +156,11 @@
     <string name="keybox_created_unknown">Created date unknown</string>
     <string name="keybox_expires">Expires %s</string>
     <string name="keybox_expired">Expired</string>
+    <string name="keybox_cert_leaf">leaf</string>
+    <string name="keybox_cert_intermediate">intermediate</string>
+    <string name="keybox_cert_root">root</string>
+    <string name="keybox_cert_expires">%s %s · Expires %s</string>
+    <string name="keybox_cert_expires_cn">%s %s · %s · Expires %s</string>
     <string name="keybox_assigned_apps">%d apps</string>
     <string name="keybox_assigned_default">Default for unassigned apps</string>
     <string name="keybox_action_rename">Rename</string>

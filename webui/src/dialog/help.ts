@@ -32,7 +32,7 @@ export class HelpDialog {
           </div>
           <div class="instruction">
             <h3>Keybox</h3>
-            <p>AOSP is the bundled keybox. AlwaysStrong fetches from Evoker. Repo opens the KOWX712 picker. Self-Signed generates a local dummy. <b>Manage Keybox</b> lists slots so you can rename, export, or delete them, and shows certificate expiry. Long-press an app to open <b>Manage App</b> and assign a slot. Expired boxes show an <b>Expired</b> pill. Play Services and Play Store show a <b>PIF</b> pill while Integrity Settings is enabled.</p>
+            <p>AOSP is the bundled keybox. AlwaysStrong fetches from Evoker. Repo opens the KOWX712 picker. Self-Signed generates a local dummy. <b>Manage Keybox</b> lists slots so you can rename, export, or delete them. Tap a card to expand each certificate expiry. Long-press an app to open <b>Manage App</b> and assign a slot. Expired boxes show an <b>Expired</b> pill. Play Services and Play Store show a <b>PIF</b> pill while Integrity Settings is enabled.</p>
           </div>
           <div class="instruction">
             <h3>Reload</h3>

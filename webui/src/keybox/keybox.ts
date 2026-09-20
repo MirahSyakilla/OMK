@@ -18,6 +18,15 @@ export type KeyboxSaveResult = 'saved' | 'cancelled' | 'error'
 const MAX_KEYBOX_SLOT = 1024
 const SLOT_NAMES_FILE = 'keybox-slots.json'
 
+type KeyboxCertRole = 'leaf' | 'intermediate' | 'root'
+
+interface KeyboxCert {
+  algo: 'RSA' | 'EC'
+  role: KeyboxCertRole
+  cn: string
+  notAfter: Date
+}
+
 function algorithmsFromXml(xml: string): string[] {
   const found: string[] = []
   const ecCount = [...xml.matchAll(/algorithm\s*=\s*"ecdsa"/gi)].length
@@ -27,27 +36,62 @@ function algorithmsFromXml(xml: string): string[] {
   return found
 }
 
-function expiriesFromXml(xml: string): Date[] {
-  const dates: Date[] = []
-  const seen = new Set<number>()
-  for (const match of xml.matchAll(/-----BEGIN CERTIFICATE-----([^-]+)-----END CERTIFICATE-----/g)) {
-    try {
-      const der = Uint8Array.from(atob(match[1].replace(/\s+/g, '')), (ch) => ch.charCodeAt(0))
-      const asn1 = asn1js.fromBER(der.buffer)
-      if (asn1.offset === -1) continue
-      const cert = new pkijs.Certificate({ schema: asn1.result })
-      const notAfter = cert.notAfter.value
-      if (!(notAfter instanceof Date) || Number.isNaN(notAfter.getTime())) continue
-      const stamp = notAfter.getTime()
-      if (seen.has(stamp)) continue
-      seen.add(stamp)
-      dates.push(notAfter)
-    } catch {
-      // ignore malformed PEM
-    }
+function certCommonName(cert: pkijs.Certificate): string {
+  for (const tv of cert.subject.typesAndValues) {
+    if (tv.type !== '2.5.4.3') continue
+    const value = (tv.value as { valueBlock?: { value?: unknown } }).valueBlock?.value
+    if (typeof value === 'string' && value.trim()) return value.trim()
   }
-  dates.sort((a, b) => a.getTime() - b.getTime())
-  return dates
+  return ''
+}
+
+function parsePemCert(body: string): { cn: string; notAfter: Date } | null {
+  try {
+    const der = Uint8Array.from(atob(body.replace(/\s+/g, '')), (ch) => ch.charCodeAt(0))
+    const asn1 = asn1js.fromBER(der.buffer)
+    if (asn1.offset === -1) return null
+    const cert = new pkijs.Certificate({ schema: asn1.result })
+    const notAfter = cert.notAfter.value
+    if (!(notAfter instanceof Date) || Number.isNaN(notAfter.getTime())) return null
+    return { cn: certCommonName(cert), notAfter }
+  } catch {
+    return null
+  }
+}
+
+function certRole(index: number, count: number): KeyboxCertRole {
+  if (count <= 1 || index === 0) return 'leaf'
+  if (index === count - 1) return 'root'
+  return 'intermediate'
+}
+
+function certsFromXml(xml: string): KeyboxCert[] {
+  const certs: KeyboxCert[] = []
+  const keys = [...xml.matchAll(/<Key\b([^>]*)>([\s\S]*?)<\/Key>/gi)]
+  const blocks = keys.length > 0
+    ? keys.map((match) => ({
+        algo: /algorithm\s*=\s*"rsa"/i.test(match[1]) ? 'RSA' as const : 'EC' as const,
+        body: match[2],
+      }))
+    : [{ algo: 'EC' as const, body: xml }]
+  for (const block of blocks) {
+    const pems = [...block.body.matchAll(/-----BEGIN CERTIFICATE-----([^-]+)-----END CERTIFICATE-----/g)]
+    pems.forEach((match, index) => {
+      const parsed = parsePemCert(match[1])
+      if (!parsed) return
+      certs.push({
+        algo: block.algo,
+        role: certRole(index, pems.length),
+        cn: parsed.cn,
+        notAfter: parsed.notAfter,
+      })
+    })
+  }
+  return certs
+}
+
+function expiriesFromXml(xml: string): Date[] {
+  return certsFromXml(xml).map((cert) => cert.notAfter)
 }
 
 function allExpiriesPassed(dates: Date[]): boolean {
@@ -599,8 +643,8 @@ export class Keybox {
       name.textContent = this.#slotLabel(slot)
       const algos = document.createElement('div')
       algos.className = 'keybox-manage-algos'
-      const expiries = expiriesFromXml(xml)
-      const expired = allExpiriesPassed(expiries)
+      const certs = certsFromXml(xml)
+      const expired = allExpiriesPassed(certs.map((cert) => cert.notAfter))
       for (const algo of algorithmsFromXml(xml)) {
         const pill = document.createElement('span')
         pill.className = 'keybox-algo-pill'
@@ -633,16 +677,24 @@ export class Keybox {
         ? i18n.t('keybox_assigned_default')
         : i18n.t('keybox_assigned_apps', this.#config.packagesForSlot(slot).length)
       meta.append(created, apps)
-      for (const expiry of expiries) {
-        const expires = document.createElement('span')
-        const passed = expiry.getTime() <= Date.now()
-        expires.className = passed ? 'keybox-meta-pill keybox-meta-expired' : 'keybox-meta-pill'
-        expires.textContent = i18n.t('keybox_expires', await formatDeviceDate(expiry, true))
-        meta.append(expires)
+
+      const details = document.createElement('div')
+      details.className = 'keybox-manage-certs'
+      for (const cert of certs) {
+        const row = document.createElement('span')
+        const passed = cert.notAfter.getTime() <= Date.now()
+        row.className = passed ? 'keybox-cert-pill keybox-meta-expired' : 'keybox-cert-pill'
+        const role = i18n.t(`keybox_cert_${cert.role}`)
+        const expiry = await formatDeviceDate(cert.notAfter, true)
+        row.textContent = cert.cn
+          ? i18n.t('keybox_cert_expires_cn', cert.algo, role, cert.cn, expiry)
+          : i18n.t('keybox_cert_expires', cert.algo, role, expiry)
+        details.appendChild(row)
       }
 
       const actions = document.createElement('div')
       actions.className = 'keybox-manage-actions'
+      actions.addEventListener('click', (event) => event.stopPropagation())
       actions.append(
         this.#actionButton(i18n.t('keybox_action_rename'), () => this.#openRename(slot)),
         this.#actionButton(i18n.t('keybox_action_export'), () => {
@@ -653,7 +705,18 @@ export class Keybox {
         actions.append(this.#actionButton(i18n.t('keybox_action_delete'), () => this.#openDelete(slot), true))
       }
 
-      card.append(head, file, meta, actions)
+      const expand = document.createElement('div')
+      expand.className = 'keybox-manage-expand'
+      const chevron = document.createElement('md-icon')
+      chevron.textContent = 'expand_more'
+      expand.appendChild(chevron)
+
+      card.append(head, file, meta, details, actions, expand)
+      card.addEventListener('click', () => {
+        const open = card.classList.toggle('expanded')
+        card.setAttribute('aria-expanded', open ? 'true' : 'false')
+      })
+      card.setAttribute('aria-expanded', 'false')
       this.#manageList.appendChild(card)
     }
   }

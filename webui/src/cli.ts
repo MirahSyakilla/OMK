@@ -168,6 +168,12 @@ export class Cli {
     return text
   }
 
+  async getBuildRelease(): Promise<string> {
+    if (import.meta.env.DEV) return '16'
+    const result = await exec('getprop ro.build.version.release')
+    return result.errno === 0 ? result.stdout.trim() : ''
+  }
+
   async #fetchFirst(urls: string[]): Promise<string> {
     for (const url of urls) {
       try {
