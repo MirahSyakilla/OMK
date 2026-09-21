@@ -550,5 +550,26 @@ fn clear_rpc_cache_if(service_name: &'static str, failed: &SIBinder) {
     drop(old);
 }
 
+/// Monotonic identity of the connected OMK RPC session. It changes whenever the
+/// cached session is dropped, so a restarted keymint process is observable even
+/// though the socket path and service names stay the same.
+pub(crate) fn omk_session_generation() -> u64 {
+    RPC_CACHE.lock().expect("RPC cache poisoned").generation
+}
+
+/// Round-trip the cached OMK session once. A dead keymint process surfaces here
+/// as a stale Binder error, which drops the cached session and bumps
+/// [`omk_session_generation`] so callers can detect the restart.
+pub(crate) fn probe_omk_session() -> Result<()> {
+    with_omk_retry(|service| {
+        service
+            .r#getSecurityLevel(
+                crate::android::hardware::security::keymint::SecurityLevel::SecurityLevel(1),
+            )
+            .map(|_| ())
+            .context("probing OMK session")
+    })
+}
+
 #[cfg(test)]
 mod tests;

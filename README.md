@@ -52,6 +52,11 @@ touch /data/adb/omk/restart.all
 
 Injector-only setting changes do not need a keymint restart. Trust fields other than the four patch levels do.
 
+Restart Daemon/All re-delivers the last device-unlock to the new keymint process
+from the injector's cache, so CredentialEncrypted and auth-bound keys keep working
+without a reboot. If the device is locked when keymint restarts there is nothing
+to replay until the next unlock.
+
 ## License
 
 **YOU MUST AGREE TO BOTH OF THE LICENSE BEFORE USING THIS SOFTWARE.**
