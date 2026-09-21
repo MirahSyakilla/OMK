@@ -52,6 +52,12 @@ touch /data/adb/omk/restart.all
 
 Injector-only setting changes do not need a keymint restart. Trust fields other than the four patch levels do.
 
+Restart Injector/All forces keystore2 to be re-injected only when the injector
+binary changed since the last successful injection; otherwise keystore2 keeps
+running. Killing keystore2 replaces the injector process and re-locks
+CredentialEncrypted keys until the next device unlock, so an unchanged binary is
+left in place.
+
 Restart Daemon/All re-delivers the last device-unlock to the new keymint process
 from the injector's cache, so CredentialEncrypted and auth-bound keys keep working
 without a reboot. If the device is locked when keymint restarts there is nothing

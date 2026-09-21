@@ -3,6 +3,7 @@
 MODDIR=${0%/*}
 STATE_DIR=/data/adb/omk
 PAYLOAD_STATE_FILE=$STATE_DIR/injector.payload
+LOADED_HASH_FILE=$STATE_DIR/injector.loaded.hash
 RESTART_FILE=$STATE_DIR/restart.injector
 PEER_RESTART_FILE=$STATE_DIR/restart.keymint
 RESTART_ALL_FILE=$STATE_DIR/restart.all
@@ -95,8 +96,29 @@ is_injected() {
   return 1
 }
 
+current_injector_hash() {
+  toybox sha256sum "$TARGET_INJECTOR" 2>/dev/null | awk '{print $1}'
+}
+
+record_loaded_hash() {
+  hash=$(current_injector_hash)
+  if [ -n "$hash" ]; then
+    echo "$hash" > "$LOADED_HASH_FILE"
+  fi
+}
+
 restart_keystore() {
   pid=$1
+  # Killing keystore2 replaces the injector process, which discards the cached
+  # unlock and re-locks CredentialEncrypted keys until the next device unlock.
+  # Only force a re-injection when the on-disk injector binary differs from the
+  # one recorded as loaded; otherwise the running injector keeps serving.
+  loaded_hash=$(cat "$LOADED_HASH_FILE" 2>/dev/null)
+  current_hash=$(current_injector_hash)
+  if [ -n "$loaded_hash" ] && [ -n "$current_hash" ] && [ "$loaded_hash" = "$current_hash" ]; then
+    echo "[injector-daemon] injector binary unchanged; keeping keystore2 pid=$pid alive"
+    return 0
+  fi
   if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
     echo "[injector-daemon] restart requested; stopping keystore2 pid=$pid"
     kill -TERM "$pid" 2>/dev/null
@@ -158,6 +180,9 @@ while true; do
   last_attempt_pid=$pid
   last_attempt_at=$(date +%s 2>/dev/null)
   pending_restart=0
+  if [ "$rc" -eq 0 ]; then
+    record_loaded_hash
+  fi
   echo "[injector-daemon] injector exited with code $rc"
   sleep 3
 done
