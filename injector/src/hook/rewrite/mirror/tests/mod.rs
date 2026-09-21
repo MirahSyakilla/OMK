@@ -459,3 +459,106 @@ fn mirror_business_error_preserves_event_and_blocks_routes() {
     assert!(mirror_state_dirty(MirrorStateKind::Maintenance));
     assert!(ensure_mirror_state_recovered().is_err());
 }
+
+#[test]
+fn unlock_is_cached_and_replayed_after_session_change() {
+    let _guard = route_state_test_guard();
+    let caller = CallerInfo {
+        uid: 1007,
+        sid: "u:r:system_server:s0".into(),
+        pid: 4242,
+        keyboxSlot: 0,
+        rkpCredential: 0,
+    };
+
+    remember_unlock(
+        &ParsedAuthorizationRequest::OnDeviceUnlocked {
+            user_id: 0,
+            password: Some(vec![1, 2, 3]),
+        },
+        &caller,
+        7,
+    );
+    let cached = LAST_UNLOCKED
+        .lock()
+        .expect("unlock cache poisoned")
+        .clone()
+        .expect("unlock should be cached");
+    assert_eq!(cached.user_id, 0);
+    assert_eq!(cached.password.as_deref(), Some(&[1u8, 2, 3][..]));
+    assert_eq!(cached.session, 7);
+
+    assert!(
+        cached_unlock_for_stale_session(7).is_none(),
+        "a matching session generation must not schedule a replay"
+    );
+    let stale = cached_unlock_for_stale_session(8).expect("a new session must trigger a replay");
+    assert_eq!(stale.user_id, 0);
+}
+
+#[test]
+fn storage_lock_clears_the_cached_unlock() {
+    let _guard = route_state_test_guard();
+    let caller = CallerInfo {
+        uid: 1007,
+        sid: String::new(),
+        pid: 4242,
+        keyboxSlot: 0,
+        rkpCredential: 0,
+    };
+
+    remember_unlock(
+        &ParsedAuthorizationRequest::OnDeviceUnlocked {
+            user_id: 0,
+            password: None,
+        },
+        &caller,
+        3,
+    );
+    assert!(cached_unlock_for_stale_session(4).is_some());
+
+    remember_unlock(
+        &ParsedAuthorizationRequest::OnUserStorageLocked { user_id: 0 },
+        &caller,
+        3,
+    );
+    assert!(
+        cached_unlock_for_stale_session(4).is_none(),
+        "locking storage must invalidate the replay so CE keys are not resurrected"
+    );
+}
+
+#[test]
+fn idle_worker_polls_only_while_an_unlock_is_cached() {
+    let _guard = route_state_test_guard();
+    let caller = CallerInfo {
+        uid: 1007,
+        sid: String::new(),
+        pid: 4242,
+        keyboxSlot: 0,
+        rkpCredential: 0,
+    };
+
+    let idle = MIRROR_RECOVERY_STATE
+        .lock()
+        .expect("mirror recovery state poisoned")
+        .next_worker_wait(Instant::now());
+    assert!(
+        idle.is_none(),
+        "with nothing cached the worker should block instead of polling"
+    );
+
+    remember_unlock(
+        &ParsedAuthorizationRequest::OnDeviceUnlocked {
+            user_id: 0,
+            password: None,
+        },
+        &caller,
+        1,
+    );
+    let polling = MIRROR_RECOVERY_STATE
+        .lock()
+        .expect("mirror recovery state poisoned")
+        .next_worker_wait(Instant::now());
+    assert_eq!(polling, Some(MIRROR_UNLOCK_REPLAY_POLL));
+}

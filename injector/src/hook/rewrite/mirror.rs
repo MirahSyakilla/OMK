@@ -4,9 +4,35 @@ static MIRROR_RECOVERY_STATE: LazyLock<Mutex<MirrorRecoveryState>> =
     LazyLock::new(|| Mutex::new(MirrorRecoveryState::default()));
 static MIRROR_RECOVERY_WORKER: OnceLock<Result<std::sync::mpsc::SyncSender<()>, String>> =
     OnceLock::new();
+/// Last `onDeviceUnlocked` delivered to OMK, together with the RPC session that
+/// received it. Keystore super keys live only in keymint's memory, and the
+/// system sends this event exactly once per unlock, so a restarted keymint
+/// process must be replayed into or CredentialEncrypted keys stay `LOCKED`.
+/// The value is also persisted so the replay survives a keystore2 restart, which
+/// replaces the injector process itself.
+static LAST_UNLOCKED: Mutex<Option<CachedUnlock>> = Mutex::new(None);
 
 const MAX_PENDING_MIRROR_REPLAYS: usize = 64;
 const MIRROR_RECOVERY_RETRY_DELAY: Duration = Duration::from_secs(1);
+const MIRROR_UNLOCK_REPLAY_POLL: Duration = Duration::from_secs(2);
+
+#[derive(Clone)]
+struct CachedUnlock {
+    user_id: i32,
+    password: Option<Vec<u8>>,
+    caller: CallerInfo,
+    session: u64,
+}
+
+/// Return the cached unlock when it predates the live OMK session.
+fn cached_unlock_for_stale_session(current: u64) -> Option<CachedUnlock> {
+    LAST_UNLOCKED
+        .lock()
+        .expect("unlock cache poisoned")
+        .as_ref()
+        .filter(|cached| cached.session != current)
+        .cloned()
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum MirrorStateKind {
@@ -106,14 +132,23 @@ impl MirrorRecoveryState {
         {
             return None;
         }
-        let pending = self.next_pending()?;
-        pending.event.as_ref()?;
-        Some(
-            pending
-                .retry_not_before
-                .map(|deadline| deadline.saturating_duration_since(now))
-                .unwrap_or(Duration::ZERO),
-        )
+        if let Some(pending) = self.next_pending() {
+            pending.event.as_ref()?;
+            return Some(
+                pending
+                    .retry_not_before
+                    .map(|deadline| deadline.saturating_duration_since(now))
+                    .unwrap_or(Duration::ZERO),
+            );
+        }
+        // Idle: still poll while an unlock is cached so a restarted keymint is
+        // detected and replayed into. Without a cached unlock there is nothing to
+        // restore, so block until woken.
+        LAST_UNLOCKED
+            .lock()
+            .expect("unlock cache poisoned")
+            .is_some()
+            .then_some(MIRROR_UNLOCK_REPLAY_POLL)
     }
 }
 
@@ -172,6 +207,61 @@ pub(super) fn authorization_requires_mirror(request: &ParsedAuthorizationRequest
     )
 }
 
+/// Record the most recent unlock so a later keymint restart can be replayed into.
+fn remember_unlock(request: &ParsedAuthorizationRequest, caller: &CallerInfo, session: u64) {
+    match request {
+        ParsedAuthorizationRequest::OnDeviceUnlocked { user_id, password } => {
+            let cached = CachedUnlock {
+                user_id: *user_id,
+                password: password.clone(),
+                caller: caller.clone(),
+                session,
+            };
+            *LAST_UNLOCKED.lock().expect("unlock cache poisoned") = Some(cached);
+        }
+        ParsedAuthorizationRequest::OnUserStorageLocked { .. }
+        | ParsedAuthorizationRequest::OnDeviceLocked { .. } => {
+            // These drop the CE keys in OMK, so the cached unlock no longer
+            // describes keymint's state and must not be replayed.
+            *LAST_UNLOCKED.lock().expect("unlock cache poisoned") = None;
+        }
+        _ => {}
+    }
+}
+
+/// Re-deliver the last unlock when the OMK session changed underneath us, which
+/// means keymint restarted and lost its in-memory super keys.
+fn replay_unlock_if_session_changed() -> anyhow::Result<()> {
+    if cached_unlock_for_stale_session(ipc::omk_session_generation()).is_none() {
+        return Ok(());
+    }
+    // A successful probe keeps the generation; a dead session drops the cache and
+    // bumps the generation, which is how a keymint restart becomes visible here.
+    let _ = ipc::probe_omk_session();
+    let Some(unlock) = cached_unlock_for_stale_session(ipc::omk_session_generation()) else {
+        return Ok(());
+    };
+    ipc::with_omk_authorization_once(|auth| {
+        Ok(auth.r#onDeviceUnlocked(
+            Some(&unlock.caller),
+            unlock.user_id,
+            unlock.password.as_deref(),
+        )?)
+    })
+    .map_err(|error| anyhow::anyhow!("{error:?}"))?;
+    let mut cached = LAST_UNLOCKED.lock().expect("unlock cache poisoned");
+    if let Some(entry) = cached.as_mut() {
+        if entry.session == unlock.session {
+            entry.session = ipc::omk_session_generation();
+        }
+    }
+    info!(
+        "event=mirror replayed onDeviceUnlocked for user {} after keymint restart",
+        unlock.user_id
+    );
+    Ok(())
+}
+
 pub(super) fn authorization_mirror_failure_policy(
     request: &ParsedAuthorizationRequest,
 ) -> MirrorFailurePolicy {
@@ -215,6 +305,7 @@ pub(super) fn reset_mirror_state_for_tests() {
         .lock()
         .expect("mirror recovery state poisoned");
     *state = MirrorRecoveryState::default();
+    *LAST_UNLOCKED.lock().expect("unlock cache poisoned") = None;
 }
 
 fn remove_reserved_mirror_update(
@@ -509,7 +600,8 @@ fn recover_mirror_state_with(
 }
 
 fn recover_mirror_state() -> anyhow::Result<()> {
-    recover_mirror_state_with(&mut MirrorReplayEvent::execute)
+    recover_mirror_state_with(&mut MirrorReplayEvent::execute)?;
+    replay_unlock_if_session_changed()
 }
 
 fn wake_mirror_recovery_worker() {
@@ -587,6 +679,7 @@ pub(super) unsafe fn build_authorization_reply_mirror(
         caller: call.caller.clone(),
     };
     let failure_policy = event.failure_policy();
+    remember_unlock(&call.request, &call.caller, ipc::omk_session_generation());
     let Some(reservation) = call.mirror_update.take() else {
         if failure_policy == MirrorFailurePolicy::BestEffort {
             warn!(
