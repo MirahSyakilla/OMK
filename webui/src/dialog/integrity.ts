@@ -1,6 +1,8 @@
 import type { MdDialog, MdFilledButton, MdOutlinedButton, MdSwitch } from '@material/web/all'
 import { Cli } from '../cli'
+import type { FlashBuild } from '../cli'
 import { Config } from '../config'
+import { PIXEL_DEVICES } from '../constant'
 import { File } from '../file'
 import { Snackbar } from '../snackbar/snackbar'
 import { applyDialogAnimation } from './animation'
@@ -62,6 +64,70 @@ function shuffle<T>(items: T[]): T[] {
     next[j] = current
   }
   return next
+}
+
+/// AOSP build-ID initial maps to the Android major release.
+const BUILD_LETTER_MAJOR: Record<string, number> = {
+  S: 12,
+  T: 13,
+  U: 14,
+  A: 15,
+  B: 16,
+  C: 17,
+}
+
+export function buildMajor(build: FlashBuild): number | null {
+  const track = build.previewMetadata?.releaseTrackName ?? ''
+  const fromTrack = track.match(/^Android (\d+)/)
+  if (fromTrack) return Number.parseInt(fromTrack[1], 10)
+  const letter = build.releaseCandidateName?.[0]?.toUpperCase() ?? ''
+  return BUILD_LETTER_MAJOR[letter] ?? null
+}
+
+export function buildCandidates(target: number): string[] {
+  return shuffle(PIXEL_DEVICES.filter((device) => device.min <= target && target <= device.max))
+    .map((device) => device.product)
+}
+
+export function pickBuild(builds: FlashBuild[], target: number | null): FlashBuild | null {
+  const usable = builds.filter((build) => build.target === `${build.product}-user`)
+  const matching = target === null
+    ? usable
+    : usable.filter((build) => buildMajor(build) === target)
+  if (matching.length === 0) return null
+  return matching.reduce((best, build) => (buildTotal(build) > buildTotal(best) ? build : best))
+}
+
+function buildTotal(build: FlashBuild): number {
+  const parsed = Number.parseInt(build.buildId, 10)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+/// Pixel build IDs carry the patch date as `YYMMDD`.
+export function securityPatch(buildId: string): string {
+  const match = buildId.match(/^[A-Z0-9]+\.(\d{2})(\d{2})(\d{2})\./)
+  if (!match) return ''
+  return `20${match[1]}-${match[2]}-${match[3]}`
+}
+
+export function buildProp(build: FlashBuild, product: string, model: string, major: number): string {
+  const id = build.releaseCandidateName
+  const patch = securityPatch(id)
+  const lines = [
+    `FINGERPRINT=google/${product}/${product}:${major}/${id}/${build.buildId}:user/release-keys`,
+    'MANUFACTURER=Google',
+    `MODEL=${model}`,
+    `PRODUCT=${product}`,
+    `DEVICE=${product}`,
+    'BRAND=google',
+    `RELEASE=${major}`,
+    `ID=${id}`,
+    `INCREMENTAL=${build.buildId}`,
+    'TYPE=user',
+    'TAGS=release-keys',
+  ]
+  if (patch) lines.push(`SECURITY_PATCH=${patch}`)
+  return lines.join('\n')
 }
 
 function parseKv(content: string): Record<string, string> {
@@ -274,52 +340,60 @@ export class IntegrityDialog {
         return
       }
       const romMajor = androidMajor(await this.#cli.getBuildRelease())
+      const target = romMajor ? Number.parseInt(romMajor, 10) : null
       const matchesRom = (content: string): boolean => {
         if (!romMajor) return true
-        const got = propAndroidMajor(content)
-        return got === romMajor
+        return propAndroidMajor(content) === romMajor
       }
-      let content = ''
-      if (product) {
-        const candidate = await this.#cli.fetchPifProp(product)
-        if (matchesRom(candidate)) content = candidate
-      }
-      if (!content) {
-        const devices = shuffle(await this.#cli.fetchPifDeviceList())
-        if (devices.length === 0) throw new Error('empty device list')
-        for (const device of devices) {
-          if (product && device.product === product) continue
-          try {
-            const candidate = await this.#cli.fetchPifProp(device.product)
-            if (!matchesRom(candidate)) continue
-            product = device.product
-            content = candidate
-            break
-          } catch {
-            continue
-          }
+
+      const candidates = target === null
+        ? shuffle(PIXEL_DEVICES).map((device) => device.product)
+        : buildCandidates(target)
+      const ordered = product && candidates.includes(product)
+        ? [product, ...candidates.filter((entry) => entry !== product)]
+        : candidates
+
+      for (const candidate of ordered) {
+        try {
+          const content = await this.#fetchBuildProp(candidate, target)
+          if (!content || !matchesRom(content)) continue
+          product = candidate
+          this.#pendingProp = content
+          break
+        } catch {
+          continue
         }
       }
-      if (!content) {
+
+      if (!this.#pendingProp) {
         this.#snackbar.show(
           romMajor ? `No fingerprint matching Android ${romMajor}` : 'Failed to fetch fingerprint',
           false,
         )
         return
       }
-      const fingerprint = parseKv(content).FINGERPRINT
+      const fingerprint = parseKv(this.#pendingProp).FINGERPRINT
       if (!fingerprint) {
         this.#snackbar.show('Fetched prop needs FINGERPRINT=', false)
         return
       }
-      this.#pendingProp = content
       this.#fingerprint = fingerprint
-      this.#product = parseKv(content).PRODUCT || product
+      this.#product = parseKv(this.#pendingProp).PRODUCT || product
       this.#renderFingerprint()
       this.#snackbar.show(update ? 'Fingerprint updated' : 'Fingerprint fetched')
     } catch {
       this.#snackbar.show(update ? 'Failed to update fingerprint' : 'Failed to fetch fingerprint', false)
     }
+  }
+
+  async #fetchBuildProp(product: string, target: number | null): Promise<string> {
+    const builds = await this.#cli.fetchFlashstationBuilds(product)
+    const picked = pickBuild(builds, target)
+    if (!picked) return ''
+    const major = buildMajor(picked)
+    if (major === null) return ''
+    const device = PIXEL_DEVICES.find((entry) => entry.product === product)
+    return buildProp(picked, product, device?.model ?? product, major)
   }
 
   async #save(): Promise<void> {

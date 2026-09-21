@@ -2,6 +2,17 @@ import { exec } from 'kernelsu-alt'
 import { File } from './file'
 import { GITHUB_REPO, KEYBOX_ALWAYSSTRONG_URL, MOD_ID } from './constant'
 
+const FLASH_REFERER = 'https://flash.android.com'
+const FLASHSTATION_KEY_FALLBACK = 'AIzaSyD-bwHpMvFCN3PfRN4Txsw_ECg_iptNfMQ'
+
+export interface FlashBuild {
+  product: string
+  buildId: string
+  releaseCandidateName: string
+  target: string
+  previewMetadata?: { releaseTrackName?: string; releaseTrackVersionName?: string; canary?: boolean }
+}
+
 export type OmKRestartTarget = 'keymint' | 'injector' | 'all'
 
 const RESTART_MARKERS: Record<OmKRestartTarget, string> = {
@@ -144,28 +155,31 @@ export class Cli {
     return `https://github.com/${GITHUB_REPO}`
   }
 
-  async fetchPifDeviceList(): Promise<Array<{ model: string; product: string }>> {
-    const raw = await this.#fetchFirst([
-      'https://fastly.jsdelivr.net/gh/KOWX712/PlayIntegrityFix@bot/device_list.json',
-      'https://raw.githubusercontent.com/KOWX712/PlayIntegrityFix/bot/device_list.json',
-      'https://cdn.jsdelivr.net/gh/KOWX712/PlayIntegrityFix@bot/device_list.json',
-    ])
-    const devices = JSON.parse(raw) as Array<{ model?: string; product?: string }>
-    if (!Array.isArray(devices)) throw new Error('invalid device list')
-    return devices.filter((device): device is { model: string; product: string } =>
-      !!(device.model && device.product),
-    )
+  async fetchFlashstationKey(): Promise<string> {
+    if (import.meta.env.DEV) return FLASHSTATION_KEY_FALLBACK
+    try {
+      const html = await this.#fetchFirst([`${FLASH_REFERER}/`])
+      const match = html.match(/AIzaSy[A-Za-z0-9_-]{33}/)
+      if (match) return match[0]
+    } catch {
+      // fall back to the bundled key
+    }
+    return FLASHSTATION_KEY_FALLBACK
   }
 
-  async fetchPifProp(product: string): Promise<string> {
-    const encoded = encodeURIComponent(product)
-    const text = await this.#fetchFirst([
-      `https://fastly.jsdelivr.net/gh/KOWX712/PlayIntegrityFix@bot/device_prop/${encoded}.prop`,
-      `https://raw.githubusercontent.com/KOWX712/PlayIntegrityFix/bot/device_prop/${encoded}.prop`,
-      `https://cdn.jsdelivr.net/gh/KOWX712/PlayIntegrityFix@bot/device_prop/${encoded}.prop`,
-    ])
-    if (!text.includes('FINGERPRINT=')) throw new Error('fingerprint missing')
-    return text
+  async fetchFlashstationBuilds(product: string): Promise<FlashBuild[]> {
+    const key = await this.fetchFlashstationKey()
+    const url =
+      `https://content-flashstation-pa.googleapis.com/v1/builds` +
+      `?product=${encodeURIComponent(product)}&key=${encodeURIComponent(key)}`
+    const raw = await this.#fetchFirst([url], { Referer: FLASH_REFERER })
+    const parsed = JSON.parse(raw) as { flashstationBuild?: FlashBuild[] }
+    const builds = parsed.flashstationBuild
+    if (!Array.isArray(builds)) throw new Error('invalid build list')
+    return builds.filter(
+      (build): build is FlashBuild =>
+        !!(build && build.releaseCandidateName && build.buildId && typeof build.target === 'string'),
+    )
   }
 
   async getBuildRelease(): Promise<string> {
@@ -174,10 +188,16 @@ export class Cli {
     return result.errno === 0 ? result.stdout.trim() : ''
   }
 
-  async #fetchFirst(urls: string[]): Promise<string> {
+  async #fetchFirst(urls: string[], headers?: Record<string, string>): Promise<string> {
+    const curlHeaders = headers
+      ? Object.entries(headers).map(([key, value]) => `-H '${key}: ${value}'`).join(' ')
+      : ''
+    const wgetHeaders = headers
+      ? Object.entries(headers).map(([key, value]) => `--header='${key}: ${value}'`).join(' ')
+      : ''
     for (const url of urls) {
       try {
-        const response = await fetch(url)
+        const response = await fetch(url, headers ? { headers } : undefined)
         if (response.ok) {
           const text = await response.text()
           if (text.trim()) return text
@@ -187,7 +207,7 @@ export class Cli {
       }
       const quoted = url.replace(/'/g, `'\\''`)
       const result = await exec(
-        `curl -fsSL --connect-timeout 10 --max-time 30 '${quoted}' 2>/dev/null || wget -q -T 20 -O - '${quoted}'`,
+        `curl -fsSL ${curlHeaders} --connect-timeout 10 --max-time 30 '${quoted}' 2>/dev/null || wget -q -T 20 ${wgetHeaders} -O - '${quoted}'`,
       )
       if (result.errno === 0 && result.stdout.trim()) return result.stdout
     }

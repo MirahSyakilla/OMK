@@ -70,6 +70,11 @@ void modifyCallback(void *cookie, const char *name, const char *value, uint32_t 
         if (const char *next = field_or_null(gPayload.fingerprint)) {
             value = next;
         }
+    } else if (prop == "ro.build.tags" || prop == "ro.bootimage.build.tags" ||
+               prop == "ro.system.build.tags" || prop == "ro.vendor.build.tags") {
+        if (const char *next = field_or_null(gPayload.tags)) {
+            value = next;
+        }
     } else if (prop == "ro.product.brand" || prop == "ro.product.system.brand") {
         if (const char *next = field_or_null(gPayload.brand)) {
             value = next;

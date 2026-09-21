@@ -734,8 +734,9 @@ unify_product_props = false
 ```
 
 `integrity.prop` uses Play Integrity Fix key=value fields. `FINGERPRINT` is
-required to enable. Fetch pulls a Pixel prop from Play Integrity Fix's GitHub
-device dump; Update refreshes the current product. Saving an enabled
-configuration restarts keymint and the injector, then kills
-`com.google.android.gms.unstable` and force-stops `com.android.vending`. A new
-zygisk `.so` takes effect after a reboot.
+required to enable. Fetch selects a Pixel build from Google's Android Flash
+Tool build list and matches it to the ROM's Android release (12 through 17);
+Update refreshes the current product. Saving an enabled configuration restarts
+keymint and the injector, then kills `com.google.android.gms.unstable` and
+force-stops `com.android.vending`. A new zygisk `.so` takes effect after a
+reboot.
