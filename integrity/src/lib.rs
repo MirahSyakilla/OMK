@@ -1,4 +1,5 @@
 mod payload;
+mod soter;
 
 use payload::{load_from_disk, IntegrityPayload};
 

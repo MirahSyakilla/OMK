@@ -18,11 +18,16 @@
 
 extern "C" int omk_integrity_companion(int fd);
 extern "C" int omk_integrity_recv(int fd, omk_integrity_payload *out);
+extern "C" int omk_soter_is_target(const char *name, const char *dir);
+extern "C" void omk_soter_set_ioctl(void *original);
+extern "C" void omk_soter_activate(void);
+extern "C" int omk_soter_ioctl(int fd, int request, void *argument);
 
 namespace {
 
 constexpr const char *DROIDGUARD_PACKAGE = "com.google.android.gms.unstable";
 constexpr const char *VENDING_PACKAGE = "com.android.vending";
+int (*o_soter_ioctl)(int, int, void *) = nullptr;
 
 omk_integrity_payload gPayload{};
 JNIEnv *gEnv = nullptr;
@@ -228,6 +233,7 @@ public:
         payloadLoaded = false;
         isGmsUnstable = false;
         isVending = false;
+        soterArmed = false;
         memset(&gPayload, 0, sizeof(gPayload));
 
         if (!args) {
@@ -251,8 +257,37 @@ public:
 
         const bool isGms = ends_with(dir, "/com.google.android.gms") ||
                            ends_with(dir, "/com.android.vending");
-        if (!isGms) {
+        const bool isSoter = omk_soter_is_target(name.c_str(), dir.c_str()) != 0;
+        if (!isGms && !isSoter) {
             api->setOption(DLCLOSE_MODULE_LIBRARY);
+            return;
+        }
+        if (isSoter) {
+            const int fd = api->connectCompanion();
+            if (fd < 0 || omk_integrity_recv(fd, &gPayload) != 0) {
+                LOGE("soter companion recv failed fd=%d", fd);
+                if (fd >= 0) {
+                    close(fd);
+                }
+                api->setOption(DLCLOSE_MODULE_LIBRARY);
+                return;
+            }
+            close(fd);
+            if (!gPayload.soter_beta) {
+                api->setOption(DLCLOSE_MODULE_LIBRARY);
+                return;
+            }
+            api->pltHookRegister(".*libbinder\\.so$", "ioctl",
+                                 reinterpret_cast<void *>(omk_soter_ioctl),
+                                 reinterpret_cast<void **>(&o_soter_ioctl));
+            if (!api->pltHookCommit() || o_soter_ioctl == nullptr) {
+                LOGE("soter ioctl hook failed");
+                api->setOption(DLCLOSE_MODULE_LIBRARY);
+                return;
+            }
+            omk_soter_set_ioctl(reinterpret_cast<void *>(o_soter_ioctl));
+            soterArmed = true;
+            LOGI("soter hook armed");
             return;
         }
 
@@ -298,6 +333,10 @@ public:
 
     void postAppSpecialize(const AppSpecializeArgs *args) override {
         (void)args;
+        if (soterArmed) {
+            omk_soter_activate();
+            return;
+        }
         if (!payloadLoaded) {
             return;
         }
@@ -320,6 +359,7 @@ private:
     bool payloadLoaded = false;
     bool isGmsUnstable = false;
     bool isVending = false;
+    bool soterArmed = false;
 };
 
 extern "C" {

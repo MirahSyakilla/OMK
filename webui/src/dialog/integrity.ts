@@ -22,6 +22,7 @@ interface IntegrityState {
   sync_trust_patch: boolean
   sync_device_ids: boolean
   unify_product_props: boolean
+  soter_beta: boolean
 }
 
 const DEFAULTS: IntegrityState = {
@@ -32,6 +33,7 @@ const DEFAULTS: IntegrityState = {
   sync_trust_patch: true,
   sync_device_ids: true,
   unify_product_props: false,
+  soter_beta: false,
 }
 
 function parseBool(value: string | undefined, fallback: boolean): boolean {
@@ -203,6 +205,11 @@ export class IntegrityDialog {
               <span>Unify Product Props</span>
               <md-switch id="integrity-unify-props"></md-switch>
             </label>
+            <label class="switch-item outlined" for="integrity-soter">
+              <md-ripple></md-ripple>
+              <span>Tencent Soter</span>
+              <md-switch id="integrity-soter"></md-switch>
+            </label>
           </div>
           <p id="integrity-fingerprint" class="integrity-fingerprint">No fingerprint fetched</p>
           <div class="integrity-fp-actions">
@@ -254,9 +261,12 @@ export class IntegrityDialog {
     this.#setSwitch('integrity-sync-patch', state.sync_trust_patch)
     this.#setSwitch('integrity-sync-ids', state.sync_device_ids)
     this.#setSwitch('integrity-unify-props', state.unify_product_props)
+    this.#setSwitch('integrity-soter', state.soter_beta && status.provider !== null)
 
     const enable = this.#dialog?.querySelector<MdSwitch>('#integrity-enabled')
     if (enable) enable.disabled = !this.#canEnable
+    const soter = this.#dialog?.querySelector<MdSwitch>('#integrity-soter')
+    if (soter) soter.disabled = status.provider === null
 
     this.#fingerprint = await this.#readFingerprint()
     this.#renderFingerprint()
@@ -310,6 +320,7 @@ export class IntegrityDialog {
         sync_trust_patch: parseBool(map.sync_trust_patch, true),
         sync_device_ids: parseBool(map.sync_device_ids, true),
         unify_product_props: parseBool(map.unify_product_props, false),
+        soter_beta: parseBool(map.soter_beta, false),
       }
     } catch {
       return { ...DEFAULTS }
@@ -398,6 +409,12 @@ export class IntegrityDialog {
 
   async #save(): Promise<void> {
     const enabled = this.#getSwitch('integrity-enabled')
+    const soter = this.#getSwitch('integrity-soter')
+    const zygisk = await this.#cli.detectIntegrityZygisk()
+    if (soter && zygisk.provider === null) {
+      this.#snackbar.show('Zygisk required for Tencent Soter', false)
+      return
+    }
     if (enabled && !this.#canEnable) {
       this.#snackbar.show('Zygisk required to enable Integrity', false)
       return
@@ -415,6 +432,7 @@ export class IntegrityDialog {
       sync_trust_patch: this.#getSwitch('integrity-sync-patch'),
       sync_device_ids: this.#getSwitch('integrity-sync-ids'),
       unify_product_props: this.#getSwitch('integrity-unify-props'),
+      soter_beta: soter,
     }
 
     try {
@@ -432,6 +450,7 @@ export class IntegrityDialog {
         `sync_trust_patch = ${state.sync_trust_patch}`,
         `sync_device_ids = ${state.sync_device_ids}`,
         `unify_product_props = ${state.unify_product_props}`,
+        `soter_beta = ${state.soter_beta}`,
       ].join('\n')
       await File.write(TOML_PATH, toml)
       await File.write(TOML_PATH_DATA, toml)

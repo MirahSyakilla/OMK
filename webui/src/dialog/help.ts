@@ -20,7 +20,7 @@ export class HelpDialog {
           </div>
           <div class="instruction">
             <h3>Integrity settings</h3>
-            <p>Spoofs DroidGuard and Play Store build fields when ReZygisk (preferred), ZygiskNext, NeoZygisk, or Magisk Zygisk is loaded. <b>Fetch</b> pulls a Pixel <code>pif.prop</code> from Play Integrity Fix's GitHub dump; <b>Update</b> refreshes the current product. If Play Integrity Fix or Play Integrity Fork is already installed, Integrity Settings and Reapply Integrity stay disabled. Save restarts KeyMint and the injector, then force-stops Play Services and Play Store.</p>
+            <p>Spoofs DroidGuard and Play Store build fields when ReZygisk (preferred), ZygiskNext, NeoZygisk, or Magisk Zygisk is loaded. <b>Fetch</b> pulls a Pixel <code>pif.prop</code> from Play Integrity Fix's GitHub dump; <b>Update</b> refreshes the current product. If Play Integrity Fix or Play Integrity Fork is already installed, Enable and Reapply Integrity stay disabled. <b>Tencent Soter</b> stays available with Zygisk and answers <code>com.tencent.soter.soterserver</code> with simulated replies. It is not a hardware key or a payment fix. Save restarts KeyMint and the injector, then force-stops Play Services, Play Store, and Soter.</p>
           </div>
           <div class="instruction">
             <h3>Trust settings</h3>

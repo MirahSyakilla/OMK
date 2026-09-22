@@ -20,4 +20,5 @@ typedef struct omk_integrity_payload {
     char release[32];
     char security_patch[16];
     char initial_sdk[8];
+    uint8_t soter_beta;
 } omk_integrity_payload;

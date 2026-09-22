@@ -252,7 +252,7 @@ printf '%s %s\\n' "$provider" "$conflict"
   async killIntegrityTargets(): Promise<void> {
     if (import.meta.env.DEV) return
     await exec(
-      'am force-stop com.google.android.gms >/dev/null 2>&1; am force-stop com.android.vending >/dev/null 2>&1; killall -9 com.google.android.gms.unstable >/dev/null 2>&1; true',
+      'am force-stop com.google.android.gms >/dev/null 2>&1; am force-stop com.android.vending >/dev/null 2>&1; am force-stop com.tencent.soter.soterserver >/dev/null 2>&1; killall -9 com.google.android.gms.unstable >/dev/null 2>&1; true',
     )
   }
 

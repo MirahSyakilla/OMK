@@ -25,6 +25,7 @@ pub struct IntegrityPayload {
     pub release: [u8; 32],
     pub security_patch: [u8; 16],
     pub initial_sdk: [u8; 8],
+    pub soter_beta: u8,
 }
 
 impl Default for IntegrityPayload {
@@ -47,6 +48,7 @@ impl Default for IntegrityPayload {
             release: [0; 32],
             security_patch: [0; 16],
             initial_sdk: [0; 8],
+            soter_beta: 0,
         }
     }
 }
@@ -110,6 +112,7 @@ pub fn parse_files(toml: &str, prop: &str) -> IntegrityPayload {
         toml_map.get("spoof_vending_finger").map(String::as_str),
         true,
     ) as u8;
+    payload.soter_beta = parse_bool(toml_map.get("soter_beta").map(String::as_str), false) as u8;
 
     let prop_map = parse_kv(prop);
     if let Some(fingerprint) = prop_map.get("FINGERPRINT") {
@@ -211,5 +214,13 @@ mod tests {
     fn disable_without_fingerprint() {
         let payload = parse_files("enabled = true\n", "");
         assert_eq!(payload.enabled, 0);
+        assert_eq!(payload.soter_beta, 0);
+    }
+
+    #[test]
+    fn soter_beta_is_independent_of_fingerprint() {
+        let payload = parse_files("enabled = false\nsoter_beta = true\n", "");
+        assert_eq!(payload.enabled, 0);
+        assert_eq!(payload.soter_beta, 1);
     }
 }

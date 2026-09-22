@@ -778,11 +778,13 @@ Integrity Settings writes:
 - `/data/misc/keystore/omk/data/integrity.toml`
 - `/data/misc/keystore/omk/data/integrity.prop`
 
-The zygisk companion specializes only `com.google.android.gms.unstable` and
-`com.android.vending`. It does not inject DEX and does not spoof Keystore
-providers. Enable requires ReZygisk, ZygiskNext, NeoZygisk, or Magisk Zygisk,
-and stays off when Play Integrity Fix/Fork or a TrickyStore zygisk module is
-loaded.
+The zygisk companion specializes `com.google.android.gms.unstable` and
+`com.android.vending` for build spoofing. It does not inject DEX and does not
+spoof Keystore providers. Enable requires ReZygisk, ZygiskNext, NeoZygisk, or
+Magisk Zygisk, and Enable stays off when Play Integrity Fix/Fork or a
+TrickyStore zygisk module is loaded. `soter_beta` is separate: when true, the same zygisk
+module stays loaded in `com.tencent.soter.soterserver` and returns simulated
+Soter replies. That is not a hardware key or a payment fix.
 
 ```toml
 enabled = false
@@ -792,6 +794,7 @@ spoof_vending_finger = true
 sync_trust_patch = true
 sync_device_ids = true
 unify_product_props = false
+soter_beta = false
 ```
 
 `integrity.prop` uses Play Integrity Fix key=value fields. `FINGERPRINT` is
