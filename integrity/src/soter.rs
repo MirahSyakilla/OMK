@@ -278,7 +278,9 @@ fn valid_pointer_range(pointer: u64, size: u64) -> bool {
 }
 
 fn candidate(transaction: &Transaction) -> bool {
-    (1..=13).contains(&transaction.code)
+    // Code 11 is getDeviceId. The published simulator id is a known marker, so
+    // the real service answers that call.
+    (1..=10).contains(&transaction.code) || transaction.code == 12 || transaction.code == 13
         && transaction.target != 0
         && transaction.data_size <= MAX_REQUEST_BYTES as u64
         && valid_pointer_range(transaction.buffer, transaction.data_size)
@@ -639,8 +641,13 @@ mod tests {
     fn every_supported_code_writes_a_reply() {
         for code in 1..=13 {
             let mut output = Mem(Vec::new());
-            wire::write_reply(code, &mut output).unwrap();
-            assert_eq!(output.0.first().copied(), Some(0));
+            let result = wire::write_reply(code, &mut output);
+            if code == 11 {
+                assert!(result.is_err());
+            } else {
+                result.unwrap();
+                assert_eq!(output.0.first().copied(), Some(0));
+            }
         }
     }
 }

@@ -3,7 +3,6 @@ use std::sync::OnceLock;
 use super::{BAD_VALUE, DESCRIPTOR, MAX_REQUEST_BYTES, UNKNOWN_TRANSACTION};
 
 const SIGNATURE: [u8; 256] = [0; 256];
-const DEVICE: &[u8] = b"TEESIM-SOTER-0001";
 const EXPORT_JSON: &str = concat!(
     "{\"pub_key\":\"",
     "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAw8gEMK6J6jBvJr1b9K8j",
@@ -65,7 +64,7 @@ pub(super) fn write_reply(code: u32, output: &mut impl Writer) -> Result<(), i32
             let bytes = match code {
                 2 | 6 => export_blob(),
                 10 => &SIGNATURE,
-                11 => DEVICE,
+                11 => return Err(BAD_VALUE),
                 _ => return Err(BAD_VALUE),
             };
             output.int32(1)?;
