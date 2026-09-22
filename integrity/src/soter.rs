@@ -15,6 +15,7 @@ use std::{
     },
 };
 
+mod identity;
 mod wire;
 
 pub(crate) const PACKAGE: &str = "com.tencent.soter.soterserver";
@@ -113,6 +114,7 @@ static ACTIVE: AtomicBool = AtomicBool::new(false);
 static MATCHED_CODES: AtomicU32 = AtomicU32::new(0);
 static REPLIED_CODES: AtomicU32 = AtomicU32::new(0);
 static FAILED_CODES: AtomicU32 = AtomicU32::new(0);
+static IDENTITY: OnceLock<Result<identity::Identity, String>> = OnceLock::new();
 
 unsafe extern "C" {
     fn __android_log_write(prio: i32, tag: *const c_char, text: *const c_char) -> i32;
@@ -197,12 +199,16 @@ pub extern "C" fn omk_soter_activate() {
             return;
         }
     };
-    match NATIVE.get_or_init(|| load_native(ndk, binder)) {
+    if let Err(error) = NATIVE.get_or_init(|| load_native(ndk, binder)) {
+        log(&format!("Soter native handler unavailable: {error}"));
+        return;
+    }
+    match IDENTITY.get_or_init(identity::load) {
         Ok(_) => {
             ACTIVE.store(true, Ordering::Release);
-            log("Soter hook active; replies are simulated");
+            log("Soter hook active");
         }
-        Err(error) => log(&format!("Soter native handler unavailable: {error}")),
+        Err(error) => log(error),
     }
 }
 
@@ -523,11 +529,20 @@ unsafe extern "C" fn on_transact(
         if !reply.is_empty() {
             return BAD_VALUE;
         }
+        let Some(Ok(identity)) = IDENTITY.get() else {
+            return BAD_VALUE;
+        };
+        let request_signature = identity.sign(bytes).unwrap_or_default();
         wire::write_reply(
             code,
             &mut NativeWriter {
                 api: &native.api,
                 output,
+            },
+            wire::ReplyMaterial {
+                export_json: &identity.json,
+                export_signature: &identity.json_signature,
+                request_signature: &request_signature,
             },
         )
         .map_or_else(|status| status, |()| 0)
@@ -641,7 +656,16 @@ mod tests {
     fn every_supported_code_writes_a_reply() {
         for code in 1..=13 {
             let mut output = Mem(Vec::new());
-            let result = wire::write_reply(code, &mut output);
+            let signature = vec![9u8; 32];
+            let result = wire::write_reply(
+                code,
+                &mut output,
+                wire::ReplyMaterial {
+                    export_json: b"{\"pub_key\":\"abc\",\"counter\":1,\"cpu_id\":\"0011223344556677\",\"uid\":1}",
+                    export_signature: &signature,
+                    request_signature: &signature,
+                },
+            );
             if code == 11 {
                 assert!(result.is_err());
             } else {

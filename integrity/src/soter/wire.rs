@@ -1,29 +1,4 @@
-use std::sync::OnceLock;
-
 use super::{BAD_VALUE, DESCRIPTOR, MAX_REQUEST_BYTES, UNKNOWN_TRANSACTION};
-
-const SIGNATURE: [u8; 256] = [0; 256];
-const EXPORT_JSON: &str = concat!(
-    "{\"pub_key\":\"",
-    "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAw8gEMK6J6jBvJr1b9K8j",
-    "o4jMHF5D4BoHYXTsRov+v+clqEwXntTeXrOcQeuQX9Fys5S3Jmbs6safW1vmbJps",
-    "k8Qe7wbi9p1v9uh3JzmF3j2Mw+tXtGI9h/1Vm1n6T3GrQJQ+tvuQ+vN8n6kMYl64",
-    "J7CuyYw6P5vl6Z4WlfhdY5oJc0Q9T6xVwK6bg3DOjFEq5k1DTXJZuzqjONyYCuuP",
-    "v7TTuLT8yT0+9m+CF7i65DKQJE3Ak0dCj0Ar1sIH7yLPlvWv85ExKYOvCXLdB6t8",
-    "eWg0/eeoPHDLLv11Oyq9JR0gDk0iHT5SWG2FHKY5xIb3C2we8O7CVOaPwIDAQAB",
-    "\",\"counter\":0,\"cpu_id\":\"0000000000000000\",\"uid\":0}"
-);
-
-fn export_blob() -> &'static [u8] {
-    static BLOB: OnceLock<Vec<u8>> = OnceLock::new();
-    BLOB.get_or_init(|| {
-        let mut bytes = Vec::with_capacity(4 + EXPORT_JSON.len() + SIGNATURE.len());
-        bytes.extend_from_slice(&(EXPORT_JSON.len() as u32).to_le_bytes());
-        bytes.extend_from_slice(EXPORT_JSON.as_bytes());
-        bytes.extend_from_slice(&SIGNATURE);
-        bytes
-    })
-}
 
 fn utf16le_contains(bytes: &[u8], ascii: &[u8]) -> bool {
     let width = ascii.len().saturating_mul(2);
@@ -52,7 +27,25 @@ pub(super) trait Writer {
     fn string(&mut self, value: &str) -> Result<(), i32>;
 }
 
-pub(super) fn write_reply(code: u32, output: &mut impl Writer) -> Result<(), i32> {
+pub(super) struct ReplyMaterial<'a> {
+    pub export_json: &'a [u8],
+    pub export_signature: &'a [u8],
+    pub request_signature: &'a [u8],
+}
+
+fn export_blob(json: &[u8], signature: &[u8]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(4 + json.len() + signature.len());
+    bytes.extend_from_slice(&(json.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(json);
+    bytes.extend_from_slice(signature);
+    bytes
+}
+
+pub(super) fn write_reply(
+    code: u32,
+    output: &mut impl Writer,
+    material: ReplyMaterial<'_>,
+) -> Result<(), i32> {
     if !(1..=13).contains(&code) {
         return Err(UNKNOWN_TRANSACTION);
     }
@@ -61,12 +54,13 @@ pub(super) fn write_reply(code: u32, output: &mut impl Writer) -> Result<(), i32
         1 | 4 | 5 | 7 => output.int32(0),
         3 | 8 | 12 => output.int32(1),
         2 | 6 | 10 | 11 => {
-            let bytes = match code {
-                2 | 6 => export_blob(),
-                10 => &SIGNATURE,
+            let owned = match code {
+                2 | 6 => export_blob(material.export_json, material.export_signature),
+                10 => material.request_signature.to_vec(),
                 11 => return Err(BAD_VALUE),
                 _ => return Err(BAD_VALUE),
             };
+            let bytes = owned.as_slice();
             output.int32(1)?;
             output.int32(0)?;
             output.bytes(bytes)?;
