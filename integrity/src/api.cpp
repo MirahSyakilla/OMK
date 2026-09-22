@@ -277,10 +277,10 @@ public:
                 api->setOption(DLCLOSE_MODULE_LIBRARY);
                 return;
             }
-            api->pltHookRegister(".*libbinder\\.so$", "ioctl",
-                                 reinterpret_cast<void *>(omk_soter_ioctl),
-                                 reinterpret_cast<void **>(&o_soter_ioctl));
-            if (!api->pltHookCommit() || o_soter_ioctl == nullptr) {
+            void *ioctl_symbol = dlsym(RTLD_DEFAULT, "ioctl");
+            if (!ioctl_symbol ||
+                !install_inline_hook(ioctl_symbol, reinterpret_cast<void *>(omk_soter_ioctl),
+                                     reinterpret_cast<void **>(&o_soter_ioctl))) {
                 LOGE("soter ioctl hook failed");
                 api->setOption(DLCLOSE_MODULE_LIBRARY);
                 return;
