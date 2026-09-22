@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 
 use crate::hook::binder::LocalBinderTarget;
+#[cfg(test)]
 use crate::identify;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -17,6 +18,7 @@ static BINDER_INTERFACES: LazyLock<Mutex<HashMap<LocalBinderTarget, &'static str
 #[cfg(test)]
 static STATE_TEST_LOCK: Mutex<()> = Mutex::new(());
 
+#[cfg(test)]
 fn intern_keystore_interface(interface: &str) -> Option<&'static str> {
     identify::KNOWN_KEYSTORE_INTERFACES
         .iter()
@@ -24,6 +26,7 @@ fn intern_keystore_interface(interface: &str) -> Option<&'static str> {
         .find(|&known| known == interface)
 }
 
+#[cfg(test)]
 pub(crate) fn accept_binder_interface(target: LocalBinderTarget, interface: &str) -> bool {
     if target.ptr == 0 {
         return true;

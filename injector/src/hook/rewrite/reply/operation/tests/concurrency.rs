@@ -46,6 +46,8 @@ fn operation_status(target: LocalBinderTarget, request: ParsedOperationRequest) 
             uid: 1000,
             pid: 2000,
             sid: String::new(),
+            keyboxSlot: 0,
+            rkpCredential: 0,
         },
         target,
     })

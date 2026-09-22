@@ -6,6 +6,8 @@ fn isolated_package_lookup_preserves_original_authorization_identity() {
         uid: 99001,
         pid: 42,
         sid: "u:r:isolated_app:s0:c123,c456".into(),
+        keyboxSlot: 0,
+        rkpCredential: 0,
     };
     let packages = resolve_packages_for_caller_with(
         &caller,
@@ -28,10 +30,10 @@ fn isolated_package_lookup_preserves_original_authorization_identity() {
         ..Default::default()
     };
     assert!(
-        crate::filter::evaluate(&config.scoop, &config.filter, 99001, packages.clone()).allowed
+        crate::filter::evaluate(&config.scoop, &[], &config.filter, 99001, packages.clone()).allowed
     );
     config.filter.deny_packages.push("com.example.owner".into());
-    assert!(!crate::filter::evaluate(&config.scoop, &config.filter, 99001, packages).allowed);
+    assert!(!crate::filter::evaluate(&config.scoop, &[], &config.filter, 99001, packages).allowed);
     assert_eq!(caller.uid, 99001);
 }
 
@@ -42,6 +44,8 @@ fn isolated_package_lookup_is_only_an_unknown_uid_fallback() {
             uid,
             pid: 42,
             sid: "u:r:app:s0".into(),
+            keyboxSlot: 0,
+            rkpCredential: 0,
         };
         assert!(matches!(
             resolve_packages_for_caller_with(
@@ -56,6 +60,8 @@ fn isolated_package_lookup_is_only_an_unknown_uid_fallback() {
         uid: 10371,
         pid: 42,
         sid: "u:r:app:s0".into(),
+        keyboxSlot: 0,
+        rkpCredential: 0,
     };
     assert!(matches!(
         resolve_packages_for_caller_with(
