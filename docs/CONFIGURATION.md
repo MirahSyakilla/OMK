@@ -252,7 +252,11 @@ available. A present runtime value is used as-is rather than replaced by a
 existing runtime property, but OMK never creates or deletes it. `"auto"` never
 writes the property. After an explicit or `"latest"` override, switching back
 to `"auto"` in the same boot keeps the current runtime value; reboot to restore
-the system-provided value.
+the system-provided value. If `/data/adb/modules/brene/config.sh` or
+`/data/adb/modules/BRENE/config.sh` sets
+`config_spoof_os_security_patch_level_property=1` and that module has no
+`disable` or `remove` file, OMK does not write the property. The configured
+date is still used for KeyMint attestation patch levels.
 
 #### `os_patchlevel`
 

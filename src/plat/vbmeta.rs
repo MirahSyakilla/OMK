@@ -105,13 +105,17 @@ pub fn bootstrap_vbmeta(config_file: &ConfigFile) -> Result<ResolvedTrust> {
         config_file.trust.verified_boot_state,
         config_file.trust.device_locked,
     )?;
-    if patches.write_security_patch {
+    if patches.write_security_patch && !brene_owns_os_security_patch() {
         write_security_patch_with_rollback(
             resetprop::direct_write_and_verify_property,
             resetprop::read_string_property,
             &patches.security_patch,
             patches.observed_security_patch.as_deref(),
         )?;
+    } else if patches.write_security_patch {
+        log::info!(
+            "leaving {SECURITY_PATCH_PROP} unchanged because BRENE sets config_spoof_os_security_patch_level_property=1"
+        );
     }
 
     let vb_key_hex = hex::encode(vb_key.value);
@@ -140,12 +144,47 @@ pub fn bootstrap_vbmeta(config_file: &ConfigFile) -> Result<ResolvedTrust> {
 }
 
 pub(crate) fn write_runtime_security_patch(desired: &str, previous: Option<&str>) -> Result<()> {
+    if brene_owns_os_security_patch() {
+        log::info!(
+            "leaving {SECURITY_PATCH_PROP} unchanged because BRENE sets config_spoof_os_security_patch_level_property=1"
+        );
+        return Ok(());
+    }
     write_security_patch_with_rollback(
         resetprop::runtime_write_and_verify_property,
         resetprop::read_string_property,
         desired,
         previous,
     )
+}
+
+fn brene_config_owns_os_security_patch(text: &str) -> bool {
+    text.lines().any(|line| {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            return false;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            return false;
+        };
+        key.trim() == "config_spoof_os_security_patch_level_property"
+            && value.trim().trim_matches(['"', '\'']).eq("1")
+    })
+}
+
+fn brene_module_owns_os_security_patch(module_dir: &Path) -> bool {
+    if module_dir.join("disable").exists() || module_dir.join("remove").exists() {
+        return false;
+    }
+    std::fs::read_to_string(module_dir.join("config.sh"))
+        .map(|text| brene_config_owns_os_security_patch(&text))
+        .unwrap_or(false)
+}
+
+fn brene_owns_os_security_patch() -> bool {
+    ["/data/adb/modules/brene", "/data/adb/modules/BRENE"]
+        .into_iter()
+        .any(|dir| brene_module_owns_os_security_patch(Path::new(dir)))
 }
 
 fn resolve_vb_key(spec: &TrustValueSpec, device_locked: bool, slot_suffix: &str) -> ResolvedField {
@@ -1004,6 +1043,37 @@ fn extract_verified_boot_hash_from_metadata(metadata: &KeyMetadata) -> Result<[u
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn brene_security_patch_flag_requires_an_active_module() {
+        assert!(brene_config_owns_os_security_patch(
+            "config_spoof_os_security_patch_level_property=1\n"
+        ));
+        assert!(brene_config_owns_os_security_patch(
+            "  config_spoof_os_security_patch_level_property = \"1\"\n"
+        ));
+        assert!(!brene_config_owns_os_security_patch(
+            "# config_spoof_os_security_patch_level_property=1\nconfig_spoof_os_security_patch_level_property=0\n"
+        ));
+        let dir = std::env::temp_dir().join(format!(
+            "omk-brene-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("config.sh"),
+            "config_spoof_os_security_patch_level_property=1\n",
+        )
+        .unwrap();
+        assert!(brene_module_owns_os_security_patch(&dir));
+        std::fs::write(dir.join("disable"), "").unwrap();
+        assert!(!brene_module_owns_os_security_patch(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn avb_public_key_digest_matches_embedded_blob_hash() {

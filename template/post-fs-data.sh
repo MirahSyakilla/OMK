@@ -42,7 +42,25 @@ if [ -f "$TARGET_INJECTOR_CONFIG" ]; then
   chown 1017:1017 "$TARGET_INJECTOR_CONFIG"
 fi
 
+brene_owns_security_patch() {
+  local dir cfg
+  for dir in /data/adb/modules/brene /data/adb/modules/BRENE; do
+    [ -f "$dir/disable" ] && continue
+    [ -f "$dir/remove" ] && continue
+    cfg="$dir/config.sh"
+    [ -f "$cfg" ] || continue
+    if grep -q '^[[:space:]]*config_spoof_os_security_patch_level_property[[:space:]]*=[[:space:]]*["'\'']\{0,1\}1["'\'']\{0,1\}[[:space:]]*$' "$cfg"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 apply_security_patch() {
+  if brene_owns_security_patch; then
+    return 0
+  fi
+
   local val=""
   local cfg="$TARGET_DIR/config.toml"
   local prop="$STATE_DIR/integrity.prop"
