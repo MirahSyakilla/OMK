@@ -953,12 +953,15 @@ impl KeystoreSecurityLevel {
             .context(ks_err!())?;
 
         let km_dev = &self.keymint;
-        let creation_result = map_km_error({
+        let mut creation_result = map_km_error({
             let _wp =
                 self.watch("KeystoreSecurityLevel::import_key: calling IKeyMintDevice::importKey.");
             km_dev.importKey(&params, format, key_data, None /* attestKey */)
         })
         .context(ks_err!("Trying to call importKey"))?;
+        if !params.iter().any(|kp| kp.tag == Tag::ATTESTATION_CHALLENGE) {
+            creation_result.certificateChain.clear();
+        }
 
         let user = caller_uid.owning_user();
         self.store_new_key(key, creation_result, user, Some(flags), true, None)

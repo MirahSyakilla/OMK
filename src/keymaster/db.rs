@@ -2655,13 +2655,17 @@ impl KeystoreDB {
     ) -> Result<LoadedBlobComponents> {
         let mut stmt = tx
             .prepare(
-                "SELECT MAX(id), subcomponent_type, blob FROM persistent.blobentry
-                    WHERE keyentryid = ? GROUP BY subcomponent_type;",
+                "SELECT b.subcomponent_type, b.blob, b.id FROM persistent.blobentry AS b
+                    JOIN (
+                        SELECT MAX(id) AS id FROM persistent.blobentry
+                        WHERE keyentryid = ? AND state = ?
+                        GROUP BY subcomponent_type
+                    ) AS latest ON b.id = latest.id;",
             )
             .context(ks_err!("prepare statement failed."))?;
 
         let mut rows = stmt
-            .query(params![key_id])
+            .query(params![key_id, BlobState::Current])
             .context(ks_err!("query failed."))?;
 
         let mut key_blob: Option<(i64, Vec<u8>)> = None;
@@ -2670,24 +2674,24 @@ impl KeystoreDB {
         let mut has_km_blob: bool = false;
         db_utils::with_rows_extract_all(&mut rows, |row| {
             let sub_type: SubComponentType =
-                row.get(1).context("Failed to extract subcomponent_type.")?;
+                row.get(0).context("Failed to extract subcomponent_type.")?;
             has_km_blob = has_km_blob || sub_type == SubComponentType::KEY_BLOB;
             match (sub_type, load_bits.load_public(), load_bits.load_km()) {
                 (SubComponentType::KEY_BLOB, _, true) => {
                     key_blob = Some((
-                        row.get(0).context("Failed to extract key blob id.")?,
-                        row.get(2).context("Failed to extract key blob.")?,
+                        row.get(2).context("Failed to extract key blob id.")?,
+                        row.get(1).context("Failed to extract key blob.")?,
                     ));
                 }
                 (SubComponentType::CERT, true, _) => {
                     cert_blob = Some(
-                        row.get(2)
+                        row.get(1)
                             .context("Failed to extract public certificate blob.")?,
                     );
                 }
                 (SubComponentType::CERT_CHAIN, true, _) => {
                     cert_chain_blob = Some(
-                        row.get(2)
+                        row.get(1)
                             .context("Failed to extract certificate chain blob.")?,
                     );
                 }
