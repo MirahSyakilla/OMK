@@ -516,27 +516,20 @@ fn check_rsa_import_params(
 
 /// Check the parameter validity for an RSA key that is about to be generated or imported.
 fn check_rsa_params(params: &[KeyParam]) -> Result<(), Error> {
-    let mut seen_attest = false;
-    let mut seen_non_attest = false;
     for param in params {
         if let KeyParam::Purpose(purpose) = param {
             match purpose {
-                KeyPurpose::Sign | KeyPurpose::Decrypt | KeyPurpose::WrapKey => {
-                    seen_non_attest = true
-                }
-                KeyPurpose::AttestKey => seen_attest = true,
-                KeyPurpose::Verify | KeyPurpose::Encrypt => {} // public key operations
+                KeyPurpose::Sign
+                | KeyPurpose::Decrypt
+                | KeyPurpose::WrapKey
+                | KeyPurpose::AttestKey
+                | KeyPurpose::Verify
+                | KeyPurpose::Encrypt => {}
                 KeyPurpose::AgreeKey => {
                     warn!("Generating RSA key with invalid purpose {purpose:?}")
                 }
             }
         }
-    }
-    if seen_attest && seen_non_attest {
-        return Err(km_err!(
-            IncompatiblePurpose,
-            "keys with ATTEST_KEY must have no other purpose"
-        ));
     }
     Ok(())
 }
@@ -750,13 +743,6 @@ fn check_ec_params(
             }
         }
     }
-    // Keys with Purpose::ATTEST_KEY must have no other purpose.
-    if seen_attest && (seen_sign || seen_agree) {
-        return Err(km_err!(
-            IncompatiblePurpose,
-            "keys with ATTEST_KEY must have no other purpose"
-        ));
-    }
     // Curve25519 keys must be either signing/attesting keys (Ed25519), or key agreement
     // keys (X25519), not both.
     if curve == EcCurve::Curve25519 && seen_agree && (seen_sign || seen_attest) {
@@ -833,25 +819,13 @@ fn check_mldsa_params(params: &[KeyParam], sec_level: SecurityLevel) -> Result<(
         ));
     }
 
-    let mut seen_attest = false;
-    let mut seen_sign = false;
     for param in params {
         if let KeyParam::Purpose(purpose) = param {
             match purpose {
-                KeyPurpose::Sign => seen_sign = true,
-                KeyPurpose::AttestKey => seen_attest = true,
-                KeyPurpose::Verify => {}
+                KeyPurpose::Sign | KeyPurpose::AttestKey | KeyPurpose::Verify => {}
                 _ => warn!("Generating ML-DSA key with invalid purpose {purpose:?}"),
             }
         }
-    }
-
-    // Keys with Purpose::ATTEST_KEY must have no other purpose.
-    if seen_attest && seen_sign {
-        return Err(km_err!(
-            IncompatiblePurpose,
-            "keys with ATTEST_KEY must have no other purpose"
-        ));
     }
 
     Ok(())
