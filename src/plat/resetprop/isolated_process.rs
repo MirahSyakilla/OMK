@@ -155,7 +155,9 @@ fn read_package_array(parcel: &mut Parcel) -> Result<Vec<String>> {
     let mut packages = Vec::with_capacity(count as usize);
     for _ in 0..count {
         let package: Option<String> = parcel.read()?;
-        packages.push(package.context("process package name is null")?);
+        if let Some(package) = package {
+            packages.push(package);
+        }
     }
     Ok(packages)
 }

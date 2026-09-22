@@ -100,7 +100,7 @@ fn matching_service_maintenance_and_authorization_requests_keep_their_routes() {
         let mut tr = transaction_for_parcel(target_for(requested).unwrap(), code, &request);
         tr.sender_euid = 1000; // The default Android-identity filter selects System.
         push_pending_frame(102);
-        assert!(!unsafe {
+        let rewritten = unsafe {
             handle_keystore_transaction(
                 102,
                 &mut tr,
@@ -109,7 +109,15 @@ fn matching_service_maintenance_and_authorization_requests_keep_their_routes() {
                 &config::InjectorConfig::default(),
                 target_for,
             )
-        });
+        };
+        assert!(!rewritten);
+        if requested == identify::KEYSTORE_SERVICE_INTERFACE {
+            assert!(
+                take_top_pending(102).flatten().is_none(),
+                "disallowed service reads stay on System without an OMK frame"
+            );
+            continue;
+        }
         let pending = take_top_pending(102)
             .flatten()
             .expect("matching target should reach its ordinary dispatch");

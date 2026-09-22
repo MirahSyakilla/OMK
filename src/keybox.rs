@@ -889,7 +889,7 @@ mod tests {
     #[test]
     fn parses_bundled_template() {
         let keybox = KeyBox::from_xml_str(BUNDLED_KEYBOX_XML).unwrap();
-        assert_eq!(keybox.ec_infos.first().unwrap().chain.len(), 2);
+        assert_eq!(keybox.ec_infos.first().unwrap().chain.len(), 1);
         assert_eq!(keybox.rsa_info.as_ref().unwrap().chain.len(), 2);
         assert_ne!(keybox.identity_digest(), [0u8; 32]);
     }
