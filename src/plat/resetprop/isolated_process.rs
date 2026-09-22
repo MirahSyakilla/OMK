@@ -117,6 +117,11 @@ fn query_activity_packages(uid: u32, pid: u32) -> Result<Vec<String>> {
     // OEMs insert methods into this non-stable AIDL. Read the actual Stub constant
     // from the trusted system framework instead of calling an SDK-based guess.
     contract.transaction = framework::running_processes_transaction()?;
+    // This image reports SDK 36 but its framework Stub uses the structured
+    // Android 17 transaction number. Trust that constant over the SDK table.
+    if contract.transaction == 15 {
+        contract.layout = ProcessParcelLayout::Structured;
+    }
     rsbinder::ProcessState::init_default()
         .map_err(|error| anyhow!("failed to initialize Binder in privileged helper: {error}"))?;
     let binder = require_binder_service(ACTIVITY_SERVICE, hub::try_get_service(ACTIVITY_SERVICE))?;
