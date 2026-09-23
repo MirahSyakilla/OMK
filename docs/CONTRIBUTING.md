@@ -57,8 +57,9 @@ State in the pull request what behavior remains unchanged.
   set changes only after that call succeeds: System success remembers it, and a
   successful attested OMK generate or import clears it. The alias set is
   process memory only.
-- EC `generateKey` rejects `Encrypt`, `Decrypt`, and `WrapKey` with
-  `IncompatiblePurpose`.
+- `generateKey` rejects an illegal purpose with `IncompatiblePurpose`: EC
+  `Encrypt`, `Decrypt`, and `WrapKey`; RSA `AgreeKey`; any ML-DSA purpose
+  other than `Sign`, `Verify`, and `AttestKey`.
 - Choose any other backend only from the current caller, filter decision,
   method, and configuration. Do not inspect or infer which backend created a
   `KEY_ID`, `GRANT`, wrapping key, or attestation key.

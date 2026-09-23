@@ -526,7 +526,10 @@ fn check_rsa_params(params: &[KeyParam]) -> Result<(), Error> {
                 | KeyPurpose::Verify
                 | KeyPurpose::Encrypt => {}
                 KeyPurpose::AgreeKey => {
-                    warn!("Generating RSA key with invalid purpose {purpose:?}")
+                    return Err(km_err!(
+                        IncompatiblePurpose,
+                        "invalid purpose {purpose:?} for RSA key"
+                    ));
                 }
             }
         }
@@ -828,7 +831,12 @@ fn check_mldsa_params(params: &[KeyParam], sec_level: SecurityLevel) -> Result<(
         if let KeyParam::Purpose(purpose) = param {
             match purpose {
                 KeyPurpose::Sign | KeyPurpose::AttestKey | KeyPurpose::Verify => {}
-                _ => warn!("Generating ML-DSA key with invalid purpose {purpose:?}"),
+                _ => {
+                    return Err(km_err!(
+                        IncompatiblePurpose,
+                        "invalid purpose {purpose:?} for ML-DSA key"
+                    ));
+                }
             }
         }
     }

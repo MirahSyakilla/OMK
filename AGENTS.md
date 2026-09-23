@@ -39,7 +39,8 @@
   passed to System when its wrapping key is already a System alias. The alias set changes only after
   that call succeeds: System success remembers it, and a successful attested OMK generate or import
   clears it. The alias set is process memory only.
-- EC `generateKey` rejects `Encrypt`, `Decrypt`, and `WrapKey` with `IncompatiblePurpose`.
+- `generateKey` rejects an illegal purpose with `IncompatiblePurpose`: EC `Encrypt`, `Decrypt`,
+  and `WrapKey`; RSA `AgreeKey`; any ML-DSA purpose other than `Sign`, `Verify`, and `AttestKey`.
 - Choose any other backend only from the current caller, filter decision, method, and configuration.
   Do not read or infer which backend created a `KEY_ID`, `GRANT`, wrapping key, or attestation key.
 - Per-method intercept settings are authoritative. When interception for a method is disabled, pass
