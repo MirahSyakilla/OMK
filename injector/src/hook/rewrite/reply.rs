@@ -584,6 +584,10 @@ pub(super) fn build_omk_security_level_reply(
                         response
                     }
                     Err(error) => {
+                        // A full TEE table still pays the begin round-trip before
+                        // TOO_MANY_OPERATIONS. Skipping the pad makes that error a
+                        // timing oracle against a successful begin.
+                        omk_begin_phase();
                         return omk_status_reply_for_method(
                             "createOperation",
                             &pending.caller,
