@@ -31,7 +31,7 @@ use crate::parcel::{
 };
 use crate::top::qwq2333::ohmykeymint::CallerInfo::CallerInfo;
 use crate::tracker::{self, SecurityLevelTargetInfo};
-use log::{debug, info, warn};
+use log::{debug, info, trace, warn};
 use rsbinder::{ExceptionCode, Status, StatusCode, Strong};
 
 mod mirror;
@@ -305,11 +305,25 @@ fn precompute_omk_service_mutator_reply(
         }
         ParsedServiceRequest::DeleteKey { key } => {
             match ipc::with_omk_once(|omk| Ok(omk.r#deleteKey(Some(caller), key)?)) {
-                Ok(()) => OmkServicePrecompute::Reply(PrecomputedServiceReply::DeleteKeySuccess),
+                Ok(()) => {
+                    request::forget_hardware_key(caller.uid, key);
+                    OmkServicePrecompute::ReplyAfterSystem(
+                        PrecomputedServiceReply::DeleteKeySuccess,
+                    )
+                }
                 Err(error) if omk_unavailable_error(&error) => {
+                    request::forget_hardware_key(caller.uid, key);
                     warn!(
                         "event=route OMK deleteKey unavailable for uid={} pid={}: {:#}; leaving original system request untouched",
                         caller.uid, caller.pid, error
+                    );
+                    OmkServicePrecompute::PreserveSystem
+                }
+                Err(error) if reply::is_key_not_found(&error) => {
+                    request::forget_hardware_key(caller.uid, key);
+                    trace!(
+                        "event=route OMK deleteKey missed for uid={} pid={}; leaving original system request untouched",
+                        caller.uid, caller.pid
                     );
                     OmkServicePrecompute::PreserveSystem
                 }

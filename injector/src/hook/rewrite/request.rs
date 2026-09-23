@@ -25,7 +25,7 @@ pub(super) fn remember_hardware_key(uid: i64, key: &KeyDescriptor) {
     }
 }
 
-fn forget_hardware_key(uid: i64, key: &KeyDescriptor) {
+pub(super) fn forget_hardware_key(uid: i64, key: &KeyDescriptor) {
     let Some(id) = hardware_alias(uid, key) else {
         return;
     };
@@ -613,6 +613,7 @@ unsafe fn handle_keystore_transaction(
                     block_system_request(tr);
                     Some(reply)
                 }
+                OmkServicePrecompute::ReplyAfterSystem(reply) => Some(reply),
                 OmkServicePrecompute::PreserveSystem => {
                     trace!(
                         "event=route method={:?} uid={} pid={} route={:?} omk_unavailable=true; preserving original system request",

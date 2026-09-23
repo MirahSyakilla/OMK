@@ -30,8 +30,10 @@
 - `generateKey` with no `ATTESTATION_CHALLENGE` is passed to System, and that alias is remembered
   for the caller. A `getKeyEntry` that OMK does not have, when System returns the key, is also
   remembered. Later `createOperation`, `deleteKey`, `getKeyEntry`, and `updateSubcomponent` for the
-  same alias are passed to System. `generateKey` that carries `ATTESTATION_CHALLENGE` stays on OMK
-  and clears that alias. The alias set is process memory only.
+  same alias are passed to System. `deleteKey` that OMK does not have is passed to System. A
+  successful OMK `deleteKey` still runs the System delete, and the client sees the OMK success.
+  `generateKey` that carries `ATTESTATION_CHALLENGE` stays on OMK and clears that alias. The alias
+  set is process memory only.
 - EC `generateKey` rejects `Encrypt`, `Decrypt`, and `WrapKey` with `IncompatiblePurpose`.
 - Choose any other backend only from the current caller, filter decision, method, and configuration.
   Do not read or infer which backend created a `KEY_ID`, `GRANT`, wrapping key, or attestation key.

@@ -95,7 +95,7 @@ pub(super) fn build_omk_status_reply(status: &Status) -> anyhow::Result<Outbound
     Ok(synthetic_fallback_reply())
 }
 
-fn is_key_not_found(error: &anyhow::Error) -> bool {
+pub(super) fn is_key_not_found(error: &anyhow::Error) -> bool {
     error_status(error).is_some_and(|status| {
         status.exception_code() == ExceptionCode::ServiceSpecific
             && status.service_specific_error() == ResponseCode::KEY_NOT_FOUND.0
