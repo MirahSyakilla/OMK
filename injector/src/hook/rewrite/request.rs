@@ -106,11 +106,7 @@ fn leave_non_attested_key_on_system(request: &ParsedSecurityLevelRequest, uid: i
             ..
         } => is_hardware_key(uid, wrapping_key) || !params_have_attestation_challenge(params),
         ParsedSecurityLevelRequest::CreateOperation { key, .. } => is_hardware_key(uid, key),
-        ParsedSecurityLevelRequest::DeleteKey { key } if is_hardware_key(uid, key) => {
-            forget_hardware_key(uid, key);
-            forget_shadowed_key(uid, key);
-            true
-        }
+        ParsedSecurityLevelRequest::DeleteKey { key } if is_hardware_key(uid, key) => true,
         _ => false,
     }
 }
@@ -121,6 +117,7 @@ fn tracks_system_key_alias(request: &ParsedSecurityLevelRequest) -> bool {
         ParsedSecurityLevelRequest::GenerateKey { .. }
             | ParsedSecurityLevelRequest::ImportKey { .. }
             | ParsedSecurityLevelRequest::ImportWrappedKey { .. }
+            | ParsedSecurityLevelRequest::DeleteKey { .. }
     )
 }
 
@@ -154,11 +151,7 @@ fn forget_attested_omk_alias(pending: &PendingSecurityLevelCall) {
 fn leave_hardware_service_key_on_system(request: &ParsedServiceRequest, uid: i64) -> bool {
     match request {
         ParsedServiceRequest::GetKeyEntry { key } => is_hardware_key(uid, key),
-        ParsedServiceRequest::DeleteKey { key } if is_hardware_key(uid, key) => {
-            forget_hardware_key(uid, key);
-            forget_shadowed_key(uid, key);
-            true
-        }
+        ParsedServiceRequest::DeleteKey { key } if is_hardware_key(uid, key) => true,
         ParsedServiceRequest::UpdateSubcomponent { key, .. }
         | ParsedServiceRequest::Grant { key, .. }
         | ParsedServiceRequest::Ungrant { key, .. }
@@ -746,6 +739,7 @@ unsafe fn handle_keystore_transaction(
                 &pending.request,
                 ParsedServiceRequest::GetSecurityLevel { .. }
                     | ParsedServiceRequest::GetKeyEntry { .. }
+                    | ParsedServiceRequest::DeleteKey { .. }
             );
         if pending.route == RouteTarget::System
             && precomputed_service_reply.is_none()

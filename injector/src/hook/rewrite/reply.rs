@@ -468,6 +468,10 @@ pub(super) unsafe fn observe_system_service_reply(
                 "getKeyEntry security-level carrier"
             );
         }
+        ParsedServiceRequest::DeleteKey { key } if system_reply_is_ok(tr) => {
+            super::request::forget_hardware_key(pending.caller.uid, key);
+            super::request::forget_shadowed_key(pending.caller.uid, key);
+        }
         _ => {}
     }
     Ok(None)
@@ -700,6 +704,10 @@ pub(super) unsafe fn observe_system_security_level_reply(
             | ParsedSecurityLevelRequest::ImportKey { key, .. }
             | ParsedSecurityLevelRequest::ImportWrappedKey { key, .. } => {
                 super::request::remember_hardware_key(pending.caller.uid, key);
+            }
+            ParsedSecurityLevelRequest::DeleteKey { key } => {
+                super::request::forget_hardware_key(pending.caller.uid, key);
+                super::request::forget_shadowed_key(pending.caller.uid, key);
             }
             _ => {}
         }
