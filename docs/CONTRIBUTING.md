@@ -52,8 +52,8 @@ State in the pull request what behavior remains unchanged.
   `getNumberOfEntries` include System aliases. An alias that exists on both
   backends is counted once. `createOperation` for an alias
   OMK does not have is passed to System. `importKey` and `importWrappedKey`
-  follow the same challenge rule as `generateKey`. `importWrappedKey` is also
-  passed to System when its wrapping key is already a System alias. The alias
+  follow the same challenge rule as `generateKey`. An attested
+  `importWrappedKey` stays on OMK even when its wrapping key is a System alias. The alias
   set changes only after that call succeeds: System success remembers it, and a
   successful attested OMK generate or import clears it. The alias set is
   process memory only.

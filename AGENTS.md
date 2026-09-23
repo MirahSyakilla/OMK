@@ -34,9 +34,9 @@
   System. A
   successful OMK `deleteKey` still runs the System delete, and the client sees the OMK success.
   `listEntries`, `listEntriesBatched`, and `getNumberOfEntries` include System aliases.
-  `createOperation` for an alias OMK does not have is passed to System. `importKey` and
-  `importWrappedKey` follow the same challenge rule as `generateKey`. `importWrappedKey` is also
-  passed to System when its wrapping key is already a System alias. The alias set changes only after
+  `createOperation` for an alias OMK does not have is passed to System.   `importKey` and
+  `importWrappedKey` follow the same challenge rule as `generateKey`. An attested
+  `importWrappedKey` stays on OMK even when its wrapping key is a System alias. The alias set changes only after
   that call succeeds: System success remembers it, and a successful attested OMK generate or import
   clears it. The alias set is process memory only.
 - `generateKey` rejects an illegal purpose with `IncompatiblePurpose`: EC `Encrypt`, `Decrypt`,

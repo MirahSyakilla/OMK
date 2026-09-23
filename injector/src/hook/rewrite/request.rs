@@ -100,11 +100,9 @@ fn leave_non_attested_key_on_system(request: &ParsedSecurityLevelRequest, uid: i
         | ParsedSecurityLevelRequest::ImportKey { params, .. } => {
             !params_have_attestation_challenge(params)
         }
-        ParsedSecurityLevelRequest::ImportWrappedKey {
-            wrapping_key,
-            params,
-            ..
-        } => is_hardware_key(uid, wrapping_key) || !params_have_attestation_challenge(params),
+        ParsedSecurityLevelRequest::ImportWrappedKey { params, .. } => {
+            !params_have_attestation_challenge(params)
+        }
         ParsedSecurityLevelRequest::CreateOperation { key, .. } => is_hardware_key(uid, key),
         ParsedSecurityLevelRequest::DeleteKey { key } if is_hardware_key(uid, key) => true,
         _ => false,
@@ -126,19 +124,9 @@ fn forget_attested_omk_alias(pending: &PendingSecurityLevelCall) {
     match &pending.request {
         ParsedSecurityLevelRequest::GenerateKey { key, params, .. }
         | ParsedSecurityLevelRequest::ImportKey { key, params, .. }
+        | ParsedSecurityLevelRequest::ImportWrappedKey { key, params, .. }
             if params_have_attestation_challenge(params) =>
         {
-            if is_hardware_key(uid, key) {
-                remember_shadowed_key(uid, key);
-            }
-            forget_hardware_key(uid, key);
-        }
-        ParsedSecurityLevelRequest::ImportWrappedKey {
-            key,
-            params,
-            wrapping_key,
-            ..
-        } if params_have_attestation_challenge(params) && !is_hardware_key(uid, wrapping_key) => {
             if is_hardware_key(uid, key) {
                 remember_shadowed_key(uid, key);
             }
