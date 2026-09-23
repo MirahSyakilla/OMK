@@ -95,7 +95,7 @@ fn grant_precompute_returns_reachable_omk_business_error() {
         &caller,
         |_, _, _, _| {
             Err(anyhow::Error::new(Status::new_service_specific_error(
-                7, None,
+                6, None,
             )))
         },
         |_, _, _| panic!("grant requests must not call ungrant"),
@@ -108,7 +108,36 @@ fn grant_precompute_returns_reachable_omk_business_error() {
         status.exception_code(),
         rsbinder::ExceptionCode::ServiceSpecific
     );
-    assert_eq!(status.service_specific_error(), 7);
+    assert_eq!(status.service_specific_error(), 6);
+}
+
+#[test]
+fn grant_precompute_preserves_system_when_omk_lacks_the_key() {
+    let request = ParsedServiceRequest::Grant {
+        key: sample_key_descriptor(),
+        grantee_uid: 12345,
+        access_vector: 7,
+    };
+    let caller = CallerInfo {
+        uid: 1000,
+        sid: String::new(),
+        pid: 2000,
+        keyboxSlot: 0,
+        rkpCredential: 0,
+    };
+
+    let result = precompute_omk_grant_service_reply_with(
+        &request,
+        &caller,
+        |_, _, _, _| {
+            Err(anyhow::Error::new(Status::new_service_specific_error(
+                7, None,
+            )))
+        },
+        |_, _, _| panic!("grant requests must not call ungrant"),
+    );
+
+    assert!(matches!(result, OmkServicePrecompute::PreserveSystem));
 }
 
 #[test]
@@ -330,5 +359,3 @@ fn denylisted_grant_readback_does_not_probe_omk() {
     )
     .expect("denylisted grant lookup should succeed"));
 }
-
-

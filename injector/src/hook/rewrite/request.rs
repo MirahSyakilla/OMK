@@ -108,7 +108,13 @@ fn leave_hardware_service_key_on_system(request: &ParsedServiceRequest, uid: i64
             forget_hardware_key(uid, key);
             true
         }
-        ParsedServiceRequest::UpdateSubcomponent { key, .. } if is_hardware_key(uid, key) => true,
+        ParsedServiceRequest::UpdateSubcomponent { key, .. }
+        | ParsedServiceRequest::Grant { key, .. }
+        | ParsedServiceRequest::Ungrant { key, .. }
+            if is_hardware_key(uid, key) =>
+        {
+            true
+        }
         _ => false,
     }
 }

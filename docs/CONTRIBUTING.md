@@ -44,8 +44,9 @@ State in the pull request what behavior remains unchanged.
 - `generateKey` with no `ATTESTATION_CHALLENGE` is passed to System, and that
   alias is remembered for the caller. A `getKeyEntry` that OMK does not have,
   when System returns the key, is also remembered. Later `createOperation`,
-  `deleteKey`, `getKeyEntry`, and `updateSubcomponent` for the same alias are
-  passed to System. `deleteKey` that OMK does not have is passed to System.
+  `deleteKey`, `getKeyEntry`, `updateSubcomponent`, `grant`, and `ungrant` for the same
+  alias are passed to System. `deleteKey`, `updateSubcomponent`, `grant`, and
+  `ungrant` that OMK does not have are passed to System.
   A successful OMK `deleteKey` still runs the System delete, and the client
   sees the OMK success. `listEntries`, `listEntriesBatched`, and
   `getNumberOfEntries` include System aliases. `createOperation` for an alias

@@ -288,10 +288,10 @@ fn precompute_omk_service_mutator_reply(
                     certificate_chain.as_deref(),
                 )?)
             }) {
-                Ok(()) => {
-                    OmkServicePrecompute::Reply(PrecomputedServiceReply::UpdateSubcomponentSuccess)
-                }
-                Err(error) if omk_unavailable_error(&error) => {
+                Ok(()) => OmkServicePrecompute::ReplyAfterSystem(
+                    PrecomputedServiceReply::UpdateSubcomponentSuccess,
+                ),
+                Err(error) if omk_unavailable_error(&error) || reply::is_key_not_found(&error) => {
                     warn!(
                     "event=route OMK updateSubcomponent unavailable for uid={} pid={}: {:#}; leaving original system request untouched",
                     caller.uid, caller.pid, error
@@ -367,9 +367,9 @@ fn precompute_omk_grant_service_reply_with(
             Ok(omk_grant) => {
                 OmkServicePrecompute::Reply(PrecomputedServiceReply::GrantSuccess(omk_grant))
             }
-            Err(error) if omk_unavailable_error(&error) => {
+            Err(error) if omk_unavailable_error(&error) || reply::is_key_not_found(&error) => {
                 warn!(
-                    "event=route OMK grant unavailable for uid={} pid={}: {:#}; leaving original system request untouched",
+                    "event=route OMK grant missed or unavailable for uid={} pid={}: {:#}; leaving original system request untouched",
                     caller.uid, caller.pid, error
                 );
                 OmkServicePrecompute::PreserveSystem
@@ -387,9 +387,9 @@ fn precompute_omk_grant_service_reply_with(
         ParsedServiceRequest::Ungrant { key, grantee_uid } => {
             match ungrant(caller, key, *grantee_uid) {
                 Ok(()) => OmkServicePrecompute::Reply(PrecomputedServiceReply::UngrantSuccess),
-                Err(error) if omk_unavailable_error(&error) => {
+                Err(error) if omk_unavailable_error(&error) || reply::is_key_not_found(&error) => {
                     warn!(
-                        "event=route OMK ungrant unavailable for uid={} pid={}: {:#}; leaving original system request untouched",
+                        "event=route OMK ungrant missed or unavailable for uid={} pid={}: {:#}; leaving original system request untouched",
                         caller.uid, caller.pid, error
                     );
                     OmkServicePrecompute::PreserveSystem
