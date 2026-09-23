@@ -596,7 +596,16 @@ pub(super) unsafe fn build_service_reply_rewrite(
                 Ok(omk.r#getNumberOfEntries(Some(caller), *domain, *nspace)?)
             }) {
                 Ok(count) => {
-                    let total = system_count.unwrap_or(0).saturating_add(count);
+                    let total = match system_count {
+                        Some(system) => system.saturating_add(count).saturating_sub(
+                            super::request::shadowed_key_count(
+                                pending.caller.uid,
+                                domain.0,
+                                *nspace,
+                            ),
+                        ),
+                        None => count,
+                    };
                     Ok(Some(parcel::build_plain_reply(&total)?))
                 }
                 Err(_) if system_count.is_some() => Ok(None),

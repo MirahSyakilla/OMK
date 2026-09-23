@@ -49,7 +49,8 @@ State in the pull request what behavior remains unchanged.
   `ungrant` that OMK does not have are passed to System.
   A successful OMK `deleteKey` still runs the System delete, and the client
   sees the OMK success. `listEntries`, `listEntriesBatched`, and
-  `getNumberOfEntries` include System aliases. `createOperation` for an alias
+  `getNumberOfEntries` include System aliases. An alias that exists on both
+  backends is counted once. `createOperation` for an alias
   OMK does not have is passed to System. `importKey` and `importWrappedKey`
   follow the same challenge rule as `generateKey`. `importWrappedKey` is also
   passed to System when its wrapping key is already a System alias. The alias

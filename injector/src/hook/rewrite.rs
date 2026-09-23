@@ -307,12 +307,14 @@ fn precompute_omk_service_mutator_reply(
             match ipc::with_omk_once(|omk| Ok(omk.r#deleteKey(Some(caller), key)?)) {
                 Ok(()) => {
                     request::forget_hardware_key(caller.uid, key);
+                    request::forget_shadowed_key(caller.uid, key);
                     OmkServicePrecompute::ReplyAfterSystem(
                         PrecomputedServiceReply::DeleteKeySuccess,
                     )
                 }
                 Err(error) if omk_unavailable_error(&error) => {
                     request::forget_hardware_key(caller.uid, key);
+                    request::forget_shadowed_key(caller.uid, key);
                     warn!(
                         "event=route OMK deleteKey unavailable for uid={} pid={}: {:#}; leaving original system request untouched",
                         caller.uid, caller.pid, error
@@ -321,6 +323,7 @@ fn precompute_omk_service_mutator_reply(
                 }
                 Err(error) if reply::is_key_not_found(&error) => {
                     request::forget_hardware_key(caller.uid, key);
+                    request::forget_shadowed_key(caller.uid, key);
                     trace!(
                         "event=route OMK deleteKey missed for uid={} pid={}; leaving original system request untouched",
                         caller.uid, caller.pid

@@ -7,6 +7,9 @@ use log::{debug, info, trace};
 
 static HARDWARE_KEY_ALIASES: LazyLock<Mutex<HashSet<(i64, String)>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
+type ShadowedAlias = (i64, i32, i64, String);
+static SHADOWED_KEY_ALIASES: LazyLock<Mutex<HashSet<ShadowedAlias>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
 
 fn hardware_alias(uid: i64, key: &KeyDescriptor) -> Option<(i64, String)> {
     let alias = key.alias.as_ref()?;
@@ -32,6 +35,46 @@ pub(super) fn forget_hardware_key(uid: i64, key: &KeyDescriptor) {
     if let Ok(mut keys) = HARDWARE_KEY_ALIASES.lock() {
         keys.remove(&id);
     }
+}
+
+fn shadow_id(uid: i64, key: &KeyDescriptor) -> Option<(i64, i32, i64, String)> {
+    let alias = key.alias.as_ref()?;
+    if alias.is_empty() {
+        return None;
+    }
+    Some((uid, key.domain.0, key.nspace, alias.clone()))
+}
+
+pub(super) fn remember_shadowed_key(uid: i64, key: &KeyDescriptor) {
+    let Some(id) = shadow_id(uid, key) else {
+        return;
+    };
+    if let Ok(mut keys) = SHADOWED_KEY_ALIASES.lock() {
+        keys.insert(id);
+    }
+}
+
+pub(super) fn forget_shadowed_key(uid: i64, key: &KeyDescriptor) {
+    let Some(id) = shadow_id(uid, key) else {
+        return;
+    };
+    if let Ok(mut keys) = SHADOWED_KEY_ALIASES.lock() {
+        keys.remove(&id);
+    }
+}
+
+pub(super) fn shadowed_key_count(uid: i64, domain: i32, nspace: i64) -> i32 {
+    SHADOWED_KEY_ALIASES
+        .lock()
+        .ok()
+        .map(|keys| {
+            keys.iter()
+                .filter(|(key_uid, key_domain, key_nspace, _)| {
+                    *key_uid == uid && *key_domain == domain && *key_nspace == nspace
+                })
+                .count() as i32
+        })
+        .unwrap_or(0)
 }
 
 fn is_hardware_key(uid: i64, key: &KeyDescriptor) -> bool {
@@ -65,6 +108,7 @@ fn leave_non_attested_key_on_system(request: &ParsedSecurityLevelRequest, uid: i
         ParsedSecurityLevelRequest::CreateOperation { key, .. } => is_hardware_key(uid, key),
         ParsedSecurityLevelRequest::DeleteKey { key } if is_hardware_key(uid, key) => {
             forget_hardware_key(uid, key);
+            forget_shadowed_key(uid, key);
             true
         }
         _ => false,
@@ -87,6 +131,9 @@ fn forget_attested_omk_alias(pending: &PendingSecurityLevelCall) {
         | ParsedSecurityLevelRequest::ImportKey { key, params, .. }
             if params_have_attestation_challenge(params) =>
         {
+            if is_hardware_key(uid, key) {
+                remember_shadowed_key(uid, key);
+            }
             forget_hardware_key(uid, key);
         }
         ParsedSecurityLevelRequest::ImportWrappedKey {
@@ -95,6 +142,9 @@ fn forget_attested_omk_alias(pending: &PendingSecurityLevelCall) {
             wrapping_key,
             ..
         } if params_have_attestation_challenge(params) && !is_hardware_key(uid, wrapping_key) => {
+            if is_hardware_key(uid, key) {
+                remember_shadowed_key(uid, key);
+            }
             forget_hardware_key(uid, key);
         }
         _ => {}
@@ -106,6 +156,7 @@ fn leave_hardware_service_key_on_system(request: &ParsedServiceRequest, uid: i64
         ParsedServiceRequest::GetKeyEntry { key } => is_hardware_key(uid, key),
         ParsedServiceRequest::DeleteKey { key } if is_hardware_key(uid, key) => {
             forget_hardware_key(uid, key);
+            forget_shadowed_key(uid, key);
             true
         }
         ParsedServiceRequest::UpdateSubcomponent { key, .. }
