@@ -100,7 +100,7 @@ pub(super) fn build_omk_status_reply(status: &Status) -> anyhow::Result<Outbound
     Ok(synthetic_fallback_reply())
 }
 
-pub(super) fn owned_reply_is_key_not_found(reply: &parcel::OwnedReply) -> bool {
+fn owned_reply_status(reply: &parcel::OwnedReply) -> Option<Status> {
     let data_size = reply.data_size();
     let offsets_size = reply.offsets_size();
     unsafe {
@@ -110,11 +110,19 @@ pub(super) fn owned_reply_is_key_not_found(reply: &parcel::OwnedReply) -> bool {
         } else {
             reply.offsets.as_ptr() as *mut usize
         };
-        parcel::parse_reply_status(data, data_size, offsets, offsets_size).is_ok_and(|status| {
-            status.exception_code() == ExceptionCode::ServiceSpecific
-                && status.service_specific_error() == ResponseCode::KEY_NOT_FOUND.0
-        })
+        parcel::parse_reply_status(data, data_size, offsets, offsets_size).ok()
     }
+}
+
+pub(super) fn owned_reply_is_ok(reply: &parcel::OwnedReply) -> bool {
+    owned_reply_status(reply).is_some_and(|status| status.is_ok())
+}
+
+pub(super) fn owned_reply_is_key_not_found(reply: &parcel::OwnedReply) -> bool {
+    owned_reply_status(reply).is_some_and(|status| {
+        status.exception_code() == ExceptionCode::ServiceSpecific
+            && status.service_specific_error() == ResponseCode::KEY_NOT_FOUND.0
+    })
 }
 
 pub(super) fn is_key_not_found(error: &anyhow::Error) -> bool {
@@ -675,6 +683,16 @@ pub(super) unsafe fn observe_system_security_level_reply(
                 "createOperation reply",
                 error,
             );
+        }
+    }
+    if system_reply_is_ok(tr) {
+        match &pending.request {
+            ParsedSecurityLevelRequest::GenerateKey { key, .. }
+            | ParsedSecurityLevelRequest::ImportKey { key, .. }
+            | ParsedSecurityLevelRequest::ImportWrappedKey { key, .. } => {
+                super::request::remember_hardware_key(pending.caller.uid, key);
+            }
+            _ => {}
         }
     }
     Ok(None)

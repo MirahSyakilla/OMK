@@ -53,21 +53,51 @@ fn params_have_attestation_challenge(
 
 fn leave_non_attested_key_on_system(request: &ParsedSecurityLevelRequest, uid: i64) -> bool {
     match request {
-        ParsedSecurityLevelRequest::GenerateKey { key, params, .. } => {
-            if params_have_attestation_challenge(params) {
-                forget_hardware_key(uid, key);
-                false
-            } else {
-                remember_hardware_key(uid, key);
-                true
-            }
+        ParsedSecurityLevelRequest::GenerateKey { params, .. }
+        | ParsedSecurityLevelRequest::ImportKey { params, .. } => {
+            !params_have_attestation_challenge(params)
         }
+        ParsedSecurityLevelRequest::ImportWrappedKey {
+            wrapping_key,
+            params,
+            ..
+        } => is_hardware_key(uid, wrapping_key) || !params_have_attestation_challenge(params),
         ParsedSecurityLevelRequest::CreateOperation { key, .. } => is_hardware_key(uid, key),
         ParsedSecurityLevelRequest::DeleteKey { key } if is_hardware_key(uid, key) => {
             forget_hardware_key(uid, key);
             true
         }
         _ => false,
+    }
+}
+
+fn tracks_system_key_alias(request: &ParsedSecurityLevelRequest) -> bool {
+    matches!(
+        request,
+        ParsedSecurityLevelRequest::GenerateKey { .. }
+            | ParsedSecurityLevelRequest::ImportKey { .. }
+            | ParsedSecurityLevelRequest::ImportWrappedKey { .. }
+    )
+}
+
+fn forget_attested_omk_alias(pending: &PendingSecurityLevelCall) {
+    let uid = pending.caller.uid;
+    match &pending.request {
+        ParsedSecurityLevelRequest::GenerateKey { key, params, .. }
+        | ParsedSecurityLevelRequest::ImportKey { key, params, .. }
+            if params_have_attestation_challenge(params) =>
+        {
+            forget_hardware_key(uid, key);
+        }
+        ParsedSecurityLevelRequest::ImportWrappedKey {
+            key,
+            params,
+            wrapping_key,
+            ..
+        } if params_have_attestation_challenge(params) && !is_hardware_key(uid, wrapping_key) => {
+            forget_hardware_key(uid, key);
+        }
+        _ => {}
     }
 }
 
@@ -804,6 +834,18 @@ unsafe fn handle_keystore_transaction(
         );
 
         if route == RouteTarget::System {
+            if expects_reply && tracks_system_key_alias(&request) {
+                replace_top_pending(
+                    connection,
+                    PendingCall::SecurityLevel(PendingSecurityLevelCall {
+                        request,
+                        caller,
+                        packages: decision.packages,
+                        route,
+                        security_level: target_info.security_level,
+                    }),
+                );
+            }
             return false;
         }
 
@@ -833,7 +875,12 @@ unsafe fn handle_keystore_transaction(
                     );
                     return false;
                 }
-                Ok(Some(reply)) => reply,
+                Ok(Some(reply)) => {
+                    if reply::owned_reply_is_ok(&reply) {
+                        forget_attested_omk_alias(&pending);
+                    }
+                    reply
+                }
                 Ok(None) => {
                     trace!(
                         "event=route security-level {:?} OMK unavailable for uid={} pid={}; preserving original system request",
