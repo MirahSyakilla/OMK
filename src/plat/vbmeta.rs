@@ -517,6 +517,24 @@ fn sync_sysprops_if_needed(
     Ok(())
 }
 
+pub fn spawn_oem_unlock_reassert(device_locked: bool) {
+    std::thread::spawn(move || {
+        let desired = if device_locked { "0" } else { "1" };
+        loop {
+            std::thread::sleep(Duration::from_secs(1));
+            if resetprop::read_string_property(OEM_UNLOCK_ALLOWED_PROP).as_deref() == Some(desired)
+            {
+                continue;
+            }
+            if let Err(error) =
+                resetprop::runtime_write_and_verify_property(OEM_UNLOCK_ALLOWED_PROP, desired)
+            {
+                log::warn!("failed to restore {OEM_UNLOCK_ALLOWED_PROP}={desired}: {error:#}");
+            }
+        }
+    });
+}
+
 fn sync_string_sysprop(property: &str, value: &str) -> Result<()> {
     if resetprop::read_string_property(property).as_deref() != Some(value) {
         resetprop::direct_write_and_verify_property(property, value)?;
