@@ -736,7 +736,12 @@ fn check_ec_params(
                 KeyPurpose::AgreeKey => seen_agree = true,
                 KeyPurpose::AttestKey => seen_attest = true,
                 KeyPurpose::Verify => {}
-                _ => warn!("Generating EC key with invalid purpose {purpose:?}"),
+                _ => {
+                    return Err(km_err!(
+                        IncompatiblePurpose,
+                        "invalid purpose {purpose:?} for EC key"
+                    ));
+                }
             }
             if primary_purpose.is_none() {
                 primary_purpose = Some(*purpose);

@@ -16,7 +16,7 @@ fn hardware_alias(uid: i64, key: &KeyDescriptor) -> Option<(i64, String)> {
     Some((uid, alias.clone()))
 }
 
-fn remember_hardware_key(uid: i64, key: &KeyDescriptor) {
+pub(super) fn remember_hardware_key(uid: i64, key: &KeyDescriptor) {
     let Some(id) = hardware_alias(uid, key) else {
         return;
     };

@@ -95,6 +95,19 @@ pub(super) fn build_omk_status_reply(status: &Status) -> anyhow::Result<Outbound
     Ok(synthetic_fallback_reply())
 }
 
+fn is_key_not_found(error: &anyhow::Error) -> bool {
+    error_status(error).is_some_and(|status| {
+        status.exception_code() == ExceptionCode::ServiceSpecific
+            && status.service_specific_error() == ResponseCode::KEY_NOT_FOUND.0
+    })
+}
+
+unsafe fn system_reply_is_ok(tr: &binder_transaction_data) -> bool {
+    let (data, data_size, offsets, offsets_size) = transaction_parts(tr);
+    parcel::parse_reply_status(data, data_size, offsets, offsets_size)
+        .is_ok_and(|status| status.is_ok())
+}
+
 fn error_status(error: &anyhow::Error) -> Option<&Status> {
     error
         .chain()
@@ -406,6 +419,14 @@ pub(super) unsafe fn build_service_reply_rewrite(
             let entry = match ipc::with_omk_retry(|omk| Ok(omk.r#getKeyEntry(Some(caller), key)?)) {
                 Ok(entry) => entry,
                 Err(error) => {
+                    if is_key_not_found(&error) && system_reply_is_ok(tr) {
+                        super::request::remember_hardware_key(pending.caller.uid, key);
+                        warn!(
+                            "event=reply OMK getKeyEntry missed a system key for uid={} pid={}; preserving system reply",
+                            pending.caller.uid, pending.caller.pid
+                        );
+                        return Ok(None);
+                    }
                     return omk_error_reply_for_method("getKeyEntry", &pending.caller, &error);
                 }
             };
