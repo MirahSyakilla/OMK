@@ -24,12 +24,15 @@
 
 ### OMK Routing
 
-- For every request routed by `scoop` with `FilterDecision::allowed == true`, OMK is the only
-  backend during normal reachable operation. Per-method intercept settings still determine whether
-  a request is routed by `scoop`.
-- Choose the backend only from the current caller, filter decision, method, and configuration. Do
-  not read or infer which backend created a key, `KeyDescriptor`, `KEY_ID`, `GRANT`, alias,
-  wrapping key, or attestation key.
+- For every request routed by `scoop` with `FilterDecision::allowed == true`, OMK is the backend
+  during normal reachable operation, except a non-attested alias key. Per-method intercept settings
+  still determine whether a request is routed by `scoop`.
+- `generateKey` with no `ATTESTATION_CHALLENGE` is passed to System, and that alias is remembered
+  for the caller. Later `createOperation`, `deleteKey`, `getKeyEntry`, and `updateSubcomponent` for
+  the same alias are passed to System. `generateKey` that carries `ATTESTATION_CHALLENGE` stays on
+  OMK and clears that alias. The alias set is process memory only.
+- Choose any other backend only from the current caller, filter decision, method, and configuration.
+  Do not read or infer which backend created a `KEY_ID`, `GRANT`, wrapping key, or attestation key.
 - Per-method intercept settings are authoritative. When interception for a method is disabled, pass
   the request to System unchanged even for a caller allowed by `scoop`
 - Do not support key or descriptor continuity between System and OMK. Pass old, externally

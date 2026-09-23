@@ -1,5 +1,87 @@
 use super::*;
+use std::collections::HashSet;
+use std::sync::{LazyLock, Mutex};
+
+use crate::android::hardware::security::keymint::Tag::Tag;
 use log::{debug, info, trace};
+
+static HARDWARE_KEY_ALIASES: LazyLock<Mutex<HashSet<(i64, String)>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+fn hardware_alias(uid: i64, key: &KeyDescriptor) -> Option<(i64, String)> {
+    let alias = key.alias.as_ref()?;
+    if alias.is_empty() {
+        return None;
+    }
+    Some((uid, alias.clone()))
+}
+
+fn remember_hardware_key(uid: i64, key: &KeyDescriptor) {
+    let Some(id) = hardware_alias(uid, key) else {
+        return;
+    };
+    if let Ok(mut keys) = HARDWARE_KEY_ALIASES.lock() {
+        keys.insert(id);
+    }
+}
+
+fn forget_hardware_key(uid: i64, key: &KeyDescriptor) {
+    let Some(id) = hardware_alias(uid, key) else {
+        return;
+    };
+    if let Ok(mut keys) = HARDWARE_KEY_ALIASES.lock() {
+        keys.remove(&id);
+    }
+}
+
+fn is_hardware_key(uid: i64, key: &KeyDescriptor) -> bool {
+    hardware_alias(uid, key).is_some_and(|id| {
+        HARDWARE_KEY_ALIASES
+            .lock()
+            .ok()
+            .is_some_and(|keys| keys.contains(&id))
+    })
+}
+
+fn params_have_attestation_challenge(
+    params: &[crate::android::hardware::security::keymint::KeyParameter::KeyParameter],
+) -> bool {
+    params
+        .iter()
+        .any(|parameter| parameter.tag == Tag::ATTESTATION_CHALLENGE)
+}
+
+fn leave_non_attested_key_on_system(request: &ParsedSecurityLevelRequest, uid: i64) -> bool {
+    match request {
+        ParsedSecurityLevelRequest::GenerateKey { key, params, .. } => {
+            if params_have_attestation_challenge(params) {
+                forget_hardware_key(uid, key);
+                false
+            } else {
+                remember_hardware_key(uid, key);
+                true
+            }
+        }
+        ParsedSecurityLevelRequest::CreateOperation { key, .. } => is_hardware_key(uid, key),
+        ParsedSecurityLevelRequest::DeleteKey { key } if is_hardware_key(uid, key) => {
+            forget_hardware_key(uid, key);
+            true
+        }
+        _ => false,
+    }
+}
+
+fn leave_hardware_service_key_on_system(request: &ParsedServiceRequest, uid: i64) -> bool {
+    match request {
+        ParsedServiceRequest::GetKeyEntry { key } => is_hardware_key(uid, key),
+        ParsedServiceRequest::DeleteKey { key } if is_hardware_key(uid, key) => {
+            forget_hardware_key(uid, key);
+            true
+        }
+        ParsedServiceRequest::UpdateSubcomponent { key, .. } if is_hardware_key(uid, key) => true,
+        _ => false,
+    }
+}
 
 pub(super) fn target_from_transaction(tr: &binder_transaction_data) -> Option<LocalBinderTarget> {
     let ptr = unsafe { tr.target.ptr };
@@ -501,6 +583,9 @@ unsafe fn handle_keystore_transaction(
             );
             route = RouteTarget::System;
         }
+        if route == RouteTarget::Omk && leave_hardware_service_key_on_system(&request, caller.uid) {
+            route = RouteTarget::System;
+        }
         if allow_omk_grant {
             trace!(
                 "event=decision command={} service_method={:?} code=0x{:x} uid={} pid={} sid='{}' packages={:?} allowed=true reason={:?} omk_grant=true",
@@ -666,11 +751,14 @@ unsafe fn handle_keystore_transaction(
         };
         // Keystore2 shares each security-level Binder between getSecurityLevel and getKeyEntry.
         let scoop_enabled = security_level_scoop_enabled(&cfg.intercept);
-        let route = if allow_unknown_omk_route || decision.allowed && scoop_enabled {
+        let mut route = if allow_unknown_omk_route || decision.allowed && scoop_enabled {
             RouteTarget::Omk
         } else {
             RouteTarget::System
         };
+        if route == RouteTarget::Omk && leave_non_attested_key_on_system(&request, caller.uid) {
+            route = RouteTarget::System;
+        }
         if !decision.allowed && !allow_unknown_omk_route {
             trace!(
                 "event=decision command={} security_level_method={:?} code=0x{:x} uid={} pid={} sid='{}' packages={:?} allowed=false reason={:?} target=ptr:0x{:x}/cookie:0x{:x} security_level={:?}; routing request to System",
