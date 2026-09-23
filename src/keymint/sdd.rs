@@ -143,11 +143,18 @@ impl HostSddManager {
         // Restore data from disk if it was previously saved.
         if path::Path::new(SECURE_DELETION_DATA_FILE).exists() {
             info!("parsing existing secure deletion data file");
-            self.data = read_sdd_file()?;
-            if let Err(reason) = Self::validate_loaded_data(&mut self.data) {
-                return self.reinitialize_persisted_state(rng, &reason);
+            match read_sdd_file() {
+                Ok(data) => {
+                    self.data = data;
+                    if let Err(reason) = Self::validate_loaded_data(&mut self.data) {
+                        return self.reinitialize_persisted_state(rng, &reason);
+                    }
+                    return Ok(());
+                }
+                Err(error) => {
+                    return self.reinitialize_persisted_state(rng, &format!("{error:?}"));
+                }
             }
-            return Ok(());
         }
 
         info!("creating secure deletion data file");
