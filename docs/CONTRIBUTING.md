@@ -51,7 +51,9 @@ State in the pull request what behavior remains unchanged.
   sees the OMK success. `listEntries`, `listEntriesBatched`, and
   `getNumberOfEntries` include System aliases. An alias that exists on both
   backends is counted once. `createOperation` for an alias
-  OMK does not have is passed to System. `importKey` and `importWrappedKey`
+  OMK does not have is passed to System. A `createOperation` that fails with
+  `INVALID_KEY_BLOB` is passed to System only when `getKeyEntry` also misses
+  that alias. `importKey` and `importWrappedKey`
   follow the same challenge rule as `generateKey`. An attested
   `importWrappedKey` stays on OMK even when its wrapping key is a System alias. The alias
   set changes only after that call succeeds: System success remembers it, and a

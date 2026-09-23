@@ -109,6 +109,19 @@ fn leave_non_attested_key_on_system(request: &ParsedSecurityLevelRequest, uid: i
     }
 }
 
+fn foreign_blob_not_in_omk(pending: &PendingSecurityLevelCall, reply: &parcel::OwnedReply) -> bool {
+    if !reply::owned_reply_is_invalid_key_blob(reply) {
+        return false;
+    }
+    let ParsedSecurityLevelRequest::CreateOperation { key, .. } = &pending.request else {
+        return false;
+    };
+    match crate::ipc::with_omk_retry(|omk| Ok(omk.r#getKeyEntry(Some(&pending.caller), key)?)) {
+        Err(error) if reply::is_key_not_found(&error) => true,
+        _ => false,
+    }
+}
+
 fn tracks_system_key_alias(request: &ParsedSecurityLevelRequest) -> bool {
     matches!(
         request,
@@ -901,7 +914,8 @@ unsafe fn handle_keystore_transaction(
                     if matches!(
                         pending.request,
                         ParsedSecurityLevelRequest::CreateOperation { .. }
-                    ) && reply::owned_reply_is_key_not_found(&reply) =>
+                    ) && (reply::owned_reply_is_key_not_found(&reply)
+                        || foreign_blob_not_in_omk(&pending, &reply)) =>
                 {
                     trace!(
                         "event=route security-level CreateOperation missed in OMK for uid={} pid={}; preserving original system request",

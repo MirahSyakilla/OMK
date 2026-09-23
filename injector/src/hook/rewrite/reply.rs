@@ -125,6 +125,15 @@ pub(super) fn owned_reply_is_key_not_found(reply: &parcel::OwnedReply) -> bool {
     })
 }
 
+pub(super) fn owned_reply_is_invalid_key_blob(reply: &parcel::OwnedReply) -> bool {
+    owned_reply_status(reply).is_some_and(|status| {
+        status.exception_code() == ExceptionCode::ServiceSpecific
+            && status.service_specific_error()
+                == crate::android::hardware::security::keymint::ErrorCode::ErrorCode::INVALID_KEY_BLOB
+                    .0
+    })
+}
+
 pub(super) fn is_key_not_found(error: &anyhow::Error) -> bool {
     error_status(error).is_some_and(|status| {
         status.exception_code() == ExceptionCode::ServiceSpecific
