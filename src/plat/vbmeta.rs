@@ -41,7 +41,6 @@ const VENDOR_VERIFIED_BOOT_STATE_PROP: &str = "vendor.boot.verifiedbootstate";
 const VBMETA_DEVICE_STATE_PROP: &str = "ro.boot.vbmeta.device_state";
 const VENDOR_VBMETA_DEVICE_STATE_PROP: &str = "vendor.boot.vbmeta.device_state";
 const VERITY_MODE_PROP: &str = "ro.boot.veritymode";
-const OEM_UNLOCK_ALLOWED_PROP: &str = "sys.oem_unlock_allowed";
 const ORIGINAL_HASH_TIMEOUT: Duration = Duration::from_secs(5);
 const AVB_HEADER_SIZE: usize = 256;
 const AVB_FOOTER_SIZE: usize = 64;
@@ -496,7 +495,6 @@ fn sync_sysprops_if_needed(
     }
 
     let flash_locked = if device_locked { "1" } else { "0" };
-    let oem_unlock_allowed = if device_locked { "0" } else { "1" };
     let verified_boot_state_prop = if verified_boot_state {
         "green"
     } else {
@@ -505,7 +503,7 @@ fn sync_sysprops_if_needed(
     let vbmeta_device_state = if device_locked { "locked" } else { "unlocked" };
 
     sync_string_sysprop(FLASH_LOCKED_PROP, flash_locked)?;
-    sync_string_sysprop(OEM_UNLOCK_ALLOWED_PROP, oem_unlock_allowed)?;
+    resetprop::delete_property("sys.oem_unlock_allowed");
     sync_string_sysprop(VERIFIED_BOOT_STATE_PROP, verified_boot_state_prop)?;
     sync_string_sysprop(VENDOR_VERIFIED_BOOT_STATE_PROP, verified_boot_state_prop)?;
     sync_string_sysprop(VBMETA_DEVICE_STATE_PROP, vbmeta_device_state)?;
@@ -515,24 +513,6 @@ fn sync_sysprops_if_needed(
     }
 
     Ok(())
-}
-
-pub fn spawn_oem_unlock_reassert(device_locked: bool) {
-    std::thread::spawn(move || {
-        let desired = if device_locked { "0" } else { "1" };
-        loop {
-            std::thread::sleep(Duration::from_secs(1));
-            if resetprop::read_string_property(OEM_UNLOCK_ALLOWED_PROP).as_deref() == Some(desired)
-            {
-                continue;
-            }
-            if let Err(error) =
-                resetprop::runtime_write_and_verify_property(OEM_UNLOCK_ALLOWED_PROP, desired)
-            {
-                log::warn!("failed to restore {OEM_UNLOCK_ALLOWED_PROP}={desired}: {error:#}");
-            }
-        }
-    });
 }
 
 fn sync_string_sysprop(property: &str, value: &str) -> Result<()> {

@@ -197,6 +197,25 @@ pub fn direct_write_and_verify_property(property: &str, value: &str) -> Result<(
     execute_write_and_verify(&command, property, value)
 }
 
+pub fn delete_property(property: &str) {
+    if read_string_property(property).is_none() {
+        return;
+    }
+    let Ok(command) = find_resetprop_command() else {
+        log::warn!("resetprop unavailable; leaving {property} set");
+        return;
+    };
+    let mut process = Command::new(&command.program);
+    if let Some(prepend_arg) = &command.prepend_arg {
+        process.arg(prepend_arg);
+    }
+    match process.arg("--delete").arg(property).status() {
+        Ok(status) if status.success() => {}
+        Ok(status) => log::warn!("resetprop --delete {property} failed: {status}"),
+        Err(error) => log::warn!("resetprop --delete {property} failed: {error}"),
+    }
+}
+
 pub fn read_string_property(name: &str) -> Option<String> {
     rsproperties::get::<String>(name)
         .ok()
