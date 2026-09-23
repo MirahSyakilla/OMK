@@ -330,6 +330,25 @@ impl Operation {
         Ok(())
     }
 
+    /// Abort this operation even if it is in the middle of a request.
+    ///
+    /// `prune` gives up with `OPERATION_BUSY` when the outcome lock is held or
+    /// the operation was touched. That leaves the KeyMint slot occupied, so the
+    /// retried `begin` fails with `TOO_MANY_OPERATIONS` again.
+    fn force_prune(&self) -> Result<(), Error> {
+        let mut locked_outcome = self.outcome.lock().expect("In Operation::force_prune()");
+        if *locked_outcome != Outcome::Unknown {
+            return Err(Error::Km(ErrorCode::INVALID_OPERATION_HANDLE));
+        }
+        *locked_outcome = Outcome::Pruned;
+
+        let _wp = self.watch("Operation::force_prune: calling IKeyMintOperation::abort()");
+        if let Err(e) = map_km_error(self.km_op.abort()) {
+            warn!("In force_prune: KeyMint::abort failed: {e:?}.");
+        }
+        Ok(())
+    }
+
     // This function takes a Result from a KeyMint call and inspects it for errors.
     // If an error was found it updates the given `locked_outcome` accordingly.
     // It forwards the Result unmodified.
@@ -856,12 +875,34 @@ impl OperationDb {
                                 // fail with `ErrorCode::TOO_MANY_OPERATIONS`, and call
                                 // us again (conservative approach).
                                 Err(Error::Rc(ResponseCode::OPERATION_BUSY)) => {
-                                    // We choose the conservative approach, because
-                                    // every needlessly pruned operation can impact
-                                    // the user experience.
-                                    // To switch to the aggressive approach replace
-                                    // the following line with `continue`.
-                                    break Ok(());
+                                    let own_oldest = oldest_caller_op
+                                        .as_ref()
+                                        .is_some_and(|info| info.index == index);
+                                    if own_oldest {
+                                        match op.force_prune() {
+                                            Ok(()) => break Ok(()),
+                                            Err(Error::Km(ErrorCode::INVALID_OPERATION_HANDLE)) => {
+                                                break Ok(())
+                                            }
+                                            _ => break Err(Error::Rc(ResponseCode::BACKEND_BUSY)),
+                                        }
+                                    }
+                                    if let Some(own) = oldest_caller_op.as_ref() {
+                                        if let Some(own_op) = self.get(own.index) {
+                                            match own_op.force_prune() {
+                                                Ok(()) => break Ok(()),
+                                                Err(Error::Km(
+                                                    ErrorCode::INVALID_OPERATION_HANDLE,
+                                                )) => break Ok(()),
+                                                _ => {
+                                                    break Err(Error::Rc(
+                                                        ResponseCode::BACKEND_BUSY,
+                                                    ))
+                                                }
+                                            }
+                                        }
+                                    }
+                                    break Err(Error::Rc(ResponseCode::BACKEND_BUSY));
                                 }
 
                                 // The candidate may have been touched so the score

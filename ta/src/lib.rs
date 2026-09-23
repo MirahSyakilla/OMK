@@ -380,6 +380,10 @@ impl KeyMintTa {
         } else {
             max_tee_operations(hw_info.version_number)
         };
+        info!(
+            "operation table size {max_operations} version {} level {:?}",
+            hw_info.version_number, hw_info.security_level
+        );
         Self {
             imp,
             dev,
