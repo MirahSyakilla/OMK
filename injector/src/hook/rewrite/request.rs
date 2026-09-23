@@ -816,6 +816,23 @@ unsafe fn handle_keystore_transaction(
         };
         if expects_reply && pending.route == RouteTarget::Omk {
             let reply = match build_omk_security_level_reply(&pending, true) {
+                Ok(Some(reply))
+                    if matches!(
+                        pending.request,
+                        ParsedSecurityLevelRequest::CreateOperation { .. }
+                    ) && reply::owned_reply_is_key_not_found(&reply) =>
+                {
+                    if let ParsedSecurityLevelRequest::CreateOperation { key, .. } =
+                        &pending.request
+                    {
+                        remember_hardware_key(pending.caller.uid, key);
+                    }
+                    trace!(
+                        "event=route security-level CreateOperation missed in OMK for uid={} pid={}; preserving original system request",
+                        caller_uid, pending.caller.pid
+                    );
+                    return false;
+                }
                 Ok(Some(reply)) => reply,
                 Ok(None) => {
                     trace!(

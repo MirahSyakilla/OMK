@@ -32,7 +32,9 @@
   remembered. Later `createOperation`, `deleteKey`, `getKeyEntry`, and `updateSubcomponent` for the
   same alias are passed to System. `deleteKey` that OMK does not have is passed to System. A
   successful OMK `deleteKey` still runs the System delete, and the client sees the OMK success.
-  `generateKey` that carries `ATTESTATION_CHALLENGE` stays on OMK and clears that alias. The alias
+  `listEntries`, `listEntriesBatched`, and `getNumberOfEntries` include System aliases.
+  `createOperation` for an alias OMK does not have is passed to System. `generateKey` that carries
+  `ATTESTATION_CHALLENGE` stays on OMK and clears that alias. The alias
   set is process memory only.
 - EC `generateKey` rejects `Encrypt`, `Decrypt`, and `WrapKey` with `IncompatiblePurpose`.
 - Choose any other backend only from the current caller, filter decision, method, and configuration.
