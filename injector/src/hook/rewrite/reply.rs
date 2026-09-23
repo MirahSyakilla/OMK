@@ -200,6 +200,10 @@ fn merge_listed_keys(
         }
     }
     for key in system {
+        if descriptor_alias(&key).is_some_and(|alias| seen.contains(alias)) {
+            super::request::remember_shadowed_key(uid, &key);
+            continue;
+        }
         if !keep_listed_key(&key, cutoff.as_deref(), &mut seen) {
             continue;
         }
