@@ -702,7 +702,8 @@ pub(super) unsafe fn observe_system_security_level_reply(
         match &pending.request {
             ParsedSecurityLevelRequest::GenerateKey { key, .. }
             | ParsedSecurityLevelRequest::ImportKey { key, .. }
-            | ParsedSecurityLevelRequest::ImportWrappedKey { key, .. } => {
+            | ParsedSecurityLevelRequest::ImportWrappedKey { key, .. }
+            | ParsedSecurityLevelRequest::CreateOperation { key, .. } => {
                 super::request::remember_hardware_key(pending.caller.uid, key);
             }
             ParsedSecurityLevelRequest::DeleteKey { key } => {

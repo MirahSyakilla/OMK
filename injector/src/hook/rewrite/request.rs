@@ -915,15 +915,12 @@ unsafe fn handle_keystore_transaction(
                         ParsedSecurityLevelRequest::CreateOperation { .. }
                     ) && reply::owned_reply_is_key_not_found(&reply) =>
                 {
-                    if let ParsedSecurityLevelRequest::CreateOperation { key, .. } =
-                        &pending.request
-                    {
-                        remember_hardware_key(pending.caller.uid, key);
-                    }
                     trace!(
                         "event=route security-level CreateOperation missed in OMK for uid={} pid={}; preserving original system request",
                         caller_uid, pending.caller.pid
                     );
+                    pending.route = RouteTarget::System;
+                    replace_top_pending(connection, PendingCall::SecurityLevel(pending));
                     return false;
                 }
                 Ok(Some(reply)) => {
