@@ -480,19 +480,7 @@ impl crate::KeyMintTa {
                 let attestation_info: Option<(&[u8], &[u8])> =
                     Some((attest_challenge, attest_app_id));
 
-                let signs_own_leaf = params
-                    .iter()
-                    .any(|param| matches!(param, KeyParam::Purpose(KeyPurpose::AttestKey)));
-                if signs_own_leaf {
-                    // The leaf public key is this key. Sign the leaf with it so a
-                    // caller can verify the certificate with the same private key.
-                    Some(SigningInfo {
-                        attestation_info,
-                        signing_key: key_material.clone(),
-                        issuer_subject: try_to_vec(tag::get_cert_subject(params)?)?,
-                        chain: Vec::new(),
-                    })
-                } else if let Some(attest_keyinfo) = attestation_key.as_ref() {
+                if let Some(attest_keyinfo) = attestation_key.as_ref() {
                     // User-specified attestation key provided.
                     (attest_keyblob, _) = self.keyblob_parse_decrypt(
                         &attest_keyinfo.key_blob,
