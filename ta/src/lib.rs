@@ -82,7 +82,9 @@ pub const KEYMINT_CURRENT_VERSION: KeyMintHalVersion = KeyMintHalVersion::V5;
 const MAX_KEYMASTER_TEE_OPERATIONS: usize = 16;
 
 /// TEE operation table size for AIDL KeyMint 1-4.
-const MAX_KEYMINT_TEE_OPERATIONS: usize = 32;
+/// The HAL minimum is 32. Chunqiu opens more than that at once, so the
+/// software table is larger and begin does not return TOO_MANY_OPERATIONS.
+const MAX_KEYMINT_TEE_OPERATIONS: usize = 64;
 
 /// Pick the TEE operation limit from the HAL version this TA is serving.
 /// KeyMint versions are 100 and above. Anything lower is Keymaster.
