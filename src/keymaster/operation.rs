@@ -844,6 +844,7 @@ impl OperationDb {
             );
 
             // If we did not find a suitable candidate we may cannibalize our oldest sibling.
+            let own_oldest_index = oldest_caller_op.as_ref().map(|info| info.index);
             let candidate = candidate.or(oldest_caller_op);
 
             match candidate {
@@ -875,34 +876,24 @@ impl OperationDb {
                                 // fail with `ErrorCode::TOO_MANY_OPERATIONS`, and call
                                 // us again (conservative approach).
                                 Err(Error::Rc(ResponseCode::OPERATION_BUSY)) => {
-                                    let own_oldest = oldest_caller_op
-                                        .as_ref()
-                                        .is_some_and(|info| info.index == index);
-                                    if own_oldest {
-                                        match op.force_prune() {
-                                            Ok(()) => break Ok(()),
-                                            Err(Error::Km(ErrorCode::INVALID_OPERATION_HANDLE)) => {
-                                                break Ok(())
-                                            }
-                                            _ => break Err(Error::Rc(ResponseCode::BACKEND_BUSY)),
+                                    let target_index = if own_oldest_index == Some(index) {
+                                        Some(index)
+                                    } else {
+                                        own_oldest_index
+                                    };
+                                    let Some(target_index) = target_index else {
+                                        break Err(Error::Rc(ResponseCode::BACKEND_BUSY));
+                                    };
+                                    let Some(target) = self.get(target_index) else {
+                                        break Ok(());
+                                    };
+                                    match target.force_prune() {
+                                        Ok(()) => break Ok(()),
+                                        Err(Error::Km(ErrorCode::INVALID_OPERATION_HANDLE)) => {
+                                            break Ok(())
                                         }
+                                        _ => break Err(Error::Rc(ResponseCode::BACKEND_BUSY)),
                                     }
-                                    if let Some(own) = oldest_caller_op.as_ref() {
-                                        if let Some(own_op) = self.get(own.index) {
-                                            match own_op.force_prune() {
-                                                Ok(()) => break Ok(()),
-                                                Err(Error::Km(
-                                                    ErrorCode::INVALID_OPERATION_HANDLE,
-                                                )) => break Ok(()),
-                                                _ => {
-                                                    break Err(Error::Rc(
-                                                        ResponseCode::BACKEND_BUSY,
-                                                    ))
-                                                }
-                                            }
-                                        }
-                                    }
-                                    break Err(Error::Rc(ResponseCode::BACKEND_BUSY));
                                 }
 
                                 // The candidate may have been touched so the score
