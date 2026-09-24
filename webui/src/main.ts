@@ -182,9 +182,9 @@ navigation.onTabChanged((index) => {
   updateTabVisibility(index)
 
   if (index === 1) {
-    void integrityScreen.load()
+    window.setTimeout(() => void integrityScreen.load(), 360)
   } else if (index === 2) {
-    void keyboxScreen.refresh()
+    window.setTimeout(() => void keyboxScreen.refresh(), 360)
   }
 })
 

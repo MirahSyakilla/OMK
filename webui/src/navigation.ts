@@ -76,54 +76,40 @@ export class Navigation {
     const deltaPct = (offsetPx / screenW) * 100
     const totalPct = basePct + deltaPct
     this.#track.style.transition = smooth
-      ? 'transform 320ms cubic-bezier(0.2, 0.8, 0.2, 1)'
+      ? 'transform 350ms cubic-bezier(0.2, 0.8, 0.2, 1)'
       : 'none'
     this.#track.style.transform = `translate3d(${totalPct}%, 0, 0)`
   }
 
   reposition(tab: HTMLElement, smooth = true): void {
     if (!this.#indicator) return
-    this.#indicator.style.transition = smooth
-      ? 'left 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), width 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)'
-      : 'none'
+    this.#indicator.style.transition = smooth ? '' : 'none'
     this.#indicator.style.left = `${tab.offsetLeft}px`
     this.#indicator.style.width = `${tab.offsetWidth}px`
   }
 
   switchToTab(index: number, smooth = true): void {
     if (index < 0 || index >= TABS.length) return
+    if (smooth && index === this.#activeIndex && this.#tabs[index]?.classList.contains('nav-tab--active')) {
+      return
+    }
     const prev = this.#activeIndex
     this.#activeIndex = index
 
-    // Update active tab buttons
+    // 1. Update active tab buttons immediately
     this.#tabs.forEach((tab, i) => {
       tab.classList.toggle('nav-tab--active', i === index)
       tab.setAttribute('aria-selected', i === index ? 'true' : 'false')
     })
 
-    // Every page stays at full size while the track slides, then collapses
-    this.#updatePageSuppression(index, true)
-    if (this.#suppressTimer !== null) {
-      clearTimeout(this.#suppressTimer)
-      this.#suppressTimer = null
-    }
-    if (smooth) {
-      this.#suppressTimer = window.setTimeout(() => {
-        this.#suppressTimer = null
-        this.#updatePageSuppression(this.#activeIndex)
-      }, 330)
-    } else {
-      this.#updatePageSuppression(index)
-    }
-
-    // Reposition floating pill dock indicator
+    // 2. Reposition floating pill dock indicator FIRST (before page suppression touches 4,000px layout!)
     const activeTab = this.#tabs[index]
     if (activeTab) this.reposition(activeTab, smooth)
 
-    // Carousel track sliding
+    // 3. Carousel track sliding
     this.setTrackPosition(index, smooth)
 
-    // Update title
+    // 4. Update title
     const tabDef = TABS[index]
     if (this.#titleEl) {
       if (index === 0) {
@@ -138,12 +124,27 @@ export class Navigation {
     const pillLabel = statusPill?.querySelector<HTMLElement>('.title-pill-label')
     if (statusPill && pillLabel) {
       if (index === 0) {
+        statusPill.style.display = ''
         statusPill.classList.add('title-pill--brand')
         pillLabel.textContent = 'OhMyKeymint'
       } else {
-        statusPill.classList.remove('title-pill--brand')
-        pillLabel.textContent = 'OMK'
+        statusPill.style.display = 'none'
       }
+    }
+
+    // 5. Unsuppress pages during animation, then collapse after indicator settles (370ms > 350ms indicator transition)
+    this.#updatePageSuppression(index, true)
+    if (this.#suppressTimer !== null) {
+      clearTimeout(this.#suppressTimer)
+      this.#suppressTimer = null
+    }
+    if (smooth) {
+      this.#suppressTimer = window.setTimeout(() => {
+        this.#suppressTimer = null
+        this.#updatePageSuppression(this.#activeIndex)
+      }, 370)
+    } else {
+      this.#updatePageSuppression(index)
     }
     // Scroll to top on page switch
     if (smooth && prev !== index) {

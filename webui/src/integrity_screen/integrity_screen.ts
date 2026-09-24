@@ -164,14 +164,11 @@ export class IntegrityScreen {
       <div class="integrity-screen">
         <!-- Screen actions (PlayIntegrityFix chip set) -->
         <md-chip-set class="integrity-action-row">
-          <md-assist-chip id="pif-fetch-chip" elevated label="Fetch Build">
+          <md-assist-chip id="pif-fetch-chip" elevated label="Fetch">
             <md-icon slot="icon">download</md-icon>
           </md-assist-chip>
-          <md-assist-chip id="pif-update-chip" elevated label="Update Product">
+          <md-assist-chip id="pif-update-chip" elevated label="Update">
             <md-icon slot="icon">refresh</md-icon>
-          </md-assist-chip>
-          <md-assist-chip id="pif-view-chip" elevated label="View Props">
-            <md-icon slot="icon">visibility</md-icon>
           </md-assist-chip>
         </md-chip-set>
 
@@ -346,9 +343,6 @@ export class IntegrityScreen {
     })
     this.#container.querySelector('#pif-update-chip')?.addEventListener('click', () => {
       void this.#fetchProp(true)
-    })
-    this.#container.querySelector('#pif-view-chip')?.addEventListener('click', async () => {
-      await this.#viewProps()
     })
 
     // Clear Terminal
@@ -555,18 +549,6 @@ export class IntegrityScreen {
     }
   }
 
-  async #viewProps(): Promise<void> {
-    const propPath = (await File.exist(PROP_PATH)) ? PROP_PATH : PROP_PATH_DATA
-    if (await File.exist(propPath)) {
-      const content = await File.read(propPath)
-      content.split('\n').forEach((line) => {
-        if (line.trim()) this.output(line)
-      })
-      this.output('')
-    } else {
-      this.output('[!] Error: integrity.prop not found on device', true)
-    }
-  }
 
   async #fetchProp(update: boolean): Promise<void> {
     try {

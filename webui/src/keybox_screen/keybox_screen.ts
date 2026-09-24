@@ -46,22 +46,6 @@ export class KeyboxScreen {
     this.#container = container
     container.innerHTML = /* html */ `
       <div class="keybox-screen">
-        <!-- Hero Card -->
-        <div class="kb-hero-card">
-          <div class="kb-hero-top">
-            <span class="kb-hero-label">ACTIVE KEYBOX</span>
-            <button class="kb-refresh-btn" id="kb-hero-refresh" aria-label="Refresh Keybox Status">
-              <md-icon>refresh</md-icon>
-            </button>
-          </div>
-          <div class="kb-hero-title" id="kb-hero-name">Slot 0: Default</div>
-          <div class="kb-hero-badges" id="kb-hero-badges">
-            <span class="badge badge-primary">RSA</span>
-            <span class="badge badge-primary">EC</span>
-            <span class="badge badge-ok">Valid</span>
-          </div>
-        </div>
-
         <!-- Install Card -->
         <div class="kb-section-title">Install Keybox</div>
         <div class="kb-install-card">
@@ -136,18 +120,12 @@ export class KeyboxScreen {
   async refresh(): Promise<void> {
     if (!this.#container) return
     await this.#loadSlots()
-    this.#renderHero()
     this.#renderSlotsList()
     this.#renderCustomSources()
   }
 
   #bindEvents(): void {
     if (!this.#container) return
-
-    // Refresh button
-    this.#container.querySelector('#kb-hero-refresh')?.addEventListener('click', () => {
-      void this.refresh()
-    })
 
     // Install Now
     this.#container.querySelector('#kb-install-now-btn')?.addEventListener('click', async () => {
@@ -223,24 +201,6 @@ export class KeyboxScreen {
       })
     }
     this.#slots = loaded
-  }
-
-  #renderHero(): void {
-    const slot0 = this.#slots.find((s) => s.slot === 0)
-    const nameEl = this.#container?.querySelector<HTMLElement>('#kb-hero-name')
-    const badgesEl = this.#container?.querySelector<HTMLElement>('#kb-hero-badges')
-
-    if (nameEl) nameEl.textContent = slot0?.label ?? 'Slot 0: Default'
-    if (badgesEl) {
-      const b: string[] = []
-      slot0?.algos.forEach((a) => b.push(`<span class="badge badge-primary">${a}</span>`))
-      if (slot0?.isExpired) {
-        b.push('<span class="badge badge-error">Expired</span>')
-      } else {
-        b.push('<span class="badge badge-ok">Valid</span>')
-      }
-      badgesEl.innerHTML = b.join('')
-    }
   }
 
   #renderSlotsList(): void {
