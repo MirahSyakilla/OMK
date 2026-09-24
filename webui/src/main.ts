@@ -182,6 +182,7 @@ function updateTabVisibility(index: number): void {
 }
 
 navigation.onTabChanged((index) => {
+  dock.classList.remove('dock-hide')
   updateTabVisibility(index)
 
   if (index === 1) {
@@ -324,14 +325,15 @@ navigation.onTabChanged((index) => {
   })
 })
 
-// Header scroll elevation
+// Header scroll elevation & Floating Dock/FAB hide
 let lastScrollY = window.scrollY
 window.onscroll = () => {
   document.querySelectorAll('md-menu').forEach((menu) => menu.close())
   document.querySelector('.header')?.classList.toggle('scroll', window.scrollY > 10)
+  const hide = window.scrollY > lastScrollY && window.scrollY > 48
+  dock.classList.toggle('dock-hide', hide)
   if (navigation.getActiveIndex() === 0) {
     const fab = document.querySelector('.fab')
-    const hide = window.scrollY > lastScrollY && window.scrollY > 48
     fabContainer.classList.toggle('fab-hide', hide)
     fab?.classList.toggle('fab-hide', hide)
   }

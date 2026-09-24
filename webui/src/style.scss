@@ -322,7 +322,13 @@ body {
   box-sizing: border-box;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
-  transition: box-shadow 0.2s ease;
+  transition: transform 0.25s cubic-bezier(0.2, 0, 0, 1), opacity 0.2s ease, box-shadow 0.2s ease;
+
+  &.dock-hide {
+    transform: translate(-50%, calc(100% + 32px + var(--bottom-inset)));
+    opacity: 0;
+    pointer-events: none;
+  }
 }
 
 .nav-indicator {
