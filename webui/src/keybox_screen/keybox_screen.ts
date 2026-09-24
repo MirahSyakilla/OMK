@@ -1,5 +1,5 @@
 import type { MdDialog } from '@material/web/all'
-import type { Keybox } from '../keybox/keybox'
+import { algorithmsFromXml, allExpiriesPassed, expiriesFromXml, type Keybox } from '../keybox/keybox'
 import type { CustomKeyboxEntry } from '../keybox/custom'
 import type { KeyboxRepo } from '../keybox/repo/repo'
 import type { Cli } from '../cli'
@@ -46,6 +46,9 @@ export class KeyboxScreen {
     this.#config = config
     this.#snackbar = snackbar
     this.#history = history
+    this.#keybox.onSlotsChanged(() => {
+      void this.refresh()
+    })
   }
   render(container: HTMLElement): void {
     this.#container = container
@@ -270,23 +273,24 @@ export class KeyboxScreen {
 
     // Count assigned apps per slot
     const assignedCounts = new Map<number, number>()
-    const scoopDetails = (this.#config.get('filter') as { scoop_details?: Record<string, { slot?: number }> })?.scoop_details ?? {}
-    for (const details of Object.values(scoopDetails)) {
-      const s = details?.slot ?? 0
-      assignedCounts.set(s, (assignedCounts.get(s) ?? 0) + 1)
+    const target = (this.#config.get('target') as string[]) ?? []
+    let otherSlotsCount = 0
+    for (const slot of slotNumbers) {
+      if (slot > 0) {
+        const count = this.#config.packagesForSlot(slot).length
+        assignedCounts.set(slot, count)
+        otherSlotsCount += count
+      }
     }
+    // Slot 0 (Default keybox) covers all remaining unassigned scoop apps
+    assignedCounts.set(0, Math.max(0, target.length - otherSlotsCount))
 
     const loaded: SlotDetail[] = []
     for (const slot of slotNumbers) {
       const path = this.#keybox.getKeyboxPath(slot)
       const xml = await File.read(path).catch(() => '')
-      const algos: string[] = []
-      if (/algorithm\s*=\s*"rsa"/i.test(xml)) algos.push('RSA')
-      if (/algorithm\s*=\s*"ecdsa"/i.test(xml)) algos.push('EC')
-
-      const expiryMatch = xml.match(/notAfter\b[^>]*>([^<]+)/i)
-      const expiryDate = expiryMatch?.[1]?.trim() ?? 'Unknown'
-      const isExpired = expiryDate !== 'Unknown' && new Date(expiryDate).getTime() < Date.now()
+      const algos = algorithmsFromXml(xml)
+      const isExpired = allExpiriesPassed(expiriesFromXml(xml))
 
       loaded.push({
         slot,
@@ -295,7 +299,7 @@ export class KeyboxScreen {
         xml,
         algos,
         isExpired,
-        expiryDate,
+        expiryDate: '',
         assignedAppsCount: assignedCounts.get(slot) ?? 0,
       })
     }
@@ -324,21 +328,12 @@ export class KeyboxScreen {
                 ${s.algos.map((a) => `<span class="inline-badge badge-primary">${a}</span>`).join('')}
                 ${s.isExpired ? '<span class="inline-badge badge-error">Expired</span>' : ''}
               </div>
-              <div class="ksc-sub">${s.assignedAppsCount} apps assigned${s.expiryDate && s.expiryDate !== 'Unknown' ? ` • Expires: ${s.expiryDate}` : ''}</div>
+              <div class="ksc-sub">${s.assignedAppsCount === 1 ? '1 app' : `${s.assignedAppsCount} apps`}</div>
             </div>
             <div class="ksc-actions">
-              <button class="icon-btn-compact" data-action="export" data-slot="${s.slot}" aria-label="Export Slot">
-                <md-icon>download</md-icon>
+              <button class="icon-btn-compact" data-action="inspect" data-slot="${s.slot}" aria-label="Inspect Slot">
+                <md-icon>visibility</md-icon>
               </button>
-              ${
-                s.slot > 0
-                  ? `
-                <button class="icon-btn-compact text-error" data-action="delete" data-slot="${s.slot}" aria-label="Delete Slot">
-                  <md-icon>delete</md-icon>
-                </button>
-              `
-                  : ''
-              }
             </div>
           </div>
         </div>
@@ -346,38 +341,19 @@ export class KeyboxScreen {
       )
       .join('')
 
-    // Bind slot actions
-    listEl.querySelectorAll('[data-action="export"]').forEach((btn) => {
-      btn.addEventListener('click', async (e) => {
-        const slot = Number.parseInt((e.currentTarget as HTMLElement).dataset.slot ?? '0', 10)
-        try {
-          const path = this.#keybox.getKeyboxPath(slot)
-          const fileName = `keybox_slot_${slot}.xml`
-          const savedPath = await this.#cli.exportKeybox(path, fileName)
-          this.#snackbar.show(`Exported to ${savedPath}`)
-        } catch {
-          this.#snackbar.show('Failed to export keybox', false)
-        }
+    // Tapping card or eye button opens the slot in the Manage Dialog
+    listEl.querySelectorAll('.kb-slot-card').forEach((card) => {
+      card.addEventListener('click', () => {
+        const slot = Number.parseInt((card as HTMLElement).dataset.slot ?? '0', 10)
+        void this.#keybox.showManage(slot)
       })
     })
 
-    listEl.querySelectorAll('[data-action="delete"]').forEach((btn) => {
-      btn.addEventListener('click', async (e) => {
+    listEl.querySelectorAll('[data-action="inspect"]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation()
         const slot = Number.parseInt((e.currentTarget as HTMLElement).dataset.slot ?? '0', 10)
-        if (slot > 0) {
-          const conf = confirm(i18n.t('keybox_slot_delete_confirm', this.#keybox.slotLabel(slot)))
-          if (conf) {
-            try {
-              const xmlPath = this.#keybox.getKeyboxPath(slot)
-              await File.delete(xmlPath)
-              await File.delete(`${xmlPath}.bak`)
-              this.#snackbar.show('Slot deleted')
-              await this.refresh()
-            } catch {
-              this.#snackbar.show('Failed to delete slot', false)
-            }
-          }
-        }
+        void this.#keybox.showManage(slot)
       })
     })
   }

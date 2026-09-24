@@ -27,7 +27,7 @@ interface KeyboxCert {
   notAfter: Date
 }
 
-function algorithmsFromXml(xml: string): string[] {
+export function algorithmsFromXml(xml: string): string[] {
   const found: string[] = []
   const ecCount = [...xml.matchAll(/algorithm\s*=\s*"ecdsa"/gi)].length
   if (/algorithm\s*=\s*"rsa"/i.test(xml)) found.push('RSA')
@@ -90,11 +90,11 @@ function certsFromXml(xml: string): KeyboxCert[] {
   return certs
 }
 
-function expiriesFromXml(xml: string): Date[] {
+export function expiriesFromXml(xml: string): Date[] {
   return certsFromXml(xml).map((cert) => cert.notAfter)
 }
 
-function allExpiriesPassed(dates: Date[]): boolean {
+export function allExpiriesPassed(dates: Date[]): boolean {
   return dates.length > 0 && dates.every((date) => date.getTime() <= Date.now())
 }
 
@@ -153,6 +153,8 @@ export class Keybox {
   #slotNames: Record<string, string> = {}
   #pendingNewName = ''
   #onNamesChanged: (() => void) | null = null
+  #manageFocusSlot?: number
+  #onSlotsChanged: (() => void) | null = null
 
   constructor(cli: Cli, config: Config, fileSelector: FileSelector, snackbar: Snackbar) {
     this.cli = cli
@@ -232,7 +234,7 @@ export class Keybox {
       </md-dialog>
 
       <md-dialog id="keybox-manage-dialog">
-        <div slot="headline">${i18n.t('keybox_manage_title')}</div>
+        <div slot="headline" id="keybox-manage-title">${i18n.t('keybox_manage_title')}</div>
         <div slot="content">
           <div id="keybox-manage-list" class="keybox-manage-list"></div>
         </div>
@@ -298,6 +300,9 @@ export class Keybox {
     fragment.querySelector<MdTextButton>('#close-keybox-manage')!.onclick = () => {
       this.#manageDialog?.close()
     }
+    this.#manageDialog?.addEventListener('closed', () => {
+      this.#manageFocusSlot = undefined
+    })
     this.#renameDialog = fragment.querySelector<MdDialog>('#keybox-rename-dialog')
     this.#renameInput = fragment.querySelector<MdOutlinedTextField>('#keybox-rename-input')
     fragment.querySelector<HTMLElement>('#cancel-keybox-rename')!.onclick = () => {
@@ -434,10 +439,19 @@ export class Keybox {
     return this.selectKeyboxForApp(packageName)
   }
 
-  async showManage(): Promise<void> {
+  async showManage(focusSlot?: number): Promise<void> {
     if (!this.#manageDialog || !this.#manageList) return
+    this.#manageFocusSlot = focusSlot
+    const titleEl = this.#manageDialog.querySelector<HTMLElement>('#keybox-manage-title')
+    if (titleEl) {
+      titleEl.textContent = focusSlot !== undefined ? this.slotLabel(focusSlot) : i18n.t('keybox_manage_title')
+    }
     await this.#renderManageList()
     this.#manageDialog.show()
+  }
+
+  onSlotsChanged(cb: () => void): void {
+    this.#onSlotsChanged = cb
   }
 
   slotLabel(slot: number): string {
@@ -625,7 +639,8 @@ export class Keybox {
   async #renderManageList(): Promise<void> {
     if (!this.#manageList) return
     await this.#loadSlotNames()
-    const slots = [0, ...await this.cli.getKeyboxSlots(this.#config.configPath).catch((): number[] => [])]
+    const allSlots = [0, ...(await this.cli.getKeyboxSlots(this.#config.configPath).catch((): number[] => []))]
+    const slots = this.#manageFocusSlot !== undefined ? allSlots.filter((s) => s === this.#manageFocusSlot) : allSlots
     this.#manageList.innerHTML = ''
     for (const slot of slots) {
       const path = this.getKeyboxPath(slot)
@@ -635,6 +650,12 @@ export class Keybox {
       ])
       const card = document.createElement('div')
       card.className = 'keybox-manage-card'
+      if (this.#manageFocusSlot !== undefined) {
+        card.classList.add('expanded')
+        card.setAttribute('aria-expanded', 'true')
+      } else {
+        card.setAttribute('aria-expanded', 'false')
+      }
 
       const head = document.createElement('div')
       head.className = 'keybox-manage-head'
@@ -752,6 +773,7 @@ export class Keybox {
       await this.#setSlotName(slot, name)
       await this.#renderManageList()
       this.#snackbar.show(i18n.t('prompt_keybox_renamed'), true)
+      this.#onSlotsChanged?.()
     } catch {
       this.#snackbar.show(i18n.t('prompt_keybox_rename_error'), false)
     }
@@ -780,6 +802,11 @@ export class Keybox {
       this.#config.clearKeyboxSlot(slot)
       if (!import.meta.env.DEV) await this.#config.write()
       await this.#renderManageList()
+      this.#onSlotsChanged?.()
+      if (this.#manageFocusSlot !== undefined && this.#manageFocusSlot === slot) {
+        this.#manageDialog?.close()
+        return
+      }
       this.#snackbar.show(i18n.t('prompt_keybox_deleted'), true)
     } catch {
       this.#snackbar.show(i18n.t('prompt_keybox_delete_error'), false)
