@@ -108,7 +108,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = /* html */ `
 
   <section class="floating-content">
     ${snackbar.html()}
-    <div class="fab-container fab-hide">
+    <div class="fab-container">
       <md-fab variant="primary" class="fab" id="save" label="Save">
         <md-icon slot="icon">save</md-icon>
       </md-fab>
@@ -176,6 +176,9 @@ function updateTabVisibility(index: number): void {
   searchButton.classList.toggle('hide', !isApps)
   mainMenuContainer.classList.toggle('hide', !isApps)
   fabContainer.classList.toggle('fab-hide', !isApps)
+  if (isApps) {
+    document.querySelector('.fab')?.classList.remove('fab-hide')
+  }
 }
 
 navigation.onTabChanged((index) => {
@@ -326,7 +329,7 @@ let lastScrollY = window.scrollY
 window.onscroll = () => {
   document.querySelectorAll('md-menu').forEach((menu) => menu.close())
   document.querySelector('.header')?.classList.toggle('scroll', window.scrollY > 10)
-  if (navigation.getActiveIndex() === 1) {
+  if (navigation.getActiveIndex() === 0) {
     const fab = document.querySelector('.fab')
     const hide = window.scrollY > lastScrollY && window.scrollY > 48
     fabContainer.classList.toggle('fab-hide', hide)

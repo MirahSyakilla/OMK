@@ -410,10 +410,11 @@ body {
   bottom: calc(84px + var(--bottom-inset));
   z-index: 90;
   pointer-events: none;
-  transition: transform 0.2s ease, opacity 0.2s ease;
+  transition: transform 0.2s ease;
 
   &.fab-hide {
-    display: none !important;
+    transform: translateY(calc(56px + 16px));
+    transition: transform 0.2s ease;
   }
   .fab {
     pointer-events: auto;
@@ -422,7 +423,7 @@ body {
     transition: all 0.2s ease;
 
     &.fab-hide {
-      transform: scale(0.85);
+      transform: scale(0.9);
       opacity: 0;
       pointer-events: none;
     }
