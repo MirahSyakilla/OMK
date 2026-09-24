@@ -6,7 +6,7 @@ export interface TabDefinition {
 }
 
 export const TABS: TabDefinition[] = [
-  { id: 'apps-page', title: 'Apps', icon: 'apps', label: 'Apps' },
+  { id: 'apps-page', title: '', icon: 'apps', label: 'Apps' },
   { id: 'integrity-page', title: 'Integrity', icon: 'verified_user', label: 'Integrity' },
   { id: 'keybox-page', title: 'Keybox', icon: 'vpn_key', label: 'Keybox' },
   { id: 'settings-page', title: 'Settings', icon: 'settings', label: 'Settings' },
@@ -125,10 +125,26 @@ export class Navigation {
 
     // Update title
     const tabDef = TABS[index]
-    if (tabDef && this.#titleEl) {
-      this.#titleEl.textContent = tabDef.title
+    if (this.#titleEl) {
+      if (index === 0) {
+        this.#titleEl.classList.add('hide')
+        this.#titleEl.textContent = ''
+      } else {
+        this.#titleEl.classList.remove('hide')
+        this.#titleEl.textContent = tabDef?.title ?? ''
+      }
     }
-
+    const statusPill = document.querySelector<HTMLElement>('#title-status')
+    const pillLabel = statusPill?.querySelector<HTMLElement>('.title-pill-label')
+    if (statusPill && pillLabel) {
+      if (index === 0) {
+        statusPill.classList.add('title-pill--brand')
+        pillLabel.textContent = 'OhMyKeymint'
+      } else {
+        statusPill.classList.remove('title-pill--brand')
+        pillLabel.textContent = 'OMK'
+      }
+    }
     // Scroll to top on page switch
     if (smooth && prev !== index) {
       window.scrollTo({ top: 0, behavior: 'instant' })

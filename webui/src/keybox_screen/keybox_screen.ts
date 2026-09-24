@@ -60,10 +60,6 @@ export class KeyboxScreen {
             <span class="badge badge-primary">EC</span>
             <span class="badge badge-ok">Valid</span>
           </div>
-          <div class="kb-hero-footer">
-            <span class="kb-hero-status" id="kb-hero-status">Active & Ready</span>
-            <span class="kb-hero-expiry" id="kb-hero-expiry">Expires: Loading...</span>
-          </div>
         </div>
 
         <!-- Install Card -->
@@ -233,18 +229,8 @@ export class KeyboxScreen {
     const slot0 = this.#slots.find((s) => s.slot === 0)
     const nameEl = this.#container?.querySelector<HTMLElement>('#kb-hero-name')
     const badgesEl = this.#container?.querySelector<HTMLElement>('#kb-hero-badges')
-    const statusEl = this.#container?.querySelector<HTMLElement>('#kb-hero-status')
-    const expiryEl = this.#container?.querySelector<HTMLElement>('#kb-hero-expiry')
 
     if (nameEl) nameEl.textContent = slot0?.label ?? 'Slot 0: Default'
-    if (statusEl) {
-      statusEl.textContent = slot0?.isExpired ? 'Expired' : 'Active & Loaded'
-      statusEl.className = slot0?.isExpired ? 'kb-hero-status text-error' : 'kb-hero-status text-ok'
-    }
-    if (expiryEl) {
-      expiryEl.textContent = `Expires: ${slot0?.expiryDate ?? 'None'}`
-    }
-
     if (badgesEl) {
       const b: string[] = []
       slot0?.algos.forEach((a) => b.push(`<span class="badge badge-primary">${a}</span>`))

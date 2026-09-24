@@ -34,10 +34,10 @@ const config = new Config()
 document.querySelector<HTMLDivElement>('#app')!.innerHTML = /* html */ `
   <div class="app-layout">
     <section class="header">
-      <div class="header-title-group">
-        <div id="title">Apps</div>
-        <div id="title-status" class="title-pill title-pill-ok">
-          <span class="title-pill-label">OMK</span>
+      <div class="header-title-group search-hide">
+        <div id="title" class="hide"></div>
+        <div id="title-status" class="title-pill title-pill-ok title-pill--brand">
+          <span class="title-pill-label">OhMyKeymint</span>
         </div>
       </div>
       <div class="spacer"></div>

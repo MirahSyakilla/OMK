@@ -2,8 +2,8 @@
 // A fixed height keeps the flex chain below determinate, so the console claims a
 // share of the space and never grows with its own output.
 #integrity-page {
-  height: calc(100vh - var(--header-h) - var(--dock-space));
-  height: calc(100dvh - var(--header-h) - var(--dock-space));
+  min-height: calc(100vh - var(--header-h) - var(--dock-space));
+  min-height: calc(100dvh - var(--header-h) - var(--dock-space));
 }
 
 .integrity-screen {
@@ -12,12 +12,14 @@
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  // Fills the height above, so the terminal below takes a share of it instead
-  // of a hardcoded height.
-  flex: 1;
-  min-height: 0;
   gap: 16px;
   box-sizing: border-box;
+
+  @media (orientation: landscape) {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+  }
 }
 
 // md-chip-set already lays the chips out in a wrapping row. Horizontal
@@ -37,10 +39,8 @@
 .integrity-main-layout {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
   width: 100%;
-  flex: 1;
-  min-height: 0;
 
   @media (orientation: landscape) {
     flex-direction: row;
@@ -54,15 +54,12 @@
   flex-direction: column;
   gap: 12px;
   width: 100%;
-  // Shares the pane height with the terminal and scrolls on its own, so the
-  // console keeps a usable size on tall switch stacks. PlayIntegrityFix gets
-  // away with a natural-height list because its rows are single-line.
-  flex: 1 1 0;
-  min-height: 0;
-  overflow-y: auto;
+  flex: none;
 
   @media (orientation: landscape) {
+    flex: 1 1 0;
     min-width: 0;
+    overflow-y: auto;
   }
 }
 
@@ -70,10 +67,9 @@
   width: 100%;
   display: flex;
   flex-direction: column;
-  flex: 1 1 0;
-  min-height: 0;
 
   @media (orientation: landscape) {
+    flex: 1 1 0;
     min-width: 0;
   }
 }
@@ -161,15 +157,20 @@
 
 .terminal-card {
   width: 100%;
-  flex: 1 1 0;
+  height: 280px;
+  min-height: 200px;
   background: var(--md-sys-color-surface);
   border-radius: 12px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  min-height: 0;
   border: 1px solid var(--md-sys-color-outline-variant);
   box-sizing: border-box;
+
+  @media (orientation: landscape) {
+    height: 100%;
+    min-height: 0;
+  }
 }
 
 .terminal-header {
