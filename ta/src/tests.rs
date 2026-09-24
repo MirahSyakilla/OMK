@@ -38,13 +38,9 @@ fn test_invalid_data() {
 }
 
 #[test]
-fn future_patchlevel_requests_upgrade() {
-    let err = check_keyblob_version_component(20260801, 20231101, "vendor patchlevel")
-        .expect_err("future vendor patchlevel should trigger upgrade");
-    assert!(matches!(
-        err.kind(),
-        ErrorKind::Hal(ErrorCode::KeyRequiresUpgrade, _)
-    ));
+fn future_patchlevel_stays_usable() {
+    check_keyblob_version_component(20260801, 20231101, "vendor patchlevel")
+        .expect("future patchlevel must not block use of an existing key");
 }
 
 #[test]

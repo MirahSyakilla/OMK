@@ -915,6 +915,7 @@ unsafe fn handle_keystore_transaction(
                         pending.request,
                         ParsedSecurityLevelRequest::CreateOperation { .. }
                     ) && (reply::owned_reply_is_key_not_found(&reply)
+                        || reply::owned_reply_is_foreign_key_blob(&reply)
                         || foreign_blob_not_in_omk(&pending, &reply)) =>
                 {
                     trace!(

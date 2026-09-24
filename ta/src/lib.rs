@@ -344,16 +344,10 @@ fn check_keyblob_version_component(v: u32, curr: u32, name: &str) -> Result<(), 
         )),
         Ordering::Equal => Ok(()),
         Ordering::Greater => {
-            // Allow the HAL upgrade path to normalize blobs whose stored version or patchlevel is
-            // ahead of the current runtime value. `upgrade_key()` will clamp the stored value back
-            // to the current HAL / boot info and rewrap the blob.
-            Err(km_err!(
-                KeyRequiresUpgrade,
-                "keyblob with future {} {} needs normalization to current {}",
-                name,
-                v,
-                curr
-            ))
+            // A spoofed patch can move backward, for example when BRENE owns the security-patch
+            // property. Failing begin here makes GMS mint a new key and then fail to decrypt the
+            // ciphertext sealed by this one. The stored value is still usable.
+            Ok(())
         }
     }
 }

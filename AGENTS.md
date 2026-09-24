@@ -36,7 +36,8 @@
   `listEntries`, `listEntriesBatched`, and `getNumberOfEntries` include System aliases.
   `createOperation` for an alias OMK does not have is passed to System. A
   `createOperation` that fails with `INVALID_KEY_BLOB` is passed to System only when `getKeyEntry`
-  also misses that alias. `importKey` and
+  also misses that alias. A keyblob OMK cannot decrypt is passed to System. A stored patch level
+  ahead of the current HAL patch does not block use of that key. `importKey` and
   `importWrappedKey` follow the same challenge rule as `generateKey`. An attested
   `importWrappedKey` stays on OMK even when its wrapping key is a System alias. The alias set changes only after
   that call succeeds: System success remembers it, and a successful attested OMK generate or import

@@ -489,10 +489,13 @@ pub fn decrypt(
     )?;
     op.update_aad(&extended_aad)?;
     let mut pt_data = op.update(&cose_encrypt.ciphertext.unwrap_or_default())?;
-    pt_data.try_extend_from_slice(
-        &op.finish()
-            .map_err(|e| km_err!(InvalidKeyBlob, "failed to decrypt keyblob: {:?}", e))?,
-    )?;
+    pt_data.try_extend_from_slice(&op.finish().map_err(|e| {
+        km_err!(
+            ImportedKeyDecryptionFailed,
+            "failed to decrypt keyblob: {:?}",
+            e
+        )
+    })?)?;
 
     Ok(PlaintextKeyBlob {
         characteristics,
