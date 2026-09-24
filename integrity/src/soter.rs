@@ -286,10 +286,12 @@ fn valid_pointer_range(pointer: u64, size: u64) -> bool {
 fn candidate(transaction: &Transaction) -> bool {
     // Code 11 is getDeviceId. The published simulator id is a known marker, so
     // the real service answers that call.
-    (1..=10).contains(&transaction.code) || transaction.code == 12 || transaction.code == 13
-        && transaction.target != 0
-        && transaction.data_size <= MAX_REQUEST_BYTES as u64
-        && valid_pointer_range(transaction.buffer, transaction.data_size)
+    (1..=10).contains(&transaction.code)
+        || transaction.code == 12
+        || transaction.code == 13
+            && transaction.target != 0
+            && transaction.data_size <= MAX_REQUEST_BYTES as u64
+            && valid_pointer_range(transaction.buffer, transaction.data_size)
 }
 
 fn retarget(transaction: &mut Transaction, data: &[u8], target: Target) -> bool {

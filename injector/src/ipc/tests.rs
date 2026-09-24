@@ -30,7 +30,8 @@ fn isolated_package_lookup_preserves_original_authorization_identity() {
         ..Default::default()
     };
     assert!(
-        crate::filter::evaluate(&config.scoop, &[], &config.filter, 99001, packages.clone()).allowed
+        crate::filter::evaluate(&config.scoop, &[], &config.filter, 99001, packages.clone())
+            .allowed
     );
     config.filter.deny_packages.push("com.example.owner".into());
     assert!(!crate::filter::evaluate(&config.scoop, &[], &config.filter, 99001, packages).allowed);
