@@ -108,12 +108,17 @@
     border-radius: 4px 4px 24px 24px;
   }
 
-  &:hover {
-    background: var(--md-sys-color-surface-container-highest);
+  &.card-pressed {
+    border-radius: 20px !important;
   }
 
-  &:active {
-    border-radius: 20px !important;
+  @media (hover: hover) and (pointer: fine) {
+    &:hover {
+      background: var(--md-sys-color-surface-container-highest);
+    }
+    &:active {
+      border-radius: 20px !important;
+    }
   }
 }
 

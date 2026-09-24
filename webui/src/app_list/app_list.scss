@@ -43,14 +43,18 @@
     touch-action: manipulation;
     transition: border-radius 0.2s cubic-bezier(0.2, 0, 0, 1), background-color 0.15s ease;
 
-    &:hover {
-      background-color: var(--md-sys-color-surface-container-highest);
-    }
-
-    &:active {
+    &.card-pressed {
       border-radius: 20px !important;
     }
 
+    @media (hover: hover) and (pointer: fine) {
+      &:hover {
+        background-color: var(--md-sys-color-surface-container-highest);
+      }
+      &:active {
+        border-radius: 20px !important;
+      }
+    }
     &.selected {
       background-color: var(--md-sys-color-surface-container-highest);
     }

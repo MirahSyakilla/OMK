@@ -339,3 +339,57 @@ window.onscroll = () => {
   }
   lastScrollY = window.scrollY
 }
+
+// Tactile Card Touch Interaction Manager:
+// On mobile devices, native CSS :active and :hover stick during scrolls because
+// Chromium WebView suppresses touchend on scroll gestures. We manage .card-pressed
+// dynamically so scrolls cancel the press effect instantly.
+let activeTouchCard: HTMLElement | null = null
+
+document.addEventListener(
+  'touchstart',
+  (e) => {
+    const card = (e.target as Element | null)?.closest<HTMLElement>(
+      '.card, .switch-row, .settings-row, .kb-slot-card, .kb-custom-card, .kac-tile, .update',
+    )
+    if (card) {
+      activeTouchCard = card
+      card.classList.add('card-pressed')
+    }
+  },
+  { passive: true },
+)
+
+document.addEventListener(
+  'touchmove',
+  () => {
+    if (activeTouchCard) {
+      activeTouchCard.classList.remove('card-pressed')
+      activeTouchCard = null
+    }
+  },
+  { passive: true },
+)
+
+document.addEventListener(
+  'touchend',
+  () => {
+    if (activeTouchCard) {
+      const el = activeTouchCard
+      activeTouchCard = null
+      window.setTimeout(() => el.classList.remove('card-pressed'), 120)
+    }
+  },
+  { passive: true },
+)
+
+document.addEventListener(
+  'touchcancel',
+  () => {
+    if (activeTouchCard) {
+      activeTouchCard.classList.remove('card-pressed')
+      activeTouchCard = null
+    }
+  },
+  { passive: true },
+)

@@ -261,8 +261,13 @@ body {
     gap: 16px;
     transition: border-radius 0.2s cubic-bezier(0.2, 0, 0, 1), background-color 0.15s ease;
 
-    &:active {
+    &.card-pressed {
       border-radius: 28px !important;
+    }
+    @media (hover: hover) and (pointer: fine) {
+      &:active {
+        border-radius: 28px !important;
+      }
     }
     &.hide {
       display: none;

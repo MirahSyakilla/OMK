@@ -97,13 +97,19 @@
   -webkit-tap-highlight-color: transparent;
   transition: transform 0.15s ease, background-color 0.15s ease, border-radius 0.2s cubic-bezier(0.2, 0, 0, 1);
 
-  &:hover {
-    background: var(--md-sys-color-surface-container-low);
-  }
-
-  &:active {
+  &.card-pressed {
     transform: scale(0.98);
     border-radius: 20px !important;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    &:hover {
+      background: var(--md-sys-color-surface-container-low);
+    }
+    &:active {
+      transform: scale(0.98);
+      border-radius: 20px !important;
+    }
   }
 }
 
@@ -357,12 +363,17 @@
     border-radius: 24px;
   }
 
-  &:hover {
-    background: var(--md-sys-color-surface-container-highest);
+  &.card-pressed {
+    border-radius: 20px !important;
   }
 
-  &:active {
-    border-radius: 20px !important;
+  @media (hover: hover) and (pointer: fine) {
+    &:hover {
+      background: var(--md-sys-color-surface-container-highest);
+    }
+    &:active {
+      border-radius: 20px !important;
+    }
   }
 }
 
@@ -459,12 +470,17 @@
     border-radius: 24px;
   }
 
-  &:hover {
-    background: var(--md-sys-color-surface-container-highest);
+  &.card-pressed {
+    border-radius: 20px !important;
   }
 
-  &:active {
-    border-radius: 20px !important;
+  @media (hover: hover) and (pointer: fine) {
+    &:hover {
+      background: var(--md-sys-color-surface-container-highest);
+    }
+    &:active {
+      border-radius: 20px !important;
+    }
   }
 }
 
