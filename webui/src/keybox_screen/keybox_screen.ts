@@ -256,6 +256,7 @@ export class KeyboxScreen {
       .map(
         (s) => `
         <div class="kb-slot-card" data-slot="${s.slot}">
+          <md-ripple></md-ripple>
           <div class="ksc-main-row">
             <div class="ksc-icon"><md-icon>vpn_key</md-icon></div>
             <div class="ksc-info">
@@ -336,8 +337,8 @@ export class KeyboxScreen {
       .map(
         (entry: CustomKeyboxEntry, index: number) => `
         <div class="kb-custom-card">
+          <md-ripple></md-ripple>
           <div class="kcc-icon"><md-icon>source</md-icon></div>
-          <div class="kcc-info">
             <div class="kcc-name">${entry.name}</div>
             <div class="kcc-url">${entry.link}</div>
             ${entry.script ? `<div class="kcc-script">Post-script: <code>${entry.script}</code></div>` : ''}

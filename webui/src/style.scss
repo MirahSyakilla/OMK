@@ -252,10 +252,18 @@ body {
     border-radius: 20px;
     margin-bottom: 16px;
     position: relative;
+    overflow: hidden;
+    cursor: pointer;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
     display: flex;
     align-items: center;
     gap: 16px;
+    transition: border-radius 0.2s cubic-bezier(0.2, 0, 0, 1), background-color 0.15s ease;
 
+    &:active {
+      border-radius: 28px !important;
+    }
     &.hide {
       display: none;
     }
@@ -290,7 +298,7 @@ body {
 // The dock would sit under the on-screen keyboard, so hide it while a text
 // field is focused.
 @media (pointer: coarse), (max-height: 600px) {
-  body:has(input:focus, textarea:focus, [contenteditable="true"]:focus, md-outlined-text-field:focus-within) .dock {
+  body:has(input:focus, textarea:focus, [contenteditable="true"]:focus, md-outlined-text-field:not(.hide):focus-within) .dock {
     display: none !important;
   }
 }

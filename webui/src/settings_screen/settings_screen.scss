@@ -36,8 +36,7 @@
   overflow: hidden;
   box-sizing: border-box;
   -webkit-tap-highlight-color: transparent;
-  transition: background 0.15s ease, transform 0.15s ease;
-
+  transition: border-radius 0.2s cubic-bezier(0.2, 0, 0, 1), background-color 0.15s ease;
   &:first-child {
     border-radius: 24px 24px 4px 4px;
   }
@@ -59,7 +58,7 @@
   }
 
   &:active {
-    transform: scale(0.99);
+    border-radius: 20px !important;
   }
 }
 

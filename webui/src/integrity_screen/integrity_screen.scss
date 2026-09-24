@@ -90,7 +90,10 @@
   background: var(--md-sys-color-surface-container-high);
   cursor: pointer;
   user-select: none;
-  transition: background 0.15s ease;
+  position: relative;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-radius 0.2s cubic-bezier(0.2, 0, 0, 1), background-color 0.15s ease;
   box-sizing: border-box;
 
   &:first-child {
@@ -110,7 +113,7 @@
   }
 
   &:active {
-    transform: scale(0.99);
+    border-radius: 20px !important;
   }
 }
 

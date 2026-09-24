@@ -195,9 +195,6 @@ export class Navigation {
         startY = touch.clientY
         startTime = Date.now()
         intent = 'pending'
-
-        // Neighbouring pages must be laid out so they are visible while dragging
-        this.#updatePageSuppression(this.#activeIndex, true)
       },
       { passive: true },
     )
@@ -217,14 +214,14 @@ export class Navigation {
         if (intent === 'pending') {
           if (Math.abs(dy) > 7 && Math.abs(dy) > Math.abs(dx)) {
             intent = 'scroll'
-            this.#updatePageSuppression(this.#activeIndex)
             return
           }
           if (Math.abs(dx) > 7 && Math.abs(dx) > Math.abs(dy)) {
             intent = 'drag'
+            // Unsuppress neighbouring pages only when horizontal carousel drag starts
+            this.#updatePageSuppression(this.#activeIndex, true)
           }
         }
-
         if (intent === 'drag') {
           if (e.cancelable) e.preventDefault()
 
@@ -253,7 +250,6 @@ export class Navigation {
 
     const onTouchEndOrCancel = (e: TouchEvent) => {
       if (intent !== 'drag') {
-        if (intent === 'pending') this.#updatePageSuppression(this.#activeIndex)
         intent = 'none'
         return
       }

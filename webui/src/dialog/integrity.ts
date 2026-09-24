@@ -173,42 +173,42 @@ export class IntegrityDialog {
             <label class="switch-item outlined" for="integrity-enabled">
               <md-ripple></md-ripple>
               <span>Enable</span>
-              <md-switch id="integrity-enabled"></md-switch>
+              <md-switch icons="true" id="integrity-enabled"></md-switch>
             </label>
             <label class="switch-item outlined" for="integrity-spoof-build">
               <md-ripple></md-ripple>
               <span>Spoof Build</span>
-              <md-switch id="integrity-spoof-build" selected></md-switch>
+              <md-switch icons="true" id="integrity-spoof-build" selected></md-switch>
             </label>
             <label class="switch-item outlined" for="integrity-spoof-props">
               <md-ripple></md-ripple>
               <span>Spoof Props</span>
-              <md-switch id="integrity-spoof-props" selected></md-switch>
+              <md-switch icons="true" id="integrity-spoof-props" selected></md-switch>
             </label>
             <label class="switch-item outlined" for="integrity-spoof-vending">
               <md-ripple></md-ripple>
               <span>Spoof Vending Fingerprint</span>
-              <md-switch id="integrity-spoof-vending" selected></md-switch>
+              <md-switch icons="true" id="integrity-spoof-vending" selected></md-switch>
             </label>
             <label class="switch-item outlined" for="integrity-sync-patch">
               <md-ripple></md-ripple>
               <span>Sync Trust Patch</span>
-              <md-switch id="integrity-sync-patch" selected></md-switch>
+              <md-switch icons="true" id="integrity-sync-patch" selected></md-switch>
             </label>
             <label class="switch-item outlined" for="integrity-sync-ids">
               <md-ripple></md-ripple>
               <span>Sync Device IDs</span>
-              <md-switch id="integrity-sync-ids" selected></md-switch>
+              <md-switch icons="true" id="integrity-sync-ids" selected></md-switch>
             </label>
             <label class="switch-item outlined" for="integrity-unify-props">
               <md-ripple></md-ripple>
               <span>Unify Product Props</span>
-              <md-switch id="integrity-unify-props"></md-switch>
+              <md-switch icons="true" id="integrity-unify-props"></md-switch>
             </label>
             <label class="switch-item outlined" for="integrity-soter">
               <md-ripple></md-ripple>
               <span>Tencent Soter</span>
-              <md-switch id="integrity-soter"></md-switch>
+              <md-switch icons="true" id="integrity-soter"></md-switch>
             </label>
           </div>
           <p id="integrity-fingerprint" class="integrity-fingerprint">No fingerprint fetched</p>

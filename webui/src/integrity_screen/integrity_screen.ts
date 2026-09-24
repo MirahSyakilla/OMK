@@ -180,30 +180,34 @@ export class IntegrityScreen {
           <div class="integrity-controls-pane">
             <div class="switch-stack">
               <div class="switch-row" id="row-enabled" role="button" tabindex="0">
+                <md-ripple></md-ripple>
                 <div class="switch-row-content">
                   <div class="switch-row-title">Enable Master Spoof</div>
                   <div class="switch-row-sub">Activate Play Integrity property overrides</div>
                 </div>
-                <md-switch id="pif-enabled"></md-switch>
+                <md-switch icons="true" id="pif-enabled"></md-switch>
               </div>
 
               <div class="switch-row" id="row-spoof-build" role="button" tabindex="0">
+                <md-ripple></md-ripple>
                 <div class="switch-row-content">
                   <div class="switch-row-title">Spoof Build</div>
                   <div class="switch-row-sub">Override android.os.Build fields</div>
                 </div>
-                <md-switch id="pif-spoof-build" selected></md-switch>
+                <md-switch icons="true" id="pif-spoof-build" selected></md-switch>
               </div>
 
               <div class="switch-row" id="row-spoof-props" role="button" tabindex="0">
+                <md-ripple></md-ripple>
                 <div class="switch-row-content">
                   <div class="switch-row-title">Spoof Props</div>
                   <div class="switch-row-sub">Override system ro.* properties</div>
                 </div>
-                <md-switch id="pif-spoof-props" selected></md-switch>
+                <md-switch icons="true" id="pif-spoof-props" selected></md-switch>
               </div>
 
               <div class="switch-row" id="row-spoof-vending" role="button" tabindex="0">
+                <md-ripple></md-ripple>
                 <div class="switch-row-content">
                   <div class="switch-row-title">
                     Spoof Vending Fingerprint
@@ -211,34 +215,38 @@ export class IntegrityScreen {
                   </div>
                   <div class="switch-row-sub">Provide fingerprint to com.android.vending</div>
                 </div>
-                <md-switch id="pif-spoof-vending" selected></md-switch>
+                <md-switch icons="true" id="pif-spoof-vending" selected></md-switch>
               </div>
 
               <div class="switch-row" id="row-sync-patch" role="button" tabindex="0">
+                <md-ripple></md-ripple>
                 <div class="switch-row-content">
                   <div class="switch-row-title">Sync Trust Patch</div>
                   <div class="switch-row-sub">Synchronize security patch date with KeyMint trust</div>
                 </div>
-                <md-switch id="pif-sync-patch" selected></md-switch>
+                <md-switch icons="true" id="pif-sync-patch" selected></md-switch>
               </div>
 
               <div class="switch-row" id="row-sync-ids" role="button" tabindex="0">
+                <md-ripple></md-ripple>
                 <div class="switch-row-content">
                   <div class="switch-row-title">Sync Device IDs</div>
                   <div class="switch-row-sub">Apply brand, model, product to config.toml</div>
                 </div>
-                <md-switch id="pif-sync-ids" selected></md-switch>
+                <md-switch icons="true" id="pif-sync-ids" selected></md-switch>
               </div>
 
               <div class="switch-row" id="row-unify-props" role="button" tabindex="0">
+                <md-ripple></md-ripple>
                 <div class="switch-row-content">
                   <div class="switch-row-title">Unify Product Props</div>
                   <div class="switch-row-sub">Apply resetprop -n across ro.product.*</div>
                 </div>
-                <md-switch id="pif-unify-props"></md-switch>
+                <md-switch icons="true" id="pif-unify-props"></md-switch>
               </div>
 
               <div class="switch-row" id="row-soter" role="button" tabindex="0">
+                <md-ripple></md-ripple>
                 <div class="switch-row-content">
                   <div class="switch-row-title">
                     Tencent Soter
@@ -246,7 +254,7 @@ export class IntegrityScreen {
                   </div>
                   <div class="switch-row-sub">Enable WeChat/Tencent biometric key attestation spoof</div>
                 </div>
-                <md-switch id="pif-soter"></md-switch>
+                <md-switch icons="true" id="pif-soter"></md-switch>
               </div>
             </div>
           </div>
