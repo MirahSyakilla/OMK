@@ -112,7 +112,7 @@ fn grant_precompute_returns_reachable_omk_business_error() {
 }
 
 #[test]
-fn grant_precompute_preserves_system_when_omk_lacks_the_key() {
+fn grant_precompute_returns_omk_error_when_omk_lacks_the_key() {
     let request = ParsedServiceRequest::Grant {
         key: sample_key_descriptor(),
         grantee_uid: 12345,
@@ -137,7 +137,10 @@ fn grant_precompute_preserves_system_when_omk_lacks_the_key() {
         |_, _, _| panic!("grant requests must not call ungrant"),
     );
 
-    assert!(matches!(result, OmkServicePrecompute::PreserveSystem));
+    let OmkServicePrecompute::Reply(PrecomputedServiceReply::Error(status)) = result else {
+        panic!("a missing OhMyKeymint key must not fall through to the real TEE");
+    };
+    assert_eq!(status.service_specific_error(), 7);
 }
 
 #[test]

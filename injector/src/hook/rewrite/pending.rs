@@ -52,8 +52,6 @@ pub(super) enum PrecomputedMaintenanceReply {
 
 pub(super) enum OmkServicePrecompute {
     Reply(PrecomputedServiceReply),
-    /// OMK already produced the client reply. Still run the original System call.
-    ReplyAfterSystem(PrecomputedServiceReply),
     PreserveSystem,
 }
 

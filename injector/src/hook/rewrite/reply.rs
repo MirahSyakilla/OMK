@@ -1,11 +1,7 @@
 use super::*;
-use std::collections::HashSet;
 
 use crate::android::hardware::security::keymint::{KeyParameter::KeyParameter, Tag::Tag};
-use crate::android::system::keystore2::KeyDescriptor::KeyDescriptor;
 use crate::android::system::keystore2::KeyMetadata::KeyMetadata;
-
-const LIST_PAGE_LIMIT: usize = 64;
 
 mod dispatch;
 mod operation;
@@ -118,109 +114,10 @@ pub(super) fn owned_reply_is_ok(reply: &parcel::OwnedReply) -> bool {
     owned_reply_status(reply).is_some_and(|status| status.is_ok())
 }
 
-pub(super) fn owned_reply_is_key_not_found(reply: &parcel::OwnedReply) -> bool {
-    owned_reply_status(reply).is_some_and(|status| {
-        status.exception_code() == ExceptionCode::ServiceSpecific
-            && status.service_specific_error() == ResponseCode::KEY_NOT_FOUND.0
-    })
-}
-
-pub(super) fn owned_reply_is_foreign_key_blob(reply: &parcel::OwnedReply) -> bool {
-    owned_reply_status(reply).is_some_and(|status| {
-        status.exception_code() == ExceptionCode::ServiceSpecific
-            && status.service_specific_error()
-                == crate::android::hardware::security::keymint::ErrorCode::ErrorCode::IMPORTED_KEY_DECRYPTION_FAILED
-                    .0
-    })
-}
-
-pub(super) fn owned_reply_is_invalid_key_blob(reply: &parcel::OwnedReply) -> bool {
-    owned_reply_status(reply).is_some_and(|status| {
-        status.exception_code() == ExceptionCode::ServiceSpecific
-            && status.service_specific_error()
-                == crate::android::hardware::security::keymint::ErrorCode::ErrorCode::INVALID_KEY_BLOB
-                    .0
-    })
-}
-
-pub(super) fn is_key_not_found(error: &anyhow::Error) -> bool {
-    error_status(error).is_some_and(|status| {
-        status.exception_code() == ExceptionCode::ServiceSpecific
-            && status.service_specific_error() == ResponseCode::KEY_NOT_FOUND.0
-    })
-}
-
 unsafe fn system_reply_is_ok(tr: &binder_transaction_data) -> bool {
     let (data, data_size, offsets, offsets_size) = transaction_parts(tr);
     parcel::parse_reply_status(data, data_size, offsets, offsets_size)
         .is_ok_and(|status| status.is_ok())
-}
-
-unsafe fn system_success_value<T: rsbinder::Deserialize>(
-    tr: &binder_transaction_data,
-) -> Option<T> {
-    if !system_reply_is_ok(tr) {
-        return None;
-    }
-    let (data, data_size, offsets, offsets_size) = transaction_parts(tr);
-    parcel::parse_success_reply(data, data_size, offsets, offsets_size).ok()
-}
-
-fn descriptor_alias(key: &KeyDescriptor) -> Option<&str> {
-    key.alias.as_deref().filter(|alias| !alias.is_empty())
-}
-
-fn full_page_last(entries: &[KeyDescriptor]) -> Option<&str> {
-    if entries.len() < LIST_PAGE_LIMIT {
-        return None;
-    }
-    entries.last().and_then(descriptor_alias)
-}
-
-fn list_cutoff(system: &[KeyDescriptor], omk: &[KeyDescriptor]) -> Option<String> {
-    match (full_page_last(system), full_page_last(omk)) {
-        (Some(left), Some(right)) => Some(if left < right { left } else { right }.to_string()),
-        (Some(only), None) | (None, Some(only)) => Some(only.to_string()),
-        (None, None) => None,
-    }
-}
-
-fn keep_listed_key(key: &KeyDescriptor, cutoff: Option<&str>, seen: &mut HashSet<String>) -> bool {
-    let Some(alias) = descriptor_alias(key) else {
-        return true;
-    };
-    if cutoff.is_some_and(|limit| alias > limit) {
-        return false;
-    }
-    seen.insert(alias.to_string())
-}
-
-fn merge_listed_keys(
-    system: Vec<KeyDescriptor>,
-    omk: Vec<KeyDescriptor>,
-    uid: i64,
-) -> Vec<KeyDescriptor> {
-    let cutoff = list_cutoff(&system, &omk);
-    let mut seen = HashSet::new();
-    let mut merged = Vec::new();
-    for key in omk {
-        if keep_listed_key(&key, cutoff.as_deref(), &mut seen) {
-            merged.push(key);
-        }
-    }
-    for key in system {
-        if descriptor_alias(&key).is_some_and(|alias| seen.contains(alias)) {
-            super::request::remember_shadowed_key(uid, &key);
-            continue;
-        }
-        if !keep_listed_key(&key, cutoff.as_deref(), &mut seen) {
-            continue;
-        }
-        super::request::remember_hardware_key(uid, &key);
-        merged.push(key);
-    }
-    merged.sort_by(|left, right| descriptor_alias(left).cmp(&descriptor_alias(right)));
-    merged
 }
 
 fn error_status(error: &anyhow::Error) -> Option<&Status> {
@@ -538,14 +435,6 @@ pub(super) unsafe fn build_service_reply_rewrite(
             let entry = match ipc::with_omk_retry(|omk| Ok(omk.r#getKeyEntry(Some(caller), key)?)) {
                 Ok(entry) => entry,
                 Err(error) => {
-                    if is_key_not_found(&error) && system_reply_is_ok(tr) {
-                        super::request::remember_hardware_key(pending.caller.uid, key);
-                        warn!(
-                            "event=reply OMK getKeyEntry missed a system key for uid={} pid={}; preserving system reply",
-                            pending.caller.uid, pending.caller.pid
-                        );
-                        return Ok(None);
-                    }
                     return omk_error_reply_for_method("getKeyEntry", &pending.caller, &error);
                 }
             };
@@ -574,26 +463,12 @@ pub(super) unsafe fn build_service_reply_rewrite(
             }
         }
         ParsedServiceRequest::ListEntries { domain, nspace } => {
-            let system_entries = system_success_value(tr);
+            let system_ok = unsafe { system_reply_is_ok(tr) };
             match ipc::with_omk_retry(|omk| {
                 Ok(omk.r#listEntries(Some(caller), *domain, *nspace)?)
             }) {
-                Ok(entries) => {
-                    let merged = merge_listed_keys(
-                        system_entries.unwrap_or_default(),
-                        entries,
-                        pending.caller.uid,
-                    );
-                    Ok(Some(parcel::build_plain_reply(&merged)?))
-                }
-                Err(_) if system_entries.is_some() => {
-                    let entries = merge_listed_keys(
-                        system_entries.unwrap_or_default(),
-                        Vec::new(),
-                        pending.caller.uid,
-                    );
-                    Ok(Some(parcel::build_plain_reply(&entries)?))
-                }
+                Ok(entries) => Ok(Some(parcel::build_plain_reply(&entries)?)),
+                Err(error) if omk_unavailable_error(&error) && system_ok => Ok(None),
                 Err(error) => omk_error_reply_for_method("listEntries", &pending.caller, &error),
             }
         }
@@ -617,24 +492,12 @@ pub(super) unsafe fn build_service_reply_rewrite(
             }
         }
         ParsedServiceRequest::GetNumberOfEntries { domain, nspace } => {
-            let system_count: Option<i32> = system_success_value(tr);
+            let system_ok = unsafe { system_reply_is_ok(tr) };
             match ipc::with_omk_retry(|omk| {
                 Ok(omk.r#getNumberOfEntries(Some(caller), *domain, *nspace)?)
             }) {
-                Ok(count) => {
-                    let total = match system_count {
-                        Some(system) => system.saturating_add(count).saturating_sub(
-                            super::request::shadowed_key_count(
-                                pending.caller.uid,
-                                domain.0,
-                                *nspace,
-                            ),
-                        ),
-                        None => count,
-                    };
-                    Ok(Some(parcel::build_plain_reply(&total)?))
-                }
-                Err(_) if system_count.is_some() => Ok(None),
+                Ok(count) => Ok(Some(parcel::build_plain_reply(&count)?)),
+                Err(error) if omk_unavailable_error(&error) && system_ok => Ok(None),
                 Err(error) => {
                     omk_error_reply_for_method("getNumberOfEntries", &pending.caller, &error)
                 }
@@ -645,7 +508,7 @@ pub(super) unsafe fn build_service_reply_rewrite(
             nspace,
             starting_past_alias,
         } => {
-            let system_entries = system_success_value(tr);
+            let system_ok = unsafe { system_reply_is_ok(tr) };
             match ipc::with_omk_retry(|omk| {
                 Ok(omk.r#listEntriesBatched(
                     Some(caller),
@@ -654,22 +517,8 @@ pub(super) unsafe fn build_service_reply_rewrite(
                     starting_past_alias.as_deref(),
                 )?)
             }) {
-                Ok(entries) => {
-                    let merged = merge_listed_keys(
-                        system_entries.unwrap_or_default(),
-                        entries,
-                        pending.caller.uid,
-                    );
-                    Ok(Some(parcel::build_plain_reply(&merged)?))
-                }
-                Err(_) if system_entries.is_some() => {
-                    let entries = merge_listed_keys(
-                        system_entries.unwrap_or_default(),
-                        Vec::new(),
-                        pending.caller.uid,
-                    );
-                    Ok(Some(parcel::build_plain_reply(&entries)?))
-                }
+                Ok(entries) => Ok(Some(parcel::build_plain_reply(&entries)?)),
+                Err(error) if omk_unavailable_error(&error) && system_ok => Ok(None),
                 Err(error) => {
                     omk_error_reply_for_method("listEntriesBatched", &pending.caller, &error)
                 }

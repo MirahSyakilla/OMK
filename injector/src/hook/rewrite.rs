@@ -31,7 +31,7 @@ use crate::parcel::{
 };
 use crate::top::qwq2333::ohmykeymint::CallerInfo::CallerInfo;
 use crate::tracker::{self, SecurityLevelTargetInfo};
-use log::{debug, info, trace, warn};
+use log::{debug, info, warn};
 use rsbinder::{ExceptionCode, Status, StatusCode, Strong};
 
 mod mirror;
@@ -288,10 +288,10 @@ fn precompute_omk_service_mutator_reply(
                     certificate_chain.as_deref(),
                 )?)
             }) {
-                Ok(()) => OmkServicePrecompute::ReplyAfterSystem(
-                    PrecomputedServiceReply::UpdateSubcomponentSuccess,
-                ),
-                Err(error) if omk_unavailable_error(&error) || reply::is_key_not_found(&error) => {
+                Ok(()) => {
+                    OmkServicePrecompute::Reply(PrecomputedServiceReply::UpdateSubcomponentSuccess)
+                }
+                Err(error) if omk_unavailable_error(&error) => {
                     warn!(
                     "event=route OMK updateSubcomponent unavailable for uid={} pid={}: {:#}; leaving original system request untouched",
                     caller.uid, caller.pid, error
@@ -308,21 +308,12 @@ fn precompute_omk_service_mutator_reply(
                 Ok(()) => {
                     request::forget_hardware_key(caller.uid, key);
                     request::forget_shadowed_key(caller.uid, key);
-                    OmkServicePrecompute::ReplyAfterSystem(
-                        PrecomputedServiceReply::DeleteKeySuccess,
-                    )
+                    OmkServicePrecompute::Reply(PrecomputedServiceReply::DeleteKeySuccess)
                 }
                 Err(error) if omk_unavailable_error(&error) => {
                     warn!(
                         "event=route OMK deleteKey unavailable for uid={} pid={}: {:#}; leaving original system request untouched",
                         caller.uid, caller.pid, error
-                    );
-                    OmkServicePrecompute::PreserveSystem
-                }
-                Err(error) if reply::is_key_not_found(&error) => {
-                    trace!(
-                        "event=route OMK deleteKey missed for uid={} pid={}; leaving original system request untouched",
-                        caller.uid, caller.pid
                     );
                     OmkServicePrecompute::PreserveSystem
                 }
@@ -366,9 +357,9 @@ fn precompute_omk_grant_service_reply_with(
             Ok(omk_grant) => {
                 OmkServicePrecompute::Reply(PrecomputedServiceReply::GrantSuccess(omk_grant))
             }
-            Err(error) if omk_unavailable_error(&error) || reply::is_key_not_found(&error) => {
+            Err(error) if omk_unavailable_error(&error) => {
                 warn!(
-                    "event=route OMK grant missed or unavailable for uid={} pid={}: {:#}; leaving original system request untouched",
+                    "event=route OMK grant unavailable for uid={} pid={}: {:#}; leaving original system request untouched",
                     caller.uid, caller.pid, error
                 );
                 OmkServicePrecompute::PreserveSystem
@@ -386,9 +377,9 @@ fn precompute_omk_grant_service_reply_with(
         ParsedServiceRequest::Ungrant { key, grantee_uid } => {
             match ungrant(caller, key, *grantee_uid) {
                 Ok(()) => OmkServicePrecompute::Reply(PrecomputedServiceReply::UngrantSuccess),
-                Err(error) if omk_unavailable_error(&error) || reply::is_key_not_found(&error) => {
+                Err(error) if omk_unavailable_error(&error) => {
                     warn!(
-                        "event=route OMK ungrant missed or unavailable for uid={} pid={}: {:#}; leaving original system request untouched",
+                        "event=route OMK ungrant unavailable for uid={} pid={}: {:#}; leaving original system request untouched",
                         caller.uid, caller.pid, error
                     );
                     OmkServicePrecompute::PreserveSystem

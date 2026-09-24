@@ -63,20 +63,6 @@ pub(super) fn forget_shadowed_key(uid: i64, key: &KeyDescriptor) {
     }
 }
 
-pub(super) fn shadowed_key_count(uid: i64, domain: i32, nspace: i64) -> i32 {
-    SHADOWED_KEY_ALIASES
-        .lock()
-        .ok()
-        .map(|keys| {
-            keys.iter()
-                .filter(|(key_uid, key_domain, key_nspace, _)| {
-                    *key_uid == uid && *key_domain == domain && *key_nspace == nspace
-                })
-                .count() as i32
-        })
-        .unwrap_or(0)
-}
-
 fn is_hardware_key(uid: i64, key: &KeyDescriptor) -> bool {
     hardware_alias(uid, key).is_some_and(|id| {
         HARDWARE_KEY_ALIASES
@@ -92,34 +78,6 @@ fn params_have_attestation_challenge(
     params
         .iter()
         .any(|parameter| parameter.tag == Tag::ATTESTATION_CHALLENGE)
-}
-
-fn leave_non_attested_key_on_system(request: &ParsedSecurityLevelRequest, uid: i64) -> bool {
-    match request {
-        ParsedSecurityLevelRequest::GenerateKey { params, .. }
-        | ParsedSecurityLevelRequest::ImportKey { params, .. } => {
-            !params_have_attestation_challenge(params)
-        }
-        ParsedSecurityLevelRequest::ImportWrappedKey { params, .. } => {
-            !params_have_attestation_challenge(params)
-        }
-        ParsedSecurityLevelRequest::CreateOperation { key, .. } => is_hardware_key(uid, key),
-        ParsedSecurityLevelRequest::DeleteKey { key } if is_hardware_key(uid, key) => true,
-        _ => false,
-    }
-}
-
-fn foreign_blob_not_in_omk(pending: &PendingSecurityLevelCall, reply: &parcel::OwnedReply) -> bool {
-    if !reply::owned_reply_is_invalid_key_blob(reply) {
-        return false;
-    }
-    let ParsedSecurityLevelRequest::CreateOperation { key, .. } = &pending.request else {
-        return false;
-    };
-    match crate::ipc::with_omk_retry(|omk| Ok(omk.r#getKeyEntry(Some(&pending.caller), key)?)) {
-        Err(error) if reply::is_key_not_found(&error) => true,
-        _ => false,
-    }
 }
 
 fn tracks_system_key_alias(request: &ParsedSecurityLevelRequest) -> bool {
@@ -146,21 +104,6 @@ fn forget_attested_omk_alias(pending: &PendingSecurityLevelCall) {
             forget_hardware_key(uid, key);
         }
         _ => {}
-    }
-}
-
-fn leave_hardware_service_key_on_system(request: &ParsedServiceRequest, uid: i64) -> bool {
-    match request {
-        ParsedServiceRequest::GetKeyEntry { key } => is_hardware_key(uid, key),
-        ParsedServiceRequest::DeleteKey { key } if is_hardware_key(uid, key) => true,
-        ParsedServiceRequest::UpdateSubcomponent { key, .. }
-        | ParsedServiceRequest::Grant { key, .. }
-        | ParsedServiceRequest::Ungrant { key, .. }
-            if is_hardware_key(uid, key) =>
-        {
-            true
-        }
-        _ => false,
     }
 }
 
@@ -664,9 +607,6 @@ unsafe fn handle_keystore_transaction(
             );
             route = RouteTarget::System;
         }
-        if route == RouteTarget::Omk && leave_hardware_service_key_on_system(&request, caller.uid) {
-            route = RouteTarget::System;
-        }
         if allow_omk_grant {
             trace!(
                 "event=decision command={} service_method={:?} code=0x{:x} uid={} pid={} sid='{}' packages={:?} allowed=true reason={:?} omk_grant=true",
@@ -694,7 +634,7 @@ unsafe fn handle_keystore_transaction(
                     block_system_request(tr);
                     Some(reply)
                 }
-                OmkServicePrecompute::ReplyAfterSystem(reply) => Some(reply),
+
                 OmkServicePrecompute::PreserveSystem => {
                     trace!(
                         "event=route method={:?} uid={} pid={} route={:?} omk_unavailable=true; preserving original system request",
@@ -834,14 +774,11 @@ unsafe fn handle_keystore_transaction(
         };
         // Keystore2 shares each security-level Binder between getSecurityLevel and getKeyEntry.
         let scoop_enabled = security_level_scoop_enabled(&cfg.intercept);
-        let mut route = if allow_unknown_omk_route || decision.allowed && scoop_enabled {
+        let route = if allow_unknown_omk_route || decision.allowed && scoop_enabled {
             RouteTarget::Omk
         } else {
             RouteTarget::System
         };
-        if route == RouteTarget::Omk && leave_non_attested_key_on_system(&request, caller.uid) {
-            route = RouteTarget::System;
-        }
         if !decision.allowed && !allow_unknown_omk_route {
             trace!(
                 "event=decision command={} security_level_method={:?} code=0x{:x} uid={} pid={} sid='{}' packages={:?} allowed=false reason={:?} target=ptr:0x{:x}/cookie:0x{:x} security_level={:?}; routing request to System",
@@ -910,22 +847,6 @@ unsafe fn handle_keystore_transaction(
         };
         if expects_reply && pending.route == RouteTarget::Omk {
             let reply = match build_omk_security_level_reply(&pending, true) {
-                Ok(Some(reply))
-                    if matches!(
-                        pending.request,
-                        ParsedSecurityLevelRequest::CreateOperation { .. }
-                    ) && (reply::owned_reply_is_key_not_found(&reply)
-                        || reply::owned_reply_is_foreign_key_blob(&reply)
-                        || foreign_blob_not_in_omk(&pending, &reply)) =>
-                {
-                    trace!(
-                        "event=route security-level CreateOperation missed in OMK for uid={} pid={}; preserving original system request",
-                        caller_uid, pending.caller.pid
-                    );
-                    pending.route = RouteTarget::System;
-                    replace_top_pending(connection, PendingCall::SecurityLevel(pending));
-                    return false;
-                }
                 Ok(Some(reply)) => {
                     if reply::owned_reply_is_ok(&reply) {
                         forget_attested_omk_alias(&pending);

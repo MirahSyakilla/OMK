@@ -24,24 +24,15 @@
 
 ### OMK Routing
 
-- For every request routed by `scoop` with `FilterDecision::allowed == true`, OMK is the backend
-  during normal reachable operation, except a non-attested alias key. Per-method intercept settings
-  still determine whether a request is routed by `scoop`.
-- `generateKey` with no `ATTESTATION_CHALLENGE` is passed to System, and that alias is remembered
-  for the caller. A `getKeyEntry` that OMK does not have, when System returns the key, is also
-  remembered. Later `createOperation`, `deleteKey`, `getKeyEntry`, and `updateSubcomponent` for the
-  same alias are passed to System.   `deleteKey`, `updateSubcomponent`, `grant`, and `ungrant` that OMK does not have are passed to
-  System. A
-  successful OMK `deleteKey` still runs the System delete, and the client sees the OMK success.
-  `listEntries`, `listEntriesBatched`, and `getNumberOfEntries` include System aliases.
-  `createOperation` for an alias OMK does not have is passed to System. A
-  `createOperation` that fails with `INVALID_KEY_BLOB` is passed to System only when `getKeyEntry`
-  also misses that alias. A keyblob OMK cannot decrypt is passed to System. A stored patch level
-  ahead of the current HAL patch does not block use of that key. `importKey` and
-  `importWrappedKey` follow the same challenge rule as `generateKey`. An attested
-  `importWrappedKey` stays on OMK even when its wrapping key is a System alias. The alias set changes only after
-  that call succeeds: System success remembers it, and a successful attested OMK generate or import
-  clears it. The alias set is process memory only.
+- For every request routed by `scoop` with `FilterDecision::allowed == true`, OhMyKeymint is the
+  only backend during normal reachable operation. Per-method intercept settings still determine
+  whether a request is routed by `scoop`.
+- A scooped `generateKey`, `importKey`, `importWrappedKey`, `createOperation`, `deleteKey`,
+  `getKeyEntry`, `updateSubcomponent`, `grant`, `ungrant`, `listEntries`, `listEntriesBatched`,
+  and `getNumberOfEntries` stays on OhMyKeymint. A miss, or a keyblob OhMyKeymint cannot open, is
+  returned as an OhMyKeymint error. It is not sent to the real TEE, and list results do not include
+  real TEE aliases. A stored patch level ahead of the current HAL patch does not block use of that
+  key.
 - `generateKey` rejects an illegal purpose with `IncompatiblePurpose`: EC `Encrypt`, `Decrypt`,
   and `WrapKey`; RSA `AgreeKey`; any ML-DSA purpose other than `Sign`, `Verify`, and `AttestKey`.
 - Choose any other backend only from the current caller, filter decision, method, and configuration.
