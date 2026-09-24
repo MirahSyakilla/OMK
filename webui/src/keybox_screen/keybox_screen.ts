@@ -80,7 +80,7 @@ export class KeyboxScreen {
           <div class="kb-section-title">Configured Slots</div>
           <button class="btn-tonal-sm" id="kb-manage-all-btn">
             <md-icon>tune</md-icon>
-            <span>Manage Dialog</span>
+            <span>Manage</span>
           </button>
         </div>
         <div class="kb-slots-stack" id="kb-slots-container">
@@ -92,7 +92,7 @@ export class KeyboxScreen {
           <div class="kb-section-title">Custom Sources</div>
           <button class="btn-tonal-sm" id="kb-add-custom-btn">
             <md-icon>add</md-icon>
-            <span>Add Source</span>
+            <span>Add</span>
           </button>
         </div>
         <div class="kb-custom-sources-stack" id="kb-custom-sources-container">
