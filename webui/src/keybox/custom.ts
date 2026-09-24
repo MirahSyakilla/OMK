@@ -6,7 +6,7 @@ import { FileSelector } from '../file_selector/file_selector'
 import { Snackbar } from '../snackbar/snackbar'
 import { LOCAL_STORAGE_PREFIX } from '../constant'
 
-interface CustomKeyboxEntry {
+export interface CustomKeyboxEntry {
   name: string
   link: string
   script: string
@@ -30,6 +30,21 @@ export class CustomKeyboxProvider {
     this.#snackbar = snackbar
   }
 
+  getEntries(): CustomKeyboxEntry[] {
+    return this.#getEntries()
+  }
+
+  showDialog(entry?: CustomKeyboxEntry): void {
+    const dialog = document.querySelector<MdDialog>('#customkb-dialog')
+    if (!dialog) return
+    if (entry) {
+      this.#showEditDialog(entry)
+    } else {
+      this.#resetDialogInputs()
+      this.#currentEditName = null
+      dialog.show()
+    }
+  }
   bind(fragment: DocumentFragment): void {
     const dialog = fragment.querySelector<MdDialog>('#customkb-dialog')
     const removeDialog = fragment.querySelector<MdDialog>('#customkb-remove-dialog')
