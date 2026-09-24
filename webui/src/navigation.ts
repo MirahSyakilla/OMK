@@ -6,9 +6,8 @@ export interface TabDefinition {
 }
 
 export const TABS: TabDefinition[] = [
-  { id: 'home-page', title: 'Overview', icon: 'home', label: 'Home' },
   { id: 'apps-page', title: 'Apps', icon: 'apps', label: 'Apps' },
-  { id: 'integrity-page', title: 'Play Integrity', icon: 'verified_user', label: 'Integrity' },
+  { id: 'integrity-page', title: 'Integrity', icon: 'verified_user', label: 'Integrity' },
   { id: 'keybox-page', title: 'Keybox', icon: 'vpn_key', label: 'Keybox' },
   { id: 'settings-page', title: 'Settings', icon: 'settings', label: 'Settings' },
 ]
@@ -19,6 +18,8 @@ export class Navigation {
   #indicator: HTMLElement
   #titleEl: HTMLElement
   #tabs: HTMLElement[] = []
+  #pages: HTMLElement[] = []
+  #suppressTimer: number | null = null
   #onTabChangedCallbacks: Array<(index: number, tabId: string) => void> = []
 
   constructor(track: HTMLElement, dock: HTMLElement, titleEl: HTMLElement) {
@@ -26,6 +27,9 @@ export class Navigation {
     this.#titleEl = titleEl
     this.#indicator = dock.querySelector<HTMLElement>('.nav-indicator')!
     this.#tabs = Array.from(dock.querySelectorAll<HTMLElement>('.nav-tab'))
+    this.#pages = TABS.map((tab) => document.getElementById(tab.id)).filter(
+      (page): page is HTMLElement => page !== null,
+    )
 
     this.#initTabs()
     this.#initGestures()
@@ -37,11 +41,22 @@ export class Navigation {
   }
 
   getActiveTabId(): string {
-    return TABS[this.#activeIndex]?.id ?? 'home-page'
+    return TABS[this.#activeIndex]?.id ?? 'apps-page'
   }
 
   onTabChanged(cb: (index: number, tabId: string) => void): void {
     this.#onTabChangedCallbacks.push(cb)
+  }
+
+  /**
+   * Collapses every page except the active one so the document is only as tall
+   * as the visible screen. `unsuppressAll` keeps every page at full size, which
+   * the carousel needs while it slides and while a swipe is being dragged.
+   */
+  #updatePageSuppression(activeIndex: number, unsuppressAll = false): void {
+    this.#pages.forEach((page, index) => {
+      page.classList.toggle('page--suppressed', !unsuppressAll && index !== activeIndex)
+    })
   }
 
   setIndicatorProgress(curIdx: number, targetIdx: number, progress: number): void {
@@ -86,16 +101,24 @@ export class Navigation {
       tab.setAttribute('aria-selected', i === index ? 'true' : 'false')
     })
 
+    // Every page stays at full size while the track slides, then collapses
+    this.#updatePageSuppression(index, true)
+    if (this.#suppressTimer !== null) {
+      clearTimeout(this.#suppressTimer)
+      this.#suppressTimer = null
+    }
+    if (smooth) {
+      this.#suppressTimer = window.setTimeout(() => {
+        this.#suppressTimer = null
+        this.#updatePageSuppression(this.#activeIndex)
+      }, 330)
+    } else {
+      this.#updatePageSuppression(index)
+    }
+
     // Reposition floating pill dock indicator
     const activeTab = this.#tabs[index]
-    if (activeTab) {
-      this.reposition(activeTab, smooth)
-      requestAnimationFrame(() => {
-        if (activeTab) {
-          this.reposition(activeTab, smooth)
-        }
-      })
-    }
+    if (activeTab) this.reposition(activeTab, smooth)
 
     // Carousel track sliding
     this.setTrackPosition(index, smooth)
@@ -156,6 +179,9 @@ export class Navigation {
         startY = touch.clientY
         startTime = Date.now()
         intent = 'pending'
+
+        // Neighbouring pages must be laid out so they are visible while dragging
+        this.#updatePageSuppression(this.#activeIndex, true)
       },
       { passive: true },
     )
@@ -175,6 +201,7 @@ export class Navigation {
         if (intent === 'pending') {
           if (Math.abs(dy) > 7 && Math.abs(dy) > Math.abs(dx)) {
             intent = 'scroll'
+            this.#updatePageSuppression(this.#activeIndex)
             return
           }
           if (Math.abs(dx) > 7 && Math.abs(dx) > Math.abs(dy)) {
@@ -210,6 +237,7 @@ export class Navigation {
 
     const onTouchEndOrCancel = (e: TouchEvent) => {
       if (intent !== 'drag') {
+        if (intent === 'pending') this.#updatePageSuppression(this.#activeIndex)
         intent = 'none'
         return
       }

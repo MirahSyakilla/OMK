@@ -151,34 +151,29 @@ export class IntegrityScreen {
   #canEnable = false
   #fontSize = 14
   #autoScroll = true
-  #onSaved: (() => void) | null = null
 
-  constructor(cli: Cli, config: Config, snackbar: Snackbar, onSaved?: () => void) {
+  constructor(cli: Cli, config: Config, snackbar: Snackbar) {
     this.#cli = cli
     this.#config = config
     this.#snackbar = snackbar
-    this.#onSaved = onSaved ?? null
   }
 
   render(container: HTMLElement): void {
     this.#container = container
     container.innerHTML = /* html */ `
       <div class="integrity-screen">
-        <!-- Action Chips -->
-        <div class="integrity-chip-row">
-          <button class="action-chip" id="pif-fetch-chip">
-            <md-icon>download</md-icon>
-            <span>Fetch Build</span>
-          </button>
-          <button class="action-chip" id="pif-update-chip">
-            <md-icon>refresh</md-icon>
-            <span>Update Product</span>
-          </button>
-          <button class="action-chip" id="pif-view-chip">
-            <md-icon>visibility</md-icon>
-            <span>View Props</span>
-          </button>
-        </div>
+        <!-- Screen actions (PlayIntegrityFix chip set) -->
+        <md-chip-set class="integrity-action-row">
+          <md-assist-chip id="pif-fetch-chip" elevated label="Fetch Build">
+            <md-icon slot="icon">download</md-icon>
+          </md-assist-chip>
+          <md-assist-chip id="pif-update-chip" elevated label="Update Product">
+            <md-icon slot="icon">refresh</md-icon>
+          </md-assist-chip>
+          <md-assist-chip id="pif-view-chip" elevated label="View Props">
+            <md-icon slot="icon">visibility</md-icon>
+          </md-assist-chip>
+        </md-chip-set>
 
         <div class="integrity-main-layout">
           <!-- Controls Pane -->
@@ -505,7 +500,6 @@ export class IntegrityScreen {
       await this.#cli.killIntegrityTargets()
       const keyName = switchId.replace('pif-', '').replace(/-/g, '_')
       this.output(`[+] ${keyName}: ${value ? 'enabled' : 'disabled'}`)
-      this.#onSaved?.()
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       this.output(`[!] Error saving setting: ${msg}`, true)
@@ -620,7 +614,6 @@ export class IntegrityScreen {
         this.output('[+] Stopped GMS, Vending, and unstable DroidGuard targets')
         this.#snackbar.show('Product updated')
         this.#fingerprint = await this.#readFingerprint()
-        this.#onSaved?.()
         return
       }
 
@@ -673,7 +666,6 @@ export class IntegrityScreen {
           this.output('[+] Stopped GMS, Vending, and unstable DroidGuard targets')
           this.#snackbar.show('Fingerprint applied')
           this.#fingerprint = await this.#readFingerprint()
-          this.#onSaved?.()
         }
       })
     } catch (e) {

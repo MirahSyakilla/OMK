@@ -42,3 +42,10 @@ __pycache__/
 
 # Optional local BoringSSL Rust workspace
 /boringssl/rust/
+
+
+docs/reference/
+
+# Memory Bank documentation (local only)
+memory-bank/
+**/memory-bank/
