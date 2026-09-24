@@ -149,7 +149,7 @@ integrityScreen.render(integrityPage)
 
 // Tab 2: Keybox Screen
 const keyboxPage = document.querySelector<HTMLElement>('#keybox-page')!
-const keyboxScreen = new KeyboxScreen(keybox, keyboxRepo, cli, config, snackbar)
+const keyboxScreen = new KeyboxScreen(keybox, keyboxRepo, cli, config, snackbar, history)
 keyboxScreen.render(keyboxPage)
 
 // Tab 3: Settings Screen

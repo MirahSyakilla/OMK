@@ -1,11 +1,14 @@
+import type { MdDialog } from '@material/web/all'
 import type { Keybox } from '../keybox/keybox'
 import type { CustomKeyboxEntry } from '../keybox/custom'
 import type { KeyboxRepo } from '../keybox/repo/repo'
 import type { Cli } from '../cli'
 import type { Config } from '../config'
 import type { Snackbar } from '../snackbar/snackbar'
+import type { History } from '../history'
 import { File } from '../file'
 import { i18n } from '../i18n'
+import { applyDialogAnimation } from '../dialog/animation'
 import './keybox_screen.scss'
 
 interface SlotDetail {
@@ -25,6 +28,7 @@ export class KeyboxScreen {
   #cli: Cli
   #config: Config
   #snackbar: Snackbar
+  #history?: History
   #container: HTMLElement | null = null
   #slots: SlotDetail[] = []
 
@@ -34,45 +38,71 @@ export class KeyboxScreen {
     cli: Cli,
     config: Config,
     snackbar: Snackbar,
+    history?: History,
   ) {
     this.#keybox = keybox
     this.#keyboxRepo = keyboxRepo
     this.#cli = cli
     this.#config = config
     this.#snackbar = snackbar
+    this.#history = history
   }
-
   render(container: HTMLElement): void {
     this.#container = container
     container.innerHTML = /* html */ `
       <div class="keybox-screen">
-        <!-- Install Card -->
-        <div class="kb-section-title">Install Keybox</div>
+        <!-- Install / Add Keybox Card -->
+        <div class="kb-section-title">Add Keybox</div>
         <div class="kb-install-card">
           <div class="kic-header">
             <div class="kic-icon"><md-icon>vpn_key</md-icon></div>
             <div class="kic-text">
-              <div class="kic-title">Import or Generate Keybox</div>
-              <div class="kic-subtitle">Install certificates directly to KeyMint storage</div>
+              <div class="kic-title">Add Keybox</div>
+              <div class="kic-subtitle">Import from file, generate, or choose presets</div>
             </div>
           </div>
 
-          <div class="kic-field-row">
-            <div class="kic-field">
-              <label for="kb-source-select" class="kic-label">Key Source</label>
-              <select id="kb-source-select" class="kb-select">
-                <option value="aosp">AOSP (Bundled keys)</option>
-                <option value="unknown">Self-Signed (Unknown keys)</option>
-                <option value="alwaysstrong">AlwaysStrong (Remote)</option>
-                <option value="local">Local File (.xml)</option>
-              </select>
+          <div class="kac-grid">
+            <!-- Tile 1: Local File -->
+            <div class="kac-tile" id="kb-action-local" role="button" tabindex="0">
+              <div class="kac-tile-icon"><md-icon>upload_file</md-icon></div>
+              <div class="kac-tile-text">
+                <div class="kac-tile-title">Local File</div>
+                <div class="kac-tile-sub">From storage (.xml)</div>
+              </div>
+              <md-ripple></md-ripple>
+            </div>
+
+            <!-- Tile 2: Online Repo -->
+            <div class="kac-tile" id="kb-action-repo" role="button" tabindex="0">
+              <div class="kac-tile-icon"><md-icon>public</md-icon></div>
+              <div class="kac-tile-text">
+                <div class="kac-tile-title">Online Repo</div>
+                <div class="kac-tile-sub">Community tested</div>
+              </div>
+              <md-ripple></md-ripple>
+            </div>
+
+            <!-- Tile 3: Self-Signed -->
+            <div class="kac-tile" id="kb-action-generate" role="button" tabindex="0">
+              <div class="kac-tile-icon"><md-icon>auto_fix_high</md-icon></div>
+              <div class="kac-tile-text">
+                <div class="kac-tile-title">Self-Signed</div>
+                <div class="kac-tile-sub">Local generator</div>
+              </div>
+              <md-ripple></md-ripple>
+            </div>
+
+            <!-- Tile 4: Presets -->
+            <div class="kac-tile" id="kb-action-presets" role="button" tabindex="0">
+              <div class="kac-tile-icon"><md-icon>inventory_2</md-icon></div>
+              <div class="kac-tile-text">
+                <div class="kac-tile-title">Presets</div>
+                <div class="kac-tile-sub">AOSP & Remote</div>
+              </div>
+              <md-ripple></md-ripple>
             </div>
           </div>
-
-          <button class="btn-filled kic-install-btn" id="kb-install-now-btn">
-            <md-icon>download</md-icon>
-            <span>Install Now</span>
-          </button>
         </div>
 
         <!-- Slots List -->
@@ -99,19 +129,50 @@ export class KeyboxScreen {
           <!-- Rendered dynamically -->
         </div>
 
-        <!-- Browse / Remote Repo -->
-        <div class="kb-section-title">Online Repository</div>
-        <div class="kb-repo-card" id="kb-open-repo-btn" role="button" tabindex="0">
-          <div class="krc-icon"><md-icon>public</md-icon></div>
-          <div class="krc-content">
-            <div class="krc-title">Open Keybox Repo (KOWX712)</div>
-            <div class="krc-subtitle">Browse and import community-tested keybox certificates</div>
-          </div>
-          <div class="krc-arrow"><md-icon>open_in_new</md-icon></div>
-          <md-ripple></md-ripple>
-        </div>
       </div>
     `
+
+    // Ensure presets dialog is in .dialog-content with project dialog standards
+    const dialogContent = document.querySelector<HTMLElement>('.dialog-content')
+    if (dialogContent && !document.querySelector('#kb-presets-dialog')) {
+      const template = document.createElement('template')
+      template.innerHTML = /* html */ `
+        <md-dialog id="kb-presets-dialog">
+          <div slot="headline">Choose Preset</div>
+          <div slot="content" class="kb-presets-list">
+            <button type="button" class="kb-preset-pill" id="kb-preset-aosp">
+              <div class="kb-preset-pill-start">
+                <md-icon class="kb-preset-pill-icon">android</md-icon>
+                <div class="kb-preset-pill-text">
+                  <span class="kb-preset-pill-title">AOSP Test Key</span>
+                  <span class="kb-preset-pill-sub">Bundled open-source certificates</span>
+                </div>
+              </div>
+              <span class="inline-badge badge-primary">AOSP</span>
+              <md-ripple></md-ripple>
+            </button>
+
+            <button type="button" class="kb-preset-pill" id="kb-preset-alwaysstrong">
+              <div class="kb-preset-pill-start">
+                <md-icon class="kb-preset-pill-icon">cloud_download</md-icon>
+                <div class="kb-preset-pill-text">
+                  <span class="kb-preset-pill-title">AlwaysStrong Key</span>
+                  <span class="kb-preset-pill-sub">Remote certificate download</span>
+                </div>
+              </div>
+              <span class="inline-badge badge-ok">Remote</span>
+              <md-ripple></md-ripple>
+            </button>
+          </div>
+          <div slot="actions">
+            <md-text-button id="kb-preset-cancel">${i18n.t('functional_button_cancel')}</md-text-button>
+          </div>
+        </md-dialog>
+      `
+      dialogContent.appendChild(template.content)
+      const dialog = document.querySelector<MdDialog>('#kb-presets-dialog')
+      if (dialog) applyDialogAnimation(dialog)
+    }
 
     this.#bindEvents()
     void this.refresh()
@@ -127,21 +188,10 @@ export class KeyboxScreen {
   #bindEvents(): void {
     if (!this.#container) return
 
-    // Install Now
-    this.#container.querySelector('#kb-install-now-btn')?.addEventListener('click', async () => {
-      const sourceSelect = this.#container?.querySelector<HTMLSelectElement>('#kb-source-select')
-      const source = sourceSelect?.value ?? 'aosp'
-
+    // Tile 1: Local File
+    this.#container.querySelector('#kb-action-local')?.addEventListener('click', async () => {
       try {
-        if (source === 'aosp') {
-          await this.#keybox.setAospKey()
-        } else if (source === 'unknown') {
-          await this.#keybox.setUnknownKey()
-        } else if (source === 'alwaysstrong') {
-          await this.#keybox.setAlwaysStrongKey()
-        } else if (source === 'local') {
-          await this.#keybox.setLocalKey()
-        }
+        await this.#keybox.setLocalKey()
         await this.refresh()
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
@@ -149,11 +199,60 @@ export class KeyboxScreen {
       }
     })
 
-    // Open Repo
-    this.#container.querySelector('#kb-open-repo-btn')?.addEventListener('click', () => {
+    // Tile 2: Online Repo
+    this.#container.querySelector('#kb-action-repo')?.addEventListener('click', () => {
       this.#keyboxRepo.show()
     })
 
+    // Tile 3: Self-Signed Keybox
+    this.#container.querySelector('#kb-action-generate')?.addEventListener('click', async () => {
+      try {
+        await this.#keybox.setUnknownKey()
+        await this.refresh()
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        this.#snackbar.show(`Generation error: ${msg}`, false)
+      }
+    })
+
+    // Tile 4: Presets Dialog
+    const presetsDialog = document.querySelector<MdDialog>('#kb-presets-dialog')
+    if (presetsDialog) {
+      this.#container.querySelector('#kb-action-presets')?.addEventListener('click', () => {
+        presetsDialog.show()
+        this.#history?.push('kb-presets-dialog', () => presetsDialog.close())
+      })
+
+      document.querySelector('#kb-preset-cancel')?.addEventListener('click', () => {
+        presetsDialog.close()
+      })
+
+      presetsDialog.addEventListener('closed', () => {
+        this.#history?.consume('kb-presets-dialog')
+      })
+
+      document.querySelector('#kb-preset-aosp')?.addEventListener('click', async () => {
+        presetsDialog.close()
+        try {
+          await this.#keybox.setAospKey()
+          await this.refresh()
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e)
+          this.#snackbar.show(`Installation error: ${msg}`, false)
+        }
+      })
+
+      document.querySelector('#kb-preset-alwaysstrong')?.addEventListener('click', async () => {
+        presetsDialog.close()
+        try {
+          await this.#keybox.setAlwaysStrongKey()
+          await this.refresh()
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e)
+          this.#snackbar.show(`Installation error: ${msg}`, false)
+        }
+      })
+    }
     // Manage All Dialog
     this.#container.querySelector('#kb-manage-all-btn')?.addEventListener('click', () => {
       void this.#keybox.showManage()
@@ -225,7 +324,7 @@ export class KeyboxScreen {
                 ${s.algos.map((a) => `<span class="inline-badge badge-primary">${a}</span>`).join('')}
                 ${s.isExpired ? '<span class="inline-badge badge-error">Expired</span>' : ''}
               </div>
-              <div class="ksc-sub">${s.assignedAppsCount} apps assigned • Expires: ${s.expiryDate}</div>
+              <div class="ksc-sub">${s.assignedAppsCount} apps assigned${s.expiryDate && s.expiryDate !== 'Unknown' ? ` • Expires: ${s.expiryDate}` : ''}</div>
             </div>
             <div class="ksc-actions">
               <button class="icon-btn-compact" data-action="export" data-slot="${s.slot}" aria-label="Export Slot">
