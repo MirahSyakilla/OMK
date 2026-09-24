@@ -7,8 +7,8 @@ export interface TabDefinition {
 
 export const TABS: TabDefinition[] = [
   { id: 'apps-page', title: '', icon: 'apps', label: 'Apps' },
-  { id: 'integrity-page', title: 'Integrity', icon: 'verified_user', label: 'Integrity' },
   { id: 'keybox-page', title: 'Keybox', icon: 'vpn_key', label: 'Keybox' },
+  { id: 'integrity-page', title: 'Integrity', icon: 'verified_user', label: 'Integrity' },
   { id: 'settings-page', title: 'Settings', icon: 'settings', label: 'Settings' },
 ]
 

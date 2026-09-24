@@ -74,11 +74,11 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = /* html */ `
           </div>
         </section>
 
-        <!-- Tab 1: Play Integrity -->
-        <section class="page" id="integrity-page"></section>
-
-        <!-- Tab 2: Keybox -->
+        <!-- Tab 1: Keybox -->
         <section class="page" id="keybox-page"></section>
+
+        <!-- Tab 2: Play Integrity -->
+        <section class="page" id="integrity-page"></section>
 
         <!-- Tab 3: Settings -->
         <section class="page" id="settings-page"></section>
@@ -91,13 +91,13 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = /* html */ `
         <md-icon class="nav-icon">apps</md-icon>
         <span class="nav-label">Apps</span>
       </button>
-      <button class="nav-tab" data-tab="1" role="tab" aria-label="Play Integrity">
-        <md-icon class="nav-icon">verified_user</md-icon>
-        <span class="nav-label">Integrity</span>
-      </button>
-      <button class="nav-tab" data-tab="2" role="tab" aria-label="Keybox">
+      <button class="nav-tab" data-tab="1" role="tab" aria-label="Keybox">
         <md-icon class="nav-icon">vpn_key</md-icon>
         <span class="nav-label">Keybox</span>
+      </button>
+      <button class="nav-tab" data-tab="2" role="tab" aria-label="Play Integrity">
+        <md-icon class="nav-icon">verified_user</md-icon>
+        <span class="nav-label">Integrity</span>
       </button>
       <button class="nav-tab" data-tab="3" role="tab" aria-label="Settings">
         <md-icon class="nav-icon">settings</md-icon>
@@ -186,9 +186,9 @@ navigation.onTabChanged((index) => {
   updateTabVisibility(index)
 
   if (index === 1) {
-    window.setTimeout(() => void integrityScreen.load(), 360)
-  } else if (index === 2) {
     window.setTimeout(() => void keyboxScreen.refresh(), 360)
+  } else if (index === 2) {
+    window.setTimeout(() => void integrityScreen.load(), 360)
   }
 })
 
