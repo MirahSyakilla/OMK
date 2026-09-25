@@ -3,6 +3,7 @@ import type { PackagesInfo } from 'kernelsu-alt'
 import type { MdDialog, MdFilledButton } from '@material/web/all'
 import { Config } from '../config'
 import { File } from '../file'
+import { escapeHtml } from '../html'
 import { i18n } from '../i18n'
 import { applyDialogAnimation } from '../dialog/animation'
 import './app_list.scss'
@@ -262,23 +263,23 @@ export class AppList {
     const wrapper = document.createElement('div')
     wrapper.innerHTML = /* html */ `
       <div class="card-box">
-        <div class="card card-alpha content${selectedClass}" data-package="${entry.packageName}">
+        <div class="card card-alpha content${selectedClass}" data-package="${escapeHtml(entry.packageName)}">
           <md-ripple></md-ripple>
-          <label class="name" for="checkbox-${entry.packageName}">
+          <label class="name" for="checkbox-${escapeHtml(entry.packageName)}">
             <div class="app-icon-container">
-              <div class="loader" data-package="${entry.packageName}"></div>
-              <img class="app-icon" data-package="${entry.packageName}" alt="${entry.appName}" draggable="false" />
-              <div class="app-icon-fallback" data-package="${entry.packageName}">
+              <div class="loader" data-package="${escapeHtml(entry.packageName)}"></div>
+              <img class="app-icon" data-package="${escapeHtml(entry.packageName)}" alt="${escapeHtml(entry.appName)}" draggable="false" />
+              <div class="app-icon-fallback" data-package="${escapeHtml(entry.packageName)}">
                 <svg viewBox="0 -960 960 960" xmlns="http://www.w3.org/2000/svg"><path d="M40-240q9-107 65.5-197T256-580l-74-128q-6-9-3-19t13-15q8-5 18-2t16 12l74 128q86-36 180-36t180 36l74-128q6-9 16-12t18 2q10 5 13 15t-3 19l-74 128q94 53 150.5 143T920-240H40Zm275.5-124.5Q330-379 330-400t-14.5-35.5Q301-450 280-450t-35.5 14.5Q230-421 230-400t14.5 35.5Q259-350 280-350t35.5-14.5Zm400 0Q730-379 730-400t-14.5-35.5Q701-450 680-450t-35.5 14.5Q630-421 630-400t14.5 35.5Q659-350 680-350t35.5-14.5Z"/></svg>
               </div>
             </div>
             <div class="app-info">
-              <div class="app-name">${entry.appName}</div>
-              <div class="package-name">${entry.packageName}</div>
+              <div class="app-name">${escapeHtml(entry.appName)}</div>
+              <div class="package-name">${escapeHtml(entry.packageName)}</div>
               ${pillsHtml}
             </div>
           </label>
-          <md-checkbox class="checkbox" id="checkbox-${entry.packageName}" touch-target="wrapper" ${checkedAttr}></md-checkbox>
+          <md-checkbox class="checkbox" id="checkbox-${escapeHtml(entry.packageName)}" touch-target="wrapper" ${checkedAttr}></md-checkbox>
         </div>
       </div>`
     const card = wrapper.firstElementChild as HTMLElement

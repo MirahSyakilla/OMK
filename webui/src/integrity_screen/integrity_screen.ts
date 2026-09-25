@@ -4,6 +4,7 @@ import { Cli, type FlashBuild } from '../cli'
 import { Config } from '../config'
 import { PIXEL_DEVICES } from '../constant'
 import { File } from '../file'
+import { escapeHtml } from '../html'
 import { Snackbar } from '../snackbar/snackbar'
 import './integrity_screen.scss'
 
@@ -597,8 +598,8 @@ export class IntegrityScreen {
             <label style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 12px; cursor: pointer; background: var(--md-sys-color-surface-container-high);">
               <md-radio name="build-choice" value="${idx}" ${idx === 0 ? 'checked' : ''}></md-radio>
               <div style="display: flex; flex-direction: column;">
-                <span style="font-weight: 600; color: var(--md-sys-color-on-surface);">${m.model} (${m.product})</span>
-                <span style="font-size: 0.8125rem; color: var(--md-sys-color-on-surface-variant);">${m.build.releaseCandidateName || m.build.buildId} • Android ${m.major}</span>
+                <span style="font-weight: 600; color: var(--md-sys-color-on-surface);">${escapeHtml(m.model)} (${escapeHtml(m.product)})</span>
+                <span style="font-size: 0.8125rem; color: var(--md-sys-color-on-surface-variant);">${escapeHtml(m.build.releaseCandidateName || m.build.buildId)} • Android ${escapeHtml(String(m.major))}</span>
               </div>
             </label>
           `,

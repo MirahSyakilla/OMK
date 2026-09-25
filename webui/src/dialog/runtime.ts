@@ -1,15 +1,7 @@
 import type { MdDialog, MdTextButton } from '@material/web/all'
 import { Config } from '../config'
+import { escapeHtml } from '../html'
 import { applyDialogAnimation } from './animation'
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;')
-}
 
 export class RuntimeDialog {
   #dialog: MdDialog | null = null

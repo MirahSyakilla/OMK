@@ -1,5 +1,6 @@
 import { exec } from 'kernelsu-alt'
 import type { MdDialog, MdIconButton, MdTextButton } from '@material/web/all'
+import { escapeHtml } from '../html'
 import { i18n } from '../i18n'
 import { applyDialogAnimation } from '../dialog/animation'
 import './file_selector.scss'
@@ -87,7 +88,7 @@ export class FileSelector {
     this.#currentPath = this.#currentPath.split('/').slice(0, -1).join('/')
     if (this.#currentPath === '') this.#currentPath = '/storage/emulated/0'
     if (this.#currentPathEl) {
-      this.#currentPathEl.innerHTML = this.#currentPath.split('/').filter(Boolean).join('<span class="separator">›</span>')
+      this.#currentPathEl.innerHTML = this.#currentPath.split('/').filter(Boolean).map((segment) => escapeHtml(segment)).join('<span class="separator">›</span>')
       this.#currentPathEl.scrollTo({
         left: this.#currentPathEl.scrollWidth,
         behavior: 'smooth',
@@ -136,7 +137,7 @@ export class FileSelector {
     this.#dialog?.show()
 
     if (this.#currentPathEl) {
-      this.#currentPathEl.innerHTML = this.#currentPath.split('/').filter(Boolean).join('<span class="separator">›</span>')
+      this.#currentPathEl.innerHTML = this.#currentPath.split('/').filter(Boolean).map((segment) => escapeHtml(segment)).join('<span class="separator">›</span>')
       this.#currentPathEl.scrollTo({
         left: this.#currentPathEl.scrollWidth,
         behavior: 'smooth',
@@ -195,7 +196,7 @@ export class FileSelector {
         itemElement.innerHTML = `
           <md-ripple></md-ripple>
           <md-icon>${item.isDirectory ? 'folder' : 'description'}</md-icon>
-          <span>${item.name}</span>
+          <span>${escapeHtml(item.name)}</span>
         `
         itemElement.onclick = () => {
           if (item.isDirectory) {
@@ -240,7 +241,7 @@ export class FileSelector {
     const segments = this.#currentPath.split('/').filter(Boolean)
     const pathHTML = segments.map((segment, index) => {
       const fullPath = '/' + segments.slice(0, index + 1).join('/')
-      return `<span class="path-segment" data-path="${fullPath}">${segment}</span>`
+      return `<span class="path-segment" data-path="${escapeHtml(fullPath)}">${escapeHtml(segment)}</span>`
     }).join('<span class="separator">›</span>')
 
     this.#currentPathEl.innerHTML = pathHTML

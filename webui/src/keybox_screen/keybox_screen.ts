@@ -14,6 +14,7 @@ import type { Config } from '../config'
 import type { Snackbar } from '../snackbar/snackbar'
 import type { History } from '../history'
 import { File } from '../file'
+import { escapeHtml } from '../html'
 import { i18n } from '../i18n'
 import { applyDialogAnimation } from '../dialog/animation'
 import './keybox_screen.scss'
@@ -352,11 +353,11 @@ export class KeyboxScreen {
             <div class="ksc-icon"><md-icon>vpn_key</md-icon></div>
             <div class="ksc-info">
               <div class="ksc-title">
-                ${s.label}
-                ${s.algos.map((a) => `<span class="inline-badge badge-primary">${a}</span>`).join('')}
+                ${escapeHtml(s.label)}
+                ${s.algos.map((a) => `<span class="inline-badge badge-primary">${escapeHtml(a)}</span>`).join('')}
                 ${s.isExpired ? '<span class="inline-badge badge-error">Expired</span>' : ''}
               </div>
-              <div class="ksc-sub">${s.assignedAppsCount === 1 ? '1 app' : `${s.assignedAppsCount} apps`} • ${s.fileName}</div>
+              <div class="ksc-sub">${s.assignedAppsCount === 1 ? '1 app' : `${s.assignedAppsCount} apps`} • ${escapeHtml(s.fileName)}</div>
             </div>
             <div class="ksc-expand-icon">
               <md-icon>expand_more</md-icon>
@@ -370,7 +371,7 @@ export class KeyboxScreen {
               <div class="ksc-meta-row">
                 <span class="ksc-meta-pill">
                   <md-icon>schedule</md-icon>
-                  ${s.createdDateText}
+                  ${escapeHtml(s.createdDateText)}
                 </span>
                 <span class="ksc-meta-pill">
                   <md-icon>apps</md-icon>
@@ -487,8 +488,8 @@ export class KeyboxScreen {
           <div class="kb-preset-pill-start">
             <md-icon class="kb-preset-pill-icon">source</md-icon>
             <div class="kb-preset-pill-text">
-              <span class="kb-preset-pill-title">${entry.name}</span>
-              <span class="kb-preset-pill-sub">${entry.link}</span>
+              <span class="kb-preset-pill-title">${escapeHtml(entry.name)}</span>
+              <span class="kb-preset-pill-sub">${escapeHtml(entry.link)}</span>
             </div>
           </div>
           <div class="kb-preset-pill-end">

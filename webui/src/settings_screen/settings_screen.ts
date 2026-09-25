@@ -1,5 +1,6 @@
 import type { DialogController } from '../dialog/dialog'
 import type { Config, Policy } from '../config'
+import { escapeHtml } from '../html'
 import './settings_screen.scss'
 
 const INTERCEPT_KEYS = [
@@ -36,7 +37,7 @@ export class SettingsScreen {
             <div class="settings-icon"><md-icon>memory</md-icon></div>
             <div class="settings-content">
               <div class="settings-title">Core Settings</div>
-              <div class="settings-sub" id="sub-core">${this.#getCoreSummary()}</div>
+              <div class="settings-sub" id="sub-core">${escapeHtml(this.#getCoreSummary())}</div>
             </div>
             <div class="settings-arrow"><md-icon>chevron_right</md-icon></div>
             <md-ripple></md-ripple>
@@ -50,7 +51,7 @@ export class SettingsScreen {
             <div class="settings-icon"><md-icon>verified_user</md-icon></div>
             <div class="settings-content">
               <div class="settings-title">Trust Settings</div>
-              <div class="settings-sub" id="sub-trust">${this.#getTrustSummary()}</div>
+              <div class="settings-sub" id="sub-trust">${escapeHtml(this.#getTrustSummary())}</div>
             </div>
             <div class="settings-arrow"><md-icon>chevron_right</md-icon></div>
             <md-ripple></md-ripple>
@@ -73,7 +74,7 @@ export class SettingsScreen {
             <div class="settings-icon"><md-icon>cable</md-icon></div>
             <div class="settings-content">
               <div class="settings-title">Injector Settings</div>
-              <div class="settings-sub" id="sub-injector">${this.#getInjectorSummary()}</div>
+              <div class="settings-sub" id="sub-injector">${escapeHtml(this.#getInjectorSummary())}</div>
             </div>
             <div class="settings-arrow"><md-icon>chevron_right</md-icon></div>
             <md-ripple></md-ripple>
@@ -87,7 +88,7 @@ export class SettingsScreen {
             <div class="settings-icon"><md-icon>filter_list</md-icon></div>
             <div class="settings-content">
               <div class="settings-title">Package Filter</div>
-              <div class="settings-sub" id="sub-filter">${this.#getFilterSummary()}</div>
+              <div class="settings-sub" id="sub-filter">${escapeHtml(this.#getFilterSummary())}</div>
             </div>
             <div class="settings-arrow"><md-icon>chevron_right</md-icon></div>
             <md-ripple></md-ripple>
@@ -96,7 +97,7 @@ export class SettingsScreen {
             <div class="settings-icon"><md-icon>alt_route</md-icon></div>
             <div class="settings-content">
               <div class="settings-title">Intercept Matrix</div>
-              <div class="settings-sub" id="sub-intercept">${this.#getInterceptSummary()}</div>
+              <div class="settings-sub" id="sub-intercept">${escapeHtml(this.#getInterceptSummary())}</div>
             </div>
             <div class="settings-arrow"><md-icon>chevron_right</md-icon></div>
             <md-ripple></md-ripple>
@@ -110,7 +111,7 @@ export class SettingsScreen {
             <div class="settings-icon"><md-icon>smartphone</md-icon></div>
             <div class="settings-content">
               <div class="settings-title">Device Properties</div>
-              <div class="settings-sub" id="sub-device">${this.#getDeviceSummary()}</div>
+              <div class="settings-sub" id="sub-device">${escapeHtml(this.#getDeviceSummary())}</div>
             </div>
             <div class="settings-arrow"><md-icon>chevron_right</md-icon></div>
             <md-ripple></md-ripple>
