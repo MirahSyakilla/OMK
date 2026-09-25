@@ -155,7 +155,11 @@ export class MainMenu {
       item.onclick = (event) => {
         event.stopPropagation()
         subMenuOpen = !subMenuOpen
-        subMenuOpen ? menu.show() : menu.close()
+        if (subMenuOpen) {
+          menu.show()
+        } else {
+          menu.close()
+        }
       }
       menu.querySelector('md-menu')?.addEventListener('opening', () => {
         subMenuOpen = true
