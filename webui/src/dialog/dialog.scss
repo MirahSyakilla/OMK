@@ -261,8 +261,13 @@
         box-sizing: border-box;
         transition: border-radius 0.2s ease;
 
-        &:active {
+        &.card-pressed {
           border-radius: 20px;
+        }
+        @media (hover: hover) and (pointer: fine) {
+          &:active {
+            border-radius: 20px;
+          }
         }
 
         .name {

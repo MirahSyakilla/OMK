@@ -78,8 +78,14 @@ export class SearchBar {
   #onBackSearch(): void {
     this.#filterActive = false
     this.#searchBar.value = ''
+    this.#searchBar.blur()
+    const activeEl = document.activeElement as HTMLElement | null
+    if (activeEl && (activeEl === this.#searchBar || this.#searchBar.contains(activeEl))) {
+      activeEl.blur()
+    }
     this.#searchBar.classList.add('hide')
     this.#searchHide.forEach(e => e.classList.remove('hide'))
+    this.#showAllCards()
   }
 
   #onBackFilter(): void {
@@ -91,8 +97,14 @@ export class SearchBar {
   #closeSearch(): void {
     this.#filterActive = false
     this.#searchBar.value = ''
+    this.#searchBar.blur()
+    const activeEl = document.activeElement as HTMLElement | null
+    if (activeEl && (activeEl === this.#searchBar || this.#searchBar.contains(activeEl))) {
+      activeEl.blur()
+    }
     this.#searchBar.classList.add('hide')
     this.#searchHide.forEach(e => e.classList.remove('hide'))
+    this.#showAllCards()
     this.#history.consume('search')
   }
 }

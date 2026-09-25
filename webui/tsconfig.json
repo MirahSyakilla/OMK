@@ -5,6 +5,9 @@
     "lib": ["ES2023", "DOM"],
     "types": ["vite/client"],
     "skipLibCheck": true,
+    "strict": true,
+    "incremental": true,
+    "tsBuildInfoFile": "node_modules/.cache/.tsbuildinfo",
 
     /* Bundler mode */
     "moduleResolution": "bundler",

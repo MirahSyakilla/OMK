@@ -17,19 +17,39 @@ export class Snackbar {
       </div>`
   }
 
-  show(msg: string, success: boolean = true, duration?: number): void {
+  show(msg: string, success: boolean = true, duration: number = 3000): void {
     this.#ensureElements()
     if (!this.#element || !this.#textElement) return
-    if (this.#timer) clearTimeout(this.#timer)
+    this.#clearTimer()
 
     this.#resetInlineStyles()
     this.#textElement.textContent = msg
     this.#element.classList.remove('hide')
     this.#element.classList.toggle('error', !success)
 
+    this.#startDismissTimer(duration)
+  }
+
+  dismiss(): void {
+    this.#clearTimer()
+    this.#element?.classList.add('hide')
+    this.#resetInlineStyles()
+  }
+
+  #startDismissTimer(duration = 3000): void {
+    this.#clearTimer()
     this.#timer = setTimeout(() => {
       this.#element?.classList.add('hide')
-    }, duration ?? 3000)
+      this.#resetInlineStyles()
+      this.#timer = null
+    }, duration)
+  }
+
+  #clearTimer(): void {
+    if (this.#timer) {
+      clearTimeout(this.#timer)
+      this.#timer = null
+    }
   }
 
   #ensureElements(): void {
@@ -54,10 +74,7 @@ export class Snackbar {
   #onPointerDown = (e: PointerEvent): void => {
     if (!this.#element || this.#element.classList.contains('hide') || this.#swiping) return
 
-    if (this.#timer) {
-      clearTimeout(this.#timer)
-      this.#timer = null
-    }
+    this.#clearTimer()
 
     this.#swipeStartX = e.clientX
     this.#swipeStartY = e.clientY
@@ -76,6 +93,7 @@ export class Snackbar {
 
     if (!this.#swiping && Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > 5) {
       this.#cleanupSwipeListeners()
+      this.#startDismissTimer(2000)
       return
     }
 
@@ -95,7 +113,12 @@ export class Snackbar {
 
   #onPointerUp = (): void => {
     this.#cleanupSwipeListeners()
-    if (!this.#element || !this.#swiping) return
+    if (!this.#element) return
+
+    if (!this.#swiping) {
+      this.dismiss()
+      return
+    }
 
     const threshold = this.#element.offsetWidth * 0.3
 
@@ -106,8 +129,7 @@ export class Snackbar {
       this.#element.style.opacity = '0'
 
       setTimeout(() => {
-        this.#element?.classList.add('hide')
-        this.#resetInlineStyles()
+        this.dismiss()
       }, 300)
     } else {
       this.#element.style.transition = 'transform 0.3s ease, opacity 0.2s ease'
@@ -115,6 +137,7 @@ export class Snackbar {
       this.#element.style.opacity = ''
       this.#swiping = false
       this.#currentX = 0
+      this.#startDismissTimer(2000)
     }
   }
 

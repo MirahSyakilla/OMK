@@ -98,6 +98,10 @@ export class ReloadMenu {
     return fragment
   }
 
+  showConfirm(target: OmKRestartTarget | 'integrity' = 'all'): void {
+    this.#ask(target)
+  }
+
   setIntegrityBlocked(blocked: boolean): void {
     this.#integrityBlocked = blocked
     this.#reapplyItem?.classList.toggle('menu-item-disabled', blocked)

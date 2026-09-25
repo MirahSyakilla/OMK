@@ -10,7 +10,6 @@ import { generateUnknownKeybox, isKeygenAvailable } from './unknown'
 import { CustomKeyboxProvider } from './custom'
 import { Config } from '../config'
 import { applyDialogAnimation } from '../dialog/animation'
-import { formatDeviceDate } from '../datetime'
 import './keybox.scss'
 
 export type KeyboxSaveResult = 'saved' | 'cancelled' | 'error'
@@ -18,16 +17,16 @@ export type KeyboxSaveResult = 'saved' | 'cancelled' | 'error'
 const MAX_KEYBOX_SLOT = 1024
 const SLOT_NAMES_FILE = 'keybox-slots.json'
 
-type KeyboxCertRole = 'leaf' | 'intermediate' | 'root'
+export type KeyboxCertRole = 'leaf' | 'intermediate' | 'root'
 
-interface KeyboxCert {
+export interface KeyboxCert {
   algo: 'RSA' | 'EC'
   role: KeyboxCertRole
   cn: string
   notAfter: Date
 }
 
-function algorithmsFromXml(xml: string): string[] {
+export function algorithmsFromXml(xml: string): string[] {
   const found: string[] = []
   const ecCount = [...xml.matchAll(/algorithm\s*=\s*"ecdsa"/gi)].length
   if (/algorithm\s*=\s*"rsa"/i.test(xml)) found.push('RSA')
@@ -65,7 +64,7 @@ function certRole(index: number, count: number): KeyboxCertRole {
   return 'intermediate'
 }
 
-function certsFromXml(xml: string): KeyboxCert[] {
+export function certsFromXml(xml: string): KeyboxCert[] {
   const certs: KeyboxCert[] = []
   const keys = [...xml.matchAll(/<Key\b([^>]*)>([\s\S]*?)<\/Key>/gi)]
   const blocks = keys.length > 0
@@ -90,11 +89,11 @@ function certsFromXml(xml: string): KeyboxCert[] {
   return certs
 }
 
-function expiriesFromXml(xml: string): Date[] {
+export function expiriesFromXml(xml: string): Date[] {
   return certsFromXml(xml).map((cert) => cert.notAfter)
 }
 
-function allExpiriesPassed(dates: Date[]): boolean {
+export function allExpiriesPassed(dates: Date[]): boolean {
   return dates.length > 0 && dates.every((date) => date.getTime() <= Date.now())
 }
 
@@ -142,8 +141,7 @@ export class Keybox {
   #overwriteDialog: MdDialog | null = null
   #overwriteMessage: HTMLElement | null = null
   #overwriteResolve: ((overwrite: boolean) => void) | null = null
-  #manageDialog: MdDialog | null = null
-  #manageList: HTMLElement | null = null
+
   #renameDialog: MdDialog | null = null
   #renameInput: MdOutlinedTextField | null = null
   #renameSlot: number | null = null
@@ -153,6 +151,8 @@ export class Keybox {
   #slotNames: Record<string, string> = {}
   #pendingNewName = ''
   #onNamesChanged: (() => void) | null = null
+
+  #onSlotsChanged: (() => void) | null = null
 
   constructor(cli: Cli, config: Config, fileSelector: FileSelector, snackbar: Snackbar) {
     this.cli = cli
@@ -231,15 +231,6 @@ export class Keybox {
         </div>
       </md-dialog>
 
-      <md-dialog id="keybox-manage-dialog">
-        <div slot="headline">${i18n.t('keybox_manage_title')}</div>
-        <div slot="content">
-          <div id="keybox-manage-list" class="keybox-manage-list"></div>
-        </div>
-        <div slot="actions">
-          <md-text-button id="close-keybox-manage">${i18n.t('functional_button_close')}</md-text-button>
-        </div>
-      </md-dialog>
 
       <md-dialog id="keybox-rename-dialog">
         <div slot="headline">${i18n.t('keybox_rename_title')}</div>
@@ -293,11 +284,7 @@ export class Keybox {
     this.#overwriteDialog?.addEventListener('closed', () => {
       if (this.#overwriteResolve) this.#finishOverwrite(false)
     })
-    this.#manageDialog = fragment.querySelector<MdDialog>('#keybox-manage-dialog')
-    this.#manageList = fragment.querySelector<HTMLElement>('#keybox-manage-list')
-    fragment.querySelector<MdTextButton>('#close-keybox-manage')!.onclick = () => {
-      this.#manageDialog?.close()
-    }
+
     this.#renameDialog = fragment.querySelector<MdDialog>('#keybox-rename-dialog')
     this.#renameInput = fragment.querySelector<MdOutlinedTextField>('#keybox-rename-input')
     fragment.querySelector<HTMLElement>('#cancel-keybox-rename')!.onclick = () => {
@@ -434,10 +421,24 @@ export class Keybox {
     return this.selectKeyboxForApp(packageName)
   }
 
-  async showManage(): Promise<void> {
-    if (!this.#manageDialog || !this.#manageList) return
-    await this.#renderManageList()
-    this.#manageDialog.show()
+  async showManage(_focusSlot?: number): Promise<void> {
+    this.#onSlotsChanged?.()
+  }
+
+  openRename(slot: number): void {
+    this.#openRename(slot)
+  }
+
+  openDelete(slot: number): void {
+    this.#openDelete(slot)
+  }
+
+  exportSlot(slot: number): Promise<void> {
+    return this.#exportSlot(slot)
+  }
+
+  onSlotsChanged(cb: () => void): void {
+    this.#onSlotsChanged = cb
   }
 
   slotLabel(slot: number): string {
@@ -460,9 +461,6 @@ export class Keybox {
     return this.slotLabel(slot)
   }
 
-  #fileName(slot: number): string {
-    return slot > 0 ? `keybox-slot-${slot}.xml` : 'keybox.xml'
-  }
 
   async #chooseSlot(currentSlot?: number, titleKey: string = 'keybox_save_title', packageName?: string): Promise<number | null> {
     if (!this.#slotDialog || !this.#slotList) return null
@@ -622,115 +620,7 @@ export class Keybox {
     this.#onNamesChanged?.()
   }
 
-  async #renderManageList(): Promise<void> {
-    if (!this.#manageList) return
-    await this.#loadSlotNames()
-    const slots = [0, ...await this.cli.getKeyboxSlots(this.#config.configPath).catch((): number[] => [])]
-    this.#manageList.innerHTML = ''
-    for (const slot of slots) {
-      const path = this.getKeyboxPath(slot)
-      const [mtime, xml] = await Promise.all([
-        this.cli.getFileMtime(path),
-        File.read(path).catch(() => ''),
-      ])
-      const card = document.createElement('div')
-      card.className = 'keybox-manage-card'
 
-      const head = document.createElement('div')
-      head.className = 'keybox-manage-head'
-      const name = document.createElement('div')
-      name.className = 'keybox-manage-name'
-      name.textContent = this.#slotLabel(slot)
-      const algos = document.createElement('div')
-      algos.className = 'keybox-manage-algos'
-      const certs = certsFromXml(xml)
-      const expired = allExpiriesPassed(certs.map((cert) => cert.notAfter))
-      for (const algo of algorithmsFromXml(xml)) {
-        const pill = document.createElement('span')
-        pill.className = 'keybox-algo-pill'
-        pill.textContent = algo
-        algos.appendChild(pill)
-      }
-      if (algos.childElementCount === 0) {
-        const pill = document.createElement('span')
-        pill.className = 'keybox-algo-pill'
-        pill.textContent = i18n.t('keybox_algo_unknown')
-        algos.appendChild(pill)
-      }
-      if (expired) algos.appendChild(this.#expiredPill())
-      head.append(name, algos)
-
-      const file = document.createElement('div')
-      file.className = 'keybox-manage-file'
-      file.textContent = this.#fileName(slot)
-
-      const meta = document.createElement('div')
-      meta.className = 'keybox-manage-meta'
-      const created = document.createElement('span')
-      created.className = 'keybox-meta-pill'
-      created.textContent = mtime
-        ? i18n.t('keybox_created', await formatDeviceDate(new Date(mtime), true))
-        : i18n.t('keybox_created_unknown')
-      const apps = document.createElement('span')
-      apps.className = 'keybox-meta-pill'
-      apps.textContent = slot === 0
-        ? i18n.t('keybox_assigned_default')
-        : i18n.t('keybox_assigned_apps', this.#config.packagesForSlot(slot).length)
-      meta.append(created, apps)
-
-      const details = document.createElement('div')
-      details.className = 'keybox-manage-certs'
-      const certInner = document.createElement('div')
-      certInner.className = 'keybox-manage-certs-inner'
-      for (const cert of certs) {
-        const row = document.createElement('span')
-        const passed = cert.notAfter.getTime() <= Date.now()
-        row.className = passed ? 'keybox-cert-pill keybox-meta-expired' : 'keybox-cert-pill'
-        const role = i18n.t(`keybox_cert_${cert.role}`)
-        const expiry = await formatDeviceDate(cert.notAfter, true)
-        row.textContent = cert.cn
-          ? i18n.t('keybox_cert_expires_cn', cert.algo, role, cert.cn, expiry)
-          : i18n.t('keybox_cert_expires', cert.algo, role, expiry)
-        certInner.appendChild(row)
-      }
-      details.appendChild(certInner)
-
-      const actions = document.createElement('div')
-      actions.className = 'keybox-manage-actions'
-      actions.addEventListener('click', (event) => event.stopPropagation())
-      actions.append(
-        this.#actionButton(i18n.t('keybox_action_rename'), () => this.#openRename(slot)),
-        this.#actionButton(i18n.t('keybox_action_export'), () => {
-          void this.#exportSlot(slot)
-        }),
-      )
-      if (slot > 0) {
-        actions.append(this.#actionButton(i18n.t('keybox_action_delete'), () => this.#openDelete(slot), true))
-      }
-
-      const expand = document.createElement('div')
-      expand.className = 'keybox-manage-expand'
-      const chevron = document.createElement('md-icon')
-      chevron.textContent = 'expand_more'
-      expand.appendChild(chevron)
-
-      card.append(head, file, meta, details, actions, expand)
-      card.addEventListener('click', () => {
-        const open = card.classList.toggle('expanded')
-        card.setAttribute('aria-expanded', open ? 'true' : 'false')
-      })
-      card.setAttribute('aria-expanded', 'false')
-      this.#manageList.appendChild(card)
-    }
-  }
-
-  #actionButton(label: string, onClick: () => void, danger = false): HTMLElement {
-    const button = document.createElement(danger ? 'md-outlined-button' : 'md-filled-tonal-button')
-    button.className = 'keybox-action-pill'
-    button.textContent = label
-    button.addEventListener('click', onClick)
-    return button
-  }
 
   #openRename(slot: number): void {
     this.#renameSlot = slot
@@ -750,8 +640,9 @@ export class Keybox {
     }
     try {
       await this.#setSlotName(slot, name)
-      await this.#renderManageList()
+
       this.#snackbar.show(i18n.t('prompt_keybox_renamed'), true)
+      this.#onSlotsChanged?.()
     } catch {
       this.#snackbar.show(i18n.t('prompt_keybox_rename_error'), false)
     }
@@ -779,7 +670,7 @@ export class Keybox {
       this.#onNamesChanged?.()
       this.#config.clearKeyboxSlot(slot)
       if (!import.meta.env.DEV) await this.#config.write()
-      await this.#renderManageList()
+
       this.#snackbar.show(i18n.t('prompt_keybox_deleted'), true)
     } catch {
       this.#snackbar.show(i18n.t('prompt_keybox_delete_error'), false)

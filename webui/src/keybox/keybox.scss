@@ -19,11 +19,6 @@
   --md-dialog-container-max-inline-size: min(94vw, 440px);
 }
 
-#keybox-manage-dialog {
-  --md-dialog-container-min-inline-size: min(94vw, 480px);
-  --md-dialog-container-max-inline-size: min(96vw, 560px);
-  --md-dialog-container-max-block-size: 85vh;
-}
 
 .keybox-package-chip {
   display: block;
@@ -142,6 +137,14 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.keybox-manage-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 36px 0;
+  min-height: 120px;
 }
 
 .keybox-manage-card {
@@ -271,8 +274,12 @@
 }
 
 .keybox-action-pill {
-  --md-filled-tonal-button-container-shape: 999px;
   --md-outlined-button-container-shape: 999px;
+
+  &--danger {
+    --md-outlined-button-outline-color: var(--md-sys-color-error);
+    --md-outlined-button-label-text-color: var(--md-sys-color-error);
+  }
 }
 
 #keybox-rename-dialog,

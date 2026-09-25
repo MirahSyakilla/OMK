@@ -1,0 +1,231 @@
+// Height-definite screen, the PlayIntegrityFix equivalent of `#root { 100svh }`.
+#integrity-page {
+  min-height: calc(100vh - var(--header-h) - var(--dock-space));
+  min-height: calc(100dvh - var(--header-h) - var(--dock-space));
+}
+
+.integrity-screen {
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-sizing: border-box;
+}
+
+// md-chip-set already lays the chips out in a wrapping row. Horizontal
+// scrolling is deliberately not used here: a sideways drag on this row belongs
+// to the tab carousel.
+.integrity-header-bar {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.integrity-action-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+
+  md-assist-chip {
+    // PlayIntegrityFix tonal assist chip
+    --md-assist-chip-elevated-container-shadow-color: #00000000;
+    --md-sys-color-on-surface: var(--md-sys-color-on-secondary-container);
+    --md-sys-color-surface-container-low: var(--md-sys-color-secondary-container);
+  }
+}
+
+.integrity-status-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 16px;
+  font-size: 0.84375rem;
+  font-weight: 500;
+  line-height: 1.4;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  box-sizing: border-box;
+  width: 100%;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
+
+  .integrity-status-icon {
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+  }
+
+  .integrity-status-text {
+    flex: 1;
+    min-width: 0;
+  }
+
+  &--ok {
+    background: var(--md-sys-color-surface-container-high);
+    color: var(--md-sys-color-on-surface);
+    border-color: transparent;
+
+    .integrity-status-icon {
+      color: #2e7d32;
+    }
+  }
+
+  &--conflict {
+    background: #fff3e0;
+    color: #b74600;
+    border-color: #ffb74d;
+
+    @media (prefers-color-scheme: dark) {
+      background: #3e2723;
+      color: #ffb74d;
+      border-color: #8d4a1f;
+    }
+
+    .integrity-status-icon {
+      color: #e65100;
+
+      @media (prefers-color-scheme: dark) {
+        color: #ff9800;
+      }
+    }
+  }
+
+  &--error {
+    background: var(--md-sys-color-error-container);
+    color: var(--md-sys-color-on-error-container);
+    border-color: transparent;
+
+    .integrity-status-icon {
+      color: var(--md-sys-color-error);
+    }
+  }
+
+  &:active {
+    filter: brightness(0.95);
+  }
+}
+.integrity-main-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+}
+
+.integrity-controls-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.switch-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  gap: 14px;
+  background: var(--md-sys-color-surface-container-high);
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+  touch-action: manipulation;
+  outline: none !important;
+  box-shadow: none !important;
+  -webkit-tap-highlight-color: transparent !important;
+  transition: background-color 0.15s ease, opacity 0.25s cubic-bezier(0.2, 0, 0, 1);
+
+  &--muted {
+    opacity: 0.38;
+    pointer-events: none;
+    cursor: default;
+
+    md-switch {
+      pointer-events: none;
+    }
+  }
+
+  &:focus,
+  &:focus-visible {
+    outline: none !important;
+  }
+
+  &:first-child {
+    border-radius: 24px 24px 4px 4px;
+  }
+
+  &:not(:first-child):not(:last-child) {
+    border-radius: 4px;
+  }
+
+  &:last-child {
+    border-radius: 4px 4px 24px 24px;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    &:hover {
+      background: var(--md-sys-color-surface-container-highest);
+    }
+  }
+
+  md-switch {
+    cursor: pointer;
+  }
+}
+
+.switch-row-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.switch-row-title {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--md-sys-color-on-surface);
+  line-height: 1.3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.switch-row-sub {
+  font-size: 0.78125rem;
+  color: var(--md-sys-color-on-surface-variant);
+  line-height: 1.3;
+  margin-top: 2px;
+}
+
+.inline-badge {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  line-height: 1;
+
+  &.badge-primary {
+    background: var(--md-sys-color-primary-container);
+    color: var(--md-sys-color-on-primary-container);
+  }
+
+  &.badge-tertiary {
+    background: var(--md-sys-color-tertiary-container);
+    color: var(--md-sys-color-on-tertiary-container);
+  }
+}

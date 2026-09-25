@@ -4,6 +4,8 @@
 :root {
   --top-inset: var(--window-inset-top, 0px);
   --bottom-inset: var(--window-inset-bottom, 0px);
+  --header-h: calc(64px + var(--top-inset));
+  --dock-space: calc(88px + var(--bottom-inset));
 
   --md-focus-ring-color: transparent;
 

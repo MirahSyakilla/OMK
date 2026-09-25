@@ -1,4 +1,5 @@
-import { MdFilledButton, type MdDialog, type MdIconButton, type MdOutlinedButton, type MdOutlinedTextField } from '@material/web/all'
+import type { MdFilledButton } from '@material/web/button/filled-button.js'
+import type { MdDialog, MdIconButton, MdOutlinedButton, MdOutlinedTextField } from '@material/web/all'
 import { i18n } from '../i18n'
 import { AppList } from '../app_list/app_list'
 import { applyDialogAnimation } from './animation'

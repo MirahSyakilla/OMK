@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Memory Bank documentation (local only)
+memory-bank/
+**/memory-bank/
