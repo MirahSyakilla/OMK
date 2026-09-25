@@ -1,5 +1,12 @@
 import type { MdDialog } from '@material/web/all'
-import { algorithmsFromXml, allExpiriesPassed, expiriesFromXml, type Keybox } from '../keybox/keybox'
+import {
+  algorithmsFromXml,
+  allExpiriesPassed,
+  certsFromXml,
+  expiriesFromXml,
+  type Keybox,
+} from '../keybox/keybox'
+import { formatDeviceDate } from '../datetime'
 import type { CustomKeyboxEntry } from '../keybox/custom'
 import type { KeyboxRepo } from '../keybox/repo/repo'
 import type { Cli } from '../cli'
@@ -15,10 +22,11 @@ interface SlotDetail {
   slot: number
   label: string
   path: string
+  fileName: string
   xml: string
+  createdDateText: string
   algos: string[]
   isExpired: boolean
-  expiryDate: string
   assignedAppsCount: number
 }
 
@@ -114,10 +122,6 @@ export class KeyboxScreen {
         <!-- Slots List -->
         <div class="kb-section-header">
           <div class="kb-section-title">Configured Slots</div>
-          <button class="btn-tonal-sm" id="kb-manage-all-btn">
-            <md-icon>tune</md-icon>
-            <span>Manage</span>
-          </button>
         </div>
         <div class="kb-slots-stack" id="kb-slots-container">
           <div class="kb-loading">Loading keybox slots...</div>
@@ -281,13 +285,6 @@ export class KeyboxScreen {
         this.#keybox.custom.showDialog()
       })
     }
-
-    // Manage All Dialog
-    const manageAllBtn = this.#container.querySelector<HTMLElement>('#kb-manage-all-btn')
-    manageAllBtn?.addEventListener('click', () => {
-      manageAllBtn.blur()
-      void this.#keybox.showManage()
-    })
   }
 
   async #loadSlots(): Promise<void> {
@@ -311,18 +308,26 @@ export class KeyboxScreen {
     const loaded: SlotDetail[] = []
     for (const slot of slotNumbers) {
       const path = this.#keybox.getKeyboxPath(slot)
-      const xml = await File.read(path).catch(() => '')
+      const fileName = slot > 0 ? `keybox-slot-${slot}.xml` : 'keybox.xml'
+      const [mtime, xml] = await Promise.all([
+        this.#cli.getFileMtime(path),
+        File.read(path).catch(() => ''),
+      ])
       const algos = algorithmsFromXml(xml)
       const isExpired = allExpiriesPassed(expiriesFromXml(xml))
+      const createdDateText = mtime
+        ? i18n.t('keybox_created', await formatDeviceDate(new Date(mtime), true))
+        : i18n.t('keybox_created_unknown')
 
       loaded.push({
         slot,
         label: this.#keybox.slotLabel(slot),
         path,
+        fileName,
         xml,
+        createdDateText,
         algos,
         isExpired,
-        expiryDate: '',
         assignedAppsCount: assignedCounts.get(slot) ?? 0,
       })
     }
@@ -342,8 +347,8 @@ export class KeyboxScreen {
       .map(
         (s) => `
         <div class="kb-slot-card" data-slot="${s.slot}">
-          <md-ripple></md-ripple>
-          <div class="ksc-main-row">
+          <div class="ksc-main-row" role="button" tabindex="0">
+            <md-ripple></md-ripple>
             <div class="ksc-icon"><md-icon>vpn_key</md-icon></div>
             <div class="ksc-info">
               <div class="ksc-title">
@@ -351,12 +356,50 @@ export class KeyboxScreen {
                 ${s.algos.map((a) => `<span class="inline-badge badge-primary">${a}</span>`).join('')}
                 ${s.isExpired ? '<span class="inline-badge badge-error">Expired</span>' : ''}
               </div>
-              <div class="ksc-sub">${s.assignedAppsCount === 1 ? '1 app' : `${s.assignedAppsCount} apps`}</div>
+              <div class="ksc-sub">${s.assignedAppsCount === 1 ? '1 app' : `${s.assignedAppsCount} apps`} • ${s.fileName}</div>
             </div>
-            <div class="ksc-actions">
-              <button class="icon-btn-compact" data-action="inspect" data-slot="${s.slot}" aria-label="Inspect Slot">
-                <md-icon>visibility</md-icon>
-              </button>
+            <div class="ksc-expand-icon">
+              <md-icon>expand_more</md-icon>
+            </div>
+          </div>
+
+          <div class="ksc-expanded-content">
+            <div class="ksc-expanded-inner">
+              <div class="ksc-divider"></div>
+
+              <div class="ksc-meta-row">
+                <span class="ksc-meta-pill">
+                  <md-icon>schedule</md-icon>
+                  ${s.createdDateText}
+                </span>
+                <span class="ksc-meta-pill">
+                  <md-icon>apps</md-icon>
+                  ${s.slot === 0 ? i18n.t('keybox_assigned_default') : i18n.t('keybox_assigned_apps', s.assignedAppsCount)}
+                </span>
+              </div>
+
+              <div class="ksc-certs-list" data-slot-certs="${s.slot}"></div>
+
+              <div class="ksc-actions-row">
+                <md-outlined-button class="ksc-action-btn" data-action="rename" data-slot="${s.slot}">
+                  <md-icon slot="icon">edit</md-icon>
+                  ${i18n.t('keybox_action_rename')}
+                </md-outlined-button>
+                <md-outlined-button class="ksc-action-btn" data-action="export" data-slot="${s.slot}">
+                  <md-icon slot="icon">download</md-icon>
+                  ${i18n.t('keybox_action_export')}
+                </md-outlined-button>
+                ${
+                  s.slot > 0
+                    ? `
+                  <md-outlined-button class="ksc-action-btn ksc-action-btn--danger" data-action="delete" data-slot="${s.slot}">
+                    <md-icon slot="icon">delete</md-icon>
+                    ${i18n.t('keybox_action_delete')}
+                  </md-outlined-button>
+                `
+                    : ''
+                }
+              </div>
             </div>
           </div>
         </div>
@@ -364,21 +407,65 @@ export class KeyboxScreen {
       )
       .join('')
 
-    // Tapping card or eye button opens the slot in the Manage Dialog
+    const certsRendered = new Set<number>()
+    const renderCerts = async (slot: number, certsContainer: HTMLElement, xml: string) => {
+      if (certsRendered.has(slot)) return
+      certsRendered.add(slot)
+      const certs = certsFromXml(xml)
+      if (certs.length === 0) {
+        certsContainer.innerHTML = '<span class="keybox-cert-pill">No certificates found</span>'
+        return
+      }
+      certsContainer.innerHTML = ''
+      for (const cert of certs) {
+        const row = document.createElement('span')
+        const passed = cert.notAfter.getTime() <= Date.now()
+        row.className = passed ? 'keybox-cert-pill keybox-meta-expired' : 'keybox-cert-pill'
+        const role = i18n.t(`keybox_cert_${cert.role}`)
+        const expiry = await formatDeviceDate(cert.notAfter, true)
+        row.textContent = cert.cn
+          ? i18n.t('keybox_cert_expires_cn', cert.algo, role, cert.cn, expiry)
+          : i18n.t('keybox_cert_expires', cert.algo, role, expiry)
+        certsContainer.appendChild(row)
+      }
+    }
+
     listEl.querySelectorAll('.kb-slot-card').forEach((card) => {
-      card.addEventListener('click', () => {
-        ;(card as HTMLElement).blur()
-        const slot = Number.parseInt((card as HTMLElement).dataset.slot ?? '0', 10)
-        void this.#keybox.showManage(slot)
+      const slot = Number.parseInt((card as HTMLElement).dataset.slot ?? '0', 10)
+      const slotData = this.#slots.find((s) => s.slot === slot)
+      const mainRow = card.querySelector<HTMLElement>('.ksc-main-row')
+      const certsContainer = card.querySelector<HTMLElement>('[data-slot-certs]')
+
+      const toggleExpand = () => {
+        mainRow?.blur()
+        const isExpanded = card.classList.toggle('expanded')
+        if (isExpanded && certsContainer && slotData) {
+          void renderCerts(slot, certsContainer, slotData.xml)
+        }
+      }
+
+      mainRow?.addEventListener('click', toggleExpand)
+      mainRow?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          toggleExpand()
+        }
       })
     })
 
-    listEl.querySelectorAll('[data-action="inspect"]').forEach((btn) => {
+    listEl.querySelectorAll<HTMLElement>('.ksc-action-btn').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation()
-        ;(btn as HTMLElement).blur()
-        const slot = Number.parseInt((e.currentTarget as HTMLElement).dataset.slot ?? '0', 10)
-        void this.#keybox.showManage(slot)
+        btn.blur()
+        const slot = Number.parseInt(btn.dataset.slot ?? '0', 10)
+        const action = btn.dataset.action
+        if (action === 'rename') {
+          this.#keybox.openRename(slot)
+        } else if (action === 'export') {
+          void this.#keybox.exportSlot(slot)
+        } else if (action === 'delete') {
+          this.#keybox.openDelete(slot)
+        }
       })
     })
   }

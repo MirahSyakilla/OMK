@@ -383,17 +383,13 @@
 }
 
 .kb-slot-card {
-  padding: 14px 16px;
+  padding: 0;
   background: var(--md-sys-color-surface-container-high);
   display: flex;
   flex-direction: column;
-  gap: 8px;
   box-sizing: border-box;
   position: relative;
   overflow: hidden;
-  cursor: pointer;
-  user-select: none;
-  touch-action: manipulation;
   outline: none !important;
   box-shadow: none !important;
   -webkit-tap-highlight-color: transparent !important;
@@ -427,9 +423,10 @@
     &:hover {
       background: var(--md-sys-color-surface-container-highest);
     }
-    &:active {
-      border-radius: 20px !important;
-    }
+  }
+
+  &.expanded {
+    background: var(--md-sys-color-surface-container-highest);
   }
 }
 
@@ -438,6 +435,20 @@
   align-items: center;
   gap: 12px;
   width: 100%;
+  padding: 14px 16px;
+  box-sizing: border-box;
+  position: relative;
+  overflow: hidden;
+  user-select: none;
+  touch-action: manipulation;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent !important;
+  outline: none !important;
+
+  &:focus,
+  &:focus-visible {
+    outline: none !important;
+  }
 }
 
 .ksc-icon {
@@ -482,13 +493,123 @@
   font-variant-numeric: tabular-nums;
 }
 
-.ksc-actions {
+.ksc-expand-icon {
   display: flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  color: var(--md-sys-color-on-surface-variant);
   flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  transition: transform 0.25s cubic-bezier(0.2, 0, 0, 1);
+
+  md-icon {
+    font-size: 22px;
+  }
+
+  .kb-slot-card.expanded & {
+    transform: rotate(180deg);
+  }
 }
 
+.ksc-expanded-content {
+  display: grid;
+  grid-template-rows: 0fr;
+  overflow: hidden;
+  visibility: hidden;
+  transition: grid-template-rows 0.25s cubic-bezier(0.2, 0, 0, 1), visibility 0.25s step-end;
+
+  .kb-slot-card.expanded & {
+    grid-template-rows: 1fr;
+    visibility: visible;
+    transition: grid-template-rows 0.25s cubic-bezier(0.2, 0, 0, 1), visibility 0s;
+  }
+}
+
+.ksc-expanded-inner {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 16px 14px;
+  box-sizing: border-box;
+}
+
+.ksc-divider {
+  height: 1px;
+  background: var(--md-sys-color-outline-variant);
+  opacity: 0.6;
+  width: 100%;
+}
+
+.ksc-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ksc-meta-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem; // 12px
+  font-weight: 500;
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface-variant);
+
+  md-icon {
+    font-size: 14px;
+    color: var(--md-sys-color-primary);
+  }
+}
+
+.ksc-certs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  .keybox-cert-pill {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    overflow-wrap: anywhere;
+    background: var(--md-sys-color-surface-container);
+    color: var(--md-sys-color-on-surface-variant);
+
+    &.keybox-meta-expired {
+      background: var(--md-sys-color-error-container);
+      color: var(--md-sys-color-on-error-container);
+    }
+  }
+}
+
+.ksc-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.ksc-action-btn {
+  --md-outlined-button-container-shape: 999px;
+  --md-outlined-button-label-text-size: 0.8125rem;
+  --md-outlined-button-icon-size: 16px;
+
+  &--danger {
+    --md-outlined-button-outline-color: var(--md-sys-color-error);
+    --md-outlined-button-label-text-color: var(--md-sys-color-error);
+    --md-outlined-button-icon-color: var(--md-sys-color-error);
+  }
+}
 
 // Repo Card
 
