@@ -781,8 +781,10 @@ Integrity Settings writes:
 - `/data/misc/keystore/omk/data/integrity.toml`
 - `/data/misc/keystore/omk/data/integrity.prop`
 
-The zygisk companion specializes `com.google.android.gms.unstable` and
-`com.android.vending` for build spoofing. It does not inject DEX and does not
+The zygisk companion specializes `com.google.android.gms.unstable`,
+`com.google.android.gms`, and `com.android.vending` for build spoofing. Pay
+reads `Build.FINGERPRINT` in the main GMS process when it builds the storage-key
+attestation signal. It does not inject DEX and does not
 spoof Keystore providers. Enable requires ReZygisk, ZygiskNext, NeoZygisk, or
 Magisk Zygisk, and Enable stays off when Play Integrity Fix/Fork or a
 TrickyStore zygisk module is loaded. `soter_beta` is separate: when true, the same zygisk
@@ -801,7 +803,9 @@ soter_beta = false
 ```
 
 `integrity.prop` uses Play Integrity Fix key=value fields. `FINGERPRINT` is
-required to enable. Fetch selects a Pixel build from Google's Android Flash
+required to enable. `DEVICE_INITIAL_SDK_INT` is the first API level of that
+profile. Pixel 8 is `34`. A missing value is not spoofed. Fetch selects a
+Pixel build from Google's Android Flash
 Tool build list and matches it to the ROM's Android release (12 through 17);
 Update refreshes the current product. Saving an enabled configuration restarts
 keymint and the injector, then kills `com.google.android.gms.unstable` and

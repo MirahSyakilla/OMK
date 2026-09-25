@@ -153,8 +153,6 @@ pub fn parse_files(toml: &str, prop: &str) -> IntegrityPayload {
     }
     if let Some(value) = prop_map.get("DEVICE_INITIAL_SDK_INT") {
         write_cstr(&mut payload.initial_sdk, value);
-    } else {
-        write_cstr(&mut payload.initial_sdk, "32");
     }
 
     if payload.enabled == 1 && payload.fingerprint[0] == 0 {
@@ -207,7 +205,16 @@ mod tests {
         assert_eq!(cstr(&payload.model), "Pixel 6");
         assert_eq!(cstr(&payload.manufacturer), "Google");
         assert_eq!(cstr(&payload.security_patch), "2025-06-05");
-        assert_eq!(cstr(&payload.initial_sdk), "32");
+        assert_eq!(cstr(&payload.initial_sdk), "");
+    }
+
+    #[test]
+    fn uses_explicit_initial_sdk() {
+        let payload = parse_files(
+            "enabled = true\n",
+            "FINGERPRINT=google/shiba/shiba:16/BP4A.260205.001/1:user/release-keys\nDEVICE_INITIAL_SDK_INT=34\n",
+        );
+        assert_eq!(cstr(&payload.initial_sdk), "34");
     }
 
     #[test]

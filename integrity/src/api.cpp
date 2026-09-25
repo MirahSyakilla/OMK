@@ -26,6 +26,7 @@ extern "C" int omk_soter_ioctl(int fd, int request, void *argument);
 namespace {
 
 constexpr const char *DROIDGUARD_PACKAGE = "com.google.android.gms.unstable";
+constexpr const char *GMS_PACKAGE = "com.google.android.gms";
 constexpr const char *VENDING_PACKAGE = "com.android.vending";
 int (*o_soter_ioctl)(int, int, void *) = nullptr;
 
@@ -35,6 +36,17 @@ JNIEnv *gEnv = nullptr;
 using T_Callback = void (*)(void *, const char *, const char *, uint32_t);
 void (*o_system_property_read_callback)(const prop_info *, T_Callback, void *) = nullptr;
 T_Callback o_callback = nullptr;
+
+bool product_field(std::string_view prop, std::string_view field) {
+    const std::string_view prefix("ro.product.");
+    if (prop.size() < prefix.size() + field.size() + 1 || prop.compare(0, prefix.size(), prefix) != 0) {
+        return false;
+    }
+    if (prop.compare(prop.size() - field.size(), field.size(), field) != 0) {
+        return false;
+    }
+    return prop[prop.size() - field.size() - 1] == '.';
+}
 
 bool ends_with(std::string_view value, std::string_view suffix) {
     return value.size() >= suffix.size() &&
@@ -63,6 +75,26 @@ void modifyCallback(void *cookie, const char *name, const char *value, uint32_t 
         if (const char *next = field_or_null(gPayload.initial_sdk)) {
             value = next;
         }
+    } else if (product_field(prop, "brand")) {
+        if (const char *next = field_or_null(gPayload.brand)) {
+            value = next;
+        }
+    } else if (product_field(prop, "device")) {
+        if (const char *next = field_or_null(gPayload.device)) {
+            value = next;
+        }
+    } else if (product_field(prop, "model")) {
+        if (const char *next = field_or_null(gPayload.model)) {
+            value = next;
+        }
+    } else if (product_field(prop, "manufacturer")) {
+        if (const char *next = field_or_null(gPayload.manufacturer)) {
+            value = next;
+        }
+    } else if (product_field(prop, "name")) {
+        if (const char *next = field_or_null(gPayload.product)) {
+            value = next;
+        }
     } else if (ends_with(prop, ".security_patch")) {
         if (const char *next = field_or_null(gPayload.security_patch)) {
             value = next;
@@ -78,26 +110,6 @@ void modifyCallback(void *cookie, const char *name, const char *value, uint32_t 
     } else if (prop == "ro.build.tags" || prop == "ro.bootimage.build.tags" ||
                prop == "ro.system.build.tags" || prop == "ro.vendor.build.tags") {
         if (const char *next = field_or_null(gPayload.tags)) {
-            value = next;
-        }
-    } else if (prop == "ro.product.brand" || prop == "ro.product.system.brand") {
-        if (const char *next = field_or_null(gPayload.brand)) {
-            value = next;
-        }
-    } else if (prop == "ro.product.device" || prop == "ro.product.system.device") {
-        if (const char *next = field_or_null(gPayload.device)) {
-            value = next;
-        }
-    } else if (prop == "ro.product.model" || prop == "ro.product.system.model") {
-        if (const char *next = field_or_null(gPayload.model)) {
-            value = next;
-        }
-    } else if (prop == "ro.product.manufacturer" || prop == "ro.product.system.manufacturer") {
-        if (const char *next = field_or_null(gPayload.manufacturer)) {
-            value = next;
-        }
-    } else if (prop == "ro.product.name" || prop == "ro.product.system.name") {
-        if (const char *next = field_or_null(gPayload.product)) {
             value = next;
         }
     }
@@ -293,8 +305,9 @@ public:
 
         api->setOption(FORCE_DENYLIST_UNMOUNT);
         isGmsUnstable = name == DROIDGUARD_PACKAGE;
+        isGmsMain = name == GMS_PACKAGE;
         isVending = name == VENDING_PACKAGE;
-        if (!isGmsUnstable && !isVending) {
+        if (!isGmsUnstable && !isGmsMain && !isVending) {
             api->setOption(DLCLOSE_MODULE_LIBRARY);
             return;
         }
@@ -343,6 +356,8 @@ public:
         gEnv = env;
         if (isGmsUnstable && gPayload.spoof_build) {
             updateBuildFields();
+        } else if (isGmsMain && gPayload.spoof_build) {
+            updateBuildFields();
         } else if (isVending && gPayload.spoof_vending) {
             updateBuildFields();
         }
@@ -358,6 +373,7 @@ private:
     JNIEnv *env = nullptr;
     bool payloadLoaded = false;
     bool isGmsUnstable = false;
+    bool isGmsMain = false;
     bool isVending = false;
     bool soterArmed = false;
 };
