@@ -31,6 +31,15 @@ struct CachedUnlock {
     password: Option<Vec<u8>>,
     caller: CallerInfo,
     session: u64,
+    /// Whether the screen has been locked since this unlock was cached.
+    ///
+    /// A screen lock drops only the UnlockedDeviceRequired super keys; the
+    /// CredentialEncrypted super key stays valid, so the unlock secret has to
+    /// survive it. It is still replayed ahead of the lock so keymint ends up in
+    /// the same state a real locked device is in.
+    device_locked: bool,
+    unlocking_sids: Vec<i64>,
+    weak_unlock_enabled: bool,
 }
 
 /// Every cached unlock that predates the live OMK session, oldest user first.
@@ -218,8 +227,14 @@ pub(super) fn authorization_requires_mirror(request: &ParsedAuthorizationRequest
 }
 
 /// Record the most recent unlock for its user so a later keymint restart can be
-/// replayed into. Lock and storage events drop only the affected user, because
-/// an unrelated user's super keys survive those.
+/// replayed into.
+///
+/// Only `onUserStorageLocked` invalidates the cache, because that is the only
+/// event that drops the CredentialEncrypted super keys. A screen lock
+/// (`onDeviceLocked`) drops only the UnlockedDeviceRequired keys, so the unlock
+/// secret is kept and the lock is recorded alongside it. Dropping the entry
+/// there would lose the synthetic password on the first screen lock, and the
+/// next password-less unlock could not restore CredentialEncrypted keys.
 fn remember_unlock(request: &ParsedAuthorizationRequest, caller: &CallerInfo, session: u64) {
     match request {
         ParsedAuthorizationRequest::OnDeviceUnlocked { user_id, password } => {
@@ -239,18 +254,27 @@ fn remember_unlock(request: &ParsedAuthorizationRequest, caller: &CallerInfo, se
                     password,
                     caller: caller.clone(),
                     session,
+                    device_locked: false,
+                    unlocking_sids: Vec::new(),
+                    weak_unlock_enabled: false,
                 },
             );
+        }
+        ParsedAuthorizationRequest::OnDeviceLocked {
+            user_id,
+            unlocking_sids,
+            weak_unlock_enabled,
+        } => {
+            let mut cache = LAST_UNLOCKED.lock().expect("unlock cache poisoned");
+            if let Some(entry) = cache.get_mut(user_id) {
+                entry.device_locked = true;
+                entry.unlocking_sids = unlocking_sids.clone();
+                entry.weak_unlock_enabled = *weak_unlock_enabled;
+            }
         }
         ParsedAuthorizationRequest::OnUserStorageLocked { user_id } => {
             // Drops that user's CE keys, so the cached unlock no longer
             // describes keymint's state and must not be replayed.
-            LAST_UNLOCKED
-                .lock()
-                .expect("unlock cache poisoned")
-                .remove(user_id);
-        }
-        ParsedAuthorizationRequest::OnDeviceLocked { user_id, .. } => {
             LAST_UNLOCKED
                 .lock()
                 .expect("unlock cache poisoned")
@@ -283,6 +307,20 @@ fn replay_unlock_if_session_changed() -> anyhow::Result<()> {
             )?)
         })
         .map_err(|error| anyhow::anyhow!("{error:?}"))?;
+        // Replaying an unlock clears keymint's device-locked enforcement, so a
+        // user whose screen is currently locked gets the lock re-applied right
+        // after. Order matters: this is the sequence keystore2 itself uses.
+        if unlock.device_locked {
+            ipc::with_omk_authorization_once(|auth| {
+                Ok(auth.r#onDeviceLocked(
+                    Some(&unlock.caller),
+                    unlock.user_id,
+                    &unlock.unlocking_sids,
+                    unlock.weak_unlock_enabled,
+                )?)
+            })
+            .map_err(|error| anyhow::anyhow!("{error:?}"))?;
+        }
         let mut cache = LAST_UNLOCKED.lock().expect("unlock cache poisoned");
         if let Some(entry) = cache.get_mut(&unlock.user_id) {
             if entry.session == unlock.session {
@@ -290,8 +328,8 @@ fn replay_unlock_if_session_changed() -> anyhow::Result<()> {
             }
         }
         info!(
-            "event=mirror replayed onDeviceUnlocked for user {} after keymint restart",
-            unlock.user_id
+            "event=mirror replayed onDeviceUnlocked for user {} after keymint restart (device_locked={})",
+            unlock.user_id, unlock.device_locked
         );
     }
     Ok(())

@@ -633,16 +633,83 @@ fn a_second_user_keeps_the_first_when_a_lock_drops_one() {
         1,
     );
 
+    // A screen lock only drops the UnlockedDeviceRequired keys, so it must not
+    // discard either user's CredentialEncrypted unlock.
     remember_unlock(
-        &ParsedAuthorizationRequest::OnUserStorageLocked { user_id: 999 },
+        &ParsedAuthorizationRequest::OnDeviceLocked {
+            user_id: 999,
+            unlocking_sids: vec![7],
+            weak_unlock_enabled: true,
+        },
         &caller,
         2,
     );
 
     let cache = LAST_UNLOCKED.lock().expect("unlock cache poisoned");
-    assert!(!cache.contains_key(&999), "the locked user is dropped");
-    assert_eq!(cache.len(), 1, "the other user is untouched");
+    assert_eq!(cache.len(), 2, "a screen lock keeps both users");
     assert_eq!(cache[&0].password.as_deref(), Some(&[4u8, 4][..]));
+    assert!(!cache[&0].device_locked);
+    assert!(cache[&999].device_locked);
+    assert_eq!(cache[&999].unlocking_sids, vec![7]);
+    assert!(cache[&999].weak_unlock_enabled);
+}
+
+#[test]
+fn a_screen_lock_then_unlock_keeps_the_password() {
+    let _guard = route_state_test_guard();
+    let caller = CallerInfo {
+        uid: 1007,
+        sid: String::new(),
+        pid: 4242,
+        keyboxSlot: 0,
+        rkpCredential: 0,
+    };
+
+    remember_unlock(
+        &ParsedAuthorizationRequest::OnDeviceUnlocked {
+            user_id: 0,
+            password: Some(vec![7, 7, 7]),
+        },
+        &caller,
+        1,
+    );
+    remember_unlock(
+        &ParsedAuthorizationRequest::OnDeviceLocked {
+            user_id: 0,
+            unlocking_sids: vec![9],
+            weak_unlock_enabled: false,
+        },
+        &caller,
+        2,
+    );
+    // Reopened with a fingerprint, so no synthetic password arrives.
+    remember_unlock(
+        &ParsedAuthorizationRequest::OnDeviceUnlocked {
+            user_id: 0,
+            password: None,
+        },
+        &caller,
+        3,
+    );
+
+    let cached = LAST_UNLOCKED
+        .lock()
+        .expect("unlock cache poisoned")
+        .get(&0)
+        .cloned()
+        .expect("unlock should stay cached");
+    assert_eq!(
+        cached.password.as_deref(),
+        Some(&[7u8, 7, 7][..]),
+        "a lock/unlock cycle must not lose the synthetic password"
+    );
+    assert!(!cached.device_locked, "the reopen clears the lock");
+    assert!(cached.unlocking_sids.is_empty());
+
+    // And it must still be replayable after a keymint restart.
+    let stale = stale_cached_unlocks(4);
+    assert_eq!(stale.len(), 1);
+    assert_eq!(stale[0].password.as_deref(), Some(&[7u8, 7, 7][..]));
 }
 
 #[test]
