@@ -746,8 +746,8 @@ export class Keybox {
   }
 
   #actionButton(label: string, onClick: () => void, danger = false): HTMLElement {
-    const button = document.createElement(danger ? 'md-outlined-button' : 'md-filled-tonal-button')
-    button.className = 'keybox-action-pill'
+    const button = document.createElement('md-outlined-button')
+    button.className = danger ? 'keybox-action-pill keybox-action-pill--danger' : 'keybox-action-pill'
     button.textContent = label
     button.addEventListener('click', onClick)
     return button

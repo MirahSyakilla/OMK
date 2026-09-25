@@ -271,8 +271,12 @@
 }
 
 .keybox-action-pill {
-  --md-filled-tonal-button-container-shape: 999px;
   --md-outlined-button-container-shape: 999px;
+
+  &--danger {
+    --md-outlined-button-outline-color: var(--md-sys-color-error);
+    --md-outlined-button-label-text-color: var(--md-sys-color-error);
+  }
 }
 
 #keybox-rename-dialog,

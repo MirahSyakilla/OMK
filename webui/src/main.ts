@@ -385,7 +385,7 @@ document.addEventListener(
     }
     document.querySelectorAll('.card-pressed').forEach((el) => el.classList.remove('card-pressed'))
     const card = (e.target as Element | null)?.closest<HTMLElement>(
-      '.card, .switch-row, .settings-row, .kb-slot-card, .kb-custom-card, .kac-tile, .update',
+      '.card, .switch-row, .settings-row, .kb-slot-card, .kac-tile, .update',
     )
     if (card) {
       activeTouchCard = card

@@ -176,7 +176,14 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding-top: 8px;
   min-width: 0;
+}
+
+.kb-presets-custom-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .kb-preset-pill {
@@ -208,6 +215,31 @@
 
   &:active {
     background: var(--md-sys-color-surface-container-highest);
+  }
+  .kb-preset-pill-end {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  &--action {
+    border-style: dashed;
+    border-color: var(--md-sys-color-outline);
+    background: var(--md-sys-color-surface-container-low);
+
+    .kb-preset-pill-icon {
+      color: var(--md-sys-color-primary);
+    }
+  }
+
+  &--custom {
+    .kb-preset-pill-sub {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 180px;
+    }
   }
 }
 
@@ -457,126 +489,6 @@
   flex-shrink: 0;
 }
 
-// Custom Sources Stack
-.kb-custom-sources-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  width: 100%;
-}
-
-.kb-custom-card {
-  padding: 14px 16px;
-  background: var(--md-sys-color-surface-container-high);
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  box-sizing: border-box;
-  position: relative;
-  overflow: hidden;
-  cursor: pointer;
-  user-select: none;
-  touch-action: manipulation;
-  outline: none !important;
-  box-shadow: none !important;
-  -webkit-tap-highlight-color: transparent !important;
-  transition: border-radius 0.2s cubic-bezier(0.2, 0, 0, 1), background-color 0.15s ease;
-
-  &:focus,
-  &:focus-visible {
-    outline: none !important;
-  }
-  &:first-child {
-    border-radius: 24px 24px 4px 4px;
-  }
-
-  &:not(:first-child):not(:last-child) {
-    border-radius: 4px;
-  }
-
-  &:last-child {
-    border-radius: 4px 4px 24px 24px;
-  }
-
-  &:only-child {
-    border-radius: 24px;
-  }
-
-  &.card-pressed {
-    border-radius: 20px !important;
-  }
-
-  @media (hover: hover) and (pointer: fine) {
-    &:hover {
-      background: var(--md-sys-color-surface-container-highest);
-    }
-    &:active {
-      border-radius: 20px !important;
-    }
-  }
-}
-
-.kcc-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: var(--md-sys-color-primary-container);
-  color: var(--md-sys-color-on-primary-container);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-
-  md-icon {
-    font-size: 20px;
-  }
-}
-
-.kcc-info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.kcc-name {
-  font-size: 0.9375rem; // 15px
-  font-weight: 500;
-  color: var(--md-sys-color-on-surface);
-  line-height: 1.3;
-}
-
-.kcc-url {
-  font-size: 0.75rem; // 12px
-  color: var(--md-sys-color-on-surface-variant);
-  line-height: 1.3;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.kcc-script {
-  font-size: 0.75rem; // 12px
-  color: var(--md-sys-color-outline);
-  line-height: 1.3;
-
-  code {
-    font-family: monospace;
-    font-size: 0.6875rem;
-    background: var(--md-sys-color-surface-container-highest);
-    padding: 1px 4px;
-    border-radius: 4px;
-    color: var(--md-sys-color-on-surface);
-  }
-}
-
-.kcc-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
 
 // Repo Card
 

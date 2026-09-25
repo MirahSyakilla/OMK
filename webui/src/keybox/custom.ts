@@ -24,6 +24,8 @@ export class CustomKeyboxProvider {
   #currentEditName: string | null = null
   #isReset = false
 
+  #changeListeners: Array<() => void> = []
+
   constructor(keybox: Keybox, fileSelector: FileSelector, snackbar: Snackbar) {
     this.#keybox = keybox
     this.#fileSelector = fileSelector
@@ -33,6 +35,24 @@ export class CustomKeyboxProvider {
   getEntries(): CustomKeyboxEntry[] {
     return this.#getEntries()
   }
+  onChange(cb: () => void): void {
+    this.#changeListeners.push(cb)
+  }
+
+  async fetchKeybox(entry: CustomKeyboxEntry): Promise<void> {
+    await this.#fetchKeybox(entry.link, entry.script)
+  }
+
+  #notifyChange(): void {
+    this.#changeListeners.forEach((cb) => {
+      try {
+        cb()
+      } catch (e) {
+        console.error(e)
+      }
+    })
+  }
+
 
   showDialog(entry?: CustomKeyboxEntry): void {
     const dialog = document.querySelector<MdDialog>('#customkb-dialog')
@@ -233,6 +253,7 @@ export class CustomKeyboxProvider {
 
     this.#saveEntries(entries)
     this.renderEntries()
+    this.#notifyChange()
 
     document.querySelector<MdDialog>('#customkb-dialog')!.close()
     this.#snackbar.show(i18n.t('prompt_custom_saved'), true)
@@ -243,6 +264,7 @@ export class CustomKeyboxProvider {
       this.#saveEntries(DEFAULT_ENTRIES)
       this.renderEntries()
       document.querySelector<MdDialog>('#customkb-remove-dialog')!.close()
+      this.#notifyChange()
       this.#snackbar.show(i18n.t('prompt_custom_removed'), true)
       this.#isReset = false
       return
@@ -254,6 +276,7 @@ export class CustomKeyboxProvider {
     this.#saveEntries(entries)
     this.renderEntries()
 
+    this.#notifyChange()
     document.querySelector<MdDialog>('#customkb-remove-dialog')!.close()
     this.#snackbar.show(i18n.t('prompt_custom_removed'), true)
     this.#currentEditName = null
@@ -322,6 +345,7 @@ export class CustomKeyboxProvider {
       this.#saveEntries(updatedEntries)
       this.renderEntries()
 
+      this.#notifyChange()
       this.#snackbar.show(i18n.t('customkb_import_success'), true)
     } catch {
       this.#snackbar.show(i18n.t('customkb_import_error'), false)

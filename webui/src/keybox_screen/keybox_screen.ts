@@ -49,6 +49,9 @@ export class KeyboxScreen {
     this.#keybox.onSlotsChanged(() => {
       void this.refresh()
     })
+    this.#keybox.custom.onChange(() => {
+      this.#renderPresetsCustomSources()
+    })
   }
   render(container: HTMLElement): void {
     this.#container = container
@@ -119,19 +122,6 @@ export class KeyboxScreen {
         <div class="kb-slots-stack" id="kb-slots-container">
           <div class="kb-loading">Loading keybox slots...</div>
         </div>
-
-        <!-- Custom Sources -->
-        <div class="kb-section-header">
-          <div class="kb-section-title">Custom Sources</div>
-          <button class="btn-tonal-sm" id="kb-add-custom-btn">
-            <md-icon>add</md-icon>
-            <span>Add</span>
-          </button>
-        </div>
-        <div class="kb-custom-sources-stack" id="kb-custom-sources-container">
-          <!-- Rendered dynamically -->
-        </div>
-
       </div>
     `
 
@@ -166,6 +156,19 @@ export class KeyboxScreen {
               <span class="inline-badge badge-ok">Remote</span>
               <md-ripple></md-ripple>
             </button>
+            <div id="kb-presets-custom-container" class="kb-presets-custom-container"></div>
+
+            <button type="button" class="kb-preset-pill kb-preset-pill--action" id="kb-preset-add-custom">
+              <div class="kb-preset-pill-start">
+                <md-icon class="kb-preset-pill-icon">add_circle</md-icon>
+                <div class="kb-preset-pill-text">
+                  <span class="kb-preset-pill-title">Add Custom Source</span>
+                  <span class="kb-preset-pill-sub">Configure custom URL or script</span>
+                </div>
+              </div>
+              <span class="inline-badge badge-tertiary">New</span>
+              <md-ripple></md-ripple>
+            </button>
           </div>
           <div slot="actions">
             <md-text-button id="kb-preset-cancel">${i18n.t('functional_button_cancel')}</md-text-button>
@@ -185,7 +188,7 @@ export class KeyboxScreen {
     if (!this.#container) return
     await this.#loadSlots()
     this.#renderSlotsList()
-    this.#renderCustomSources()
+    this.#renderPresetsCustomSources()
   }
 
   #bindEvents(): void {
@@ -230,6 +233,7 @@ export class KeyboxScreen {
       const actionPresets = this.#container.querySelector<HTMLElement>('#kb-action-presets')
       actionPresets?.addEventListener('click', () => {
         actionPresets.blur()
+        this.#renderPresetsCustomSources()
         presetsDialog.show()
         this.#history?.push('kb-presets-dialog', () => presetsDialog.close())
       })
@@ -269,19 +273,20 @@ export class KeyboxScreen {
           this.#snackbar.show(`Installation error: ${msg}`, false)
         }
       })
+
+      const presetAddCustom = document.querySelector<HTMLElement>('#kb-preset-add-custom')
+      presetAddCustom?.addEventListener('click', () => {
+        presetAddCustom.blur()
+        presetsDialog.close()
+        this.#keybox.custom.showDialog()
+      })
     }
+
     // Manage All Dialog
     const manageAllBtn = this.#container.querySelector<HTMLElement>('#kb-manage-all-btn')
     manageAllBtn?.addEventListener('click', () => {
       manageAllBtn.blur()
       void this.#keybox.showManage()
-    })
-
-    // Add Custom Source
-    const addCustomBtn = this.#container.querySelector<HTMLElement>('#kb-add-custom-btn')
-    addCustomBtn?.addEventListener('click', () => {
-      addCustomBtn.blur()
-      this.#keybox.custom.showDialog()
     })
   }
 
@@ -378,40 +383,64 @@ export class KeyboxScreen {
     })
   }
 
-  #renderCustomSources(): void {
-    const container = this.#container?.querySelector<HTMLElement>('#kb-custom-sources-container')
+  #renderPresetsCustomSources(): void {
+    const container = document.querySelector<HTMLElement>('#kb-presets-custom-container')
     if (!container) return
 
     const entries = this.#keybox.custom.getEntries()
     if (entries.length === 0) {
-      container.innerHTML = '<div class="kb-empty">No custom sources configured.</div>'
+      container.innerHTML = ''
       return
     }
 
     container.innerHTML = entries
       .map(
         (entry: CustomKeyboxEntry, index: number) => `
-        <div class="kb-custom-card">
-          <md-ripple></md-ripple>
-          <div class="kcc-icon"><md-icon>source</md-icon></div>
-            <div class="kcc-name">${entry.name}</div>
-            <div class="kcc-url">${entry.link}</div>
-            ${entry.script ? `<div class="kcc-script">Post-script: <code>${entry.script}</code></div>` : ''}
+        <div class="kb-preset-pill kb-preset-pill--custom" role="button" tabindex="0" data-custom-index="${index}">
+          <div class="kb-preset-pill-start">
+            <md-icon class="kb-preset-pill-icon">source</md-icon>
+            <div class="kb-preset-pill-text">
+              <span class="kb-preset-pill-title">${entry.name}</span>
+              <span class="kb-preset-pill-sub">${entry.link}</span>
+            </div>
           </div>
-          <div class="kcc-actions">
-            <button class="icon-btn-compact" data-custom-index="${index}" data-action="edit">
+          <div class="kb-preset-pill-end">
+            <span class="inline-badge badge-tertiary">Custom</span>
+            <button type="button" class="icon-btn-compact" data-action="edit-custom" data-custom-index="${index}" aria-label="Edit Source">
               <md-icon>edit</md-icon>
             </button>
           </div>
+          <md-ripple></md-ripple>
         </div>
       `,
       )
       .join('')
 
-    container.querySelectorAll('[data-action="edit"]').forEach((btn) => {
+    const presetsDialog = document.querySelector<MdDialog>('#kb-presets-dialog')
+
+    container.querySelectorAll<HTMLElement>('.kb-preset-pill--custom').forEach((pill) => {
+      pill.addEventListener('click', async () => {
+        pill.blur()
+        presetsDialog?.close()
+        const idx = Number.parseInt(pill.dataset.customIndex ?? '0', 10)
+        const entry = entries[idx]
+        if (!entry) return
+        try {
+          await this.#keybox.custom.fetchKeybox(entry)
+          await this.refresh()
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e)
+          this.#snackbar.show(`Installation error: ${msg}`, false)
+        }
+      })
+    })
+
+    container.querySelectorAll<HTMLElement>('[data-action="edit-custom"]').forEach((btn) => {
       btn.addEventListener('click', (e) => {
-        ;(btn as HTMLElement).blur()
-        const idx = Number.parseInt((e.currentTarget as HTMLElement).dataset.customIndex ?? '0', 10)
+        e.stopPropagation()
+        btn.blur()
+        presetsDialog?.close()
+        const idx = Number.parseInt(btn.dataset.customIndex ?? '0', 10)
         const entry = entries[idx]
         if (entry) this.#keybox.custom.showDialog(entry)
       })
