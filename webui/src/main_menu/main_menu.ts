@@ -92,6 +92,18 @@ export class MainMenu {
     menuOptions.addEventListener('opened', () => this.#emit('menu-open'))
     menuOptions.addEventListener('closed', () => this.#emit('menu-close'))
 
+    const closeAllMenus = () => {
+      menuOptions.open = false
+      anchorContainer.querySelectorAll<MdMenu>('md-menu').forEach((m) => {
+        m.open = false
+        m.close?.()
+      })
+      anchorContainer.querySelectorAll<MdSubMenu>('md-sub-menu').forEach((s) => {
+        s.close?.()
+      })
+      subMenuOpen = false
+    }
+
     const quickActions: Array<[string, string]> = [
       ['select-all', 'menu-select-all'],
       ['deselect-all', 'menu-deselect-all'],
@@ -103,7 +115,7 @@ export class MainMenu {
       if (!el) return
       el.onclick = () => {
         this.#emit(event)
-        menuOptions.open = false
+        closeAllMenus()
       }
     })
 
@@ -112,10 +124,9 @@ export class MainMenu {
       if (!el) return
       el.onclick = () => {
         this.#emit(event)
-        menuOptions.open = false
+        closeAllMenus()
       }
     })
-
     let subMenuOpen = false
     fragment.querySelectorAll('.sub-menu-entry').forEach((entry) => {
       const item = entry as MdMenuItem

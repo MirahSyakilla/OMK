@@ -60,29 +60,27 @@ export class AppList {
       return
     }
 
-    const pkgs = await this.#listPackagesFresh('all').catch(() => listPackages('all').catch(() => []))
+    const [pkgs, systemPkgs] = await Promise.all([
+      this.#listPackagesFresh('all').catch(() => listPackages('all').catch(() => [])),
+      this.#listPackagesFresh('system').catch(() => listPackages('system').catch(() => [])),
+    ])
+    const systemSet = new Set(systemPkgs)
 
     let infos: PackagesInfo[]
     try {
       infos = await getPackagesInfo(pkgs) as PackagesInfo[]
     } catch {
-      infos = pkgs.map((pkg: string) => ({
-        packageName: pkg,
-        versionName: '',
-        versionCode: 0,
-        appLabel: pkg,
-        isSystem: false,
-        uid: 0,
-      }))
+      infos = []
     }
 
     const infoMap = new Map(infos.map((info) => [info.packageName, info]))
     this.#entries = pkgs.map((pkg: string) => {
       const info = infoMap.get(pkg)
+      const isSystem = systemSet.size > 0 ? systemSet.has(pkg) : (info?.isSystem ?? false)
       return {
         packageName: pkg,
         appName: info?.appLabel || pkg,
-        isSystem: info?.isSystem ?? false,
+        isSystem,
       }
     })
   }

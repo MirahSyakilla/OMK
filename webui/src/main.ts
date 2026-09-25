@@ -293,7 +293,7 @@ mainMenu.on('menu-select-all', () => appList.selectAll())
 mainMenu.on('menu-deselect-all', () => appList.deselectAll())
 mainMenu.on('menu-add-system-app', () => dialogController.showSystemApp())
 mainMenu.on('menu-keybox-manage', () => {
-  navigation.switchToTab(2)
+  navigation.switchToTab(1)
 })
 mainMenu.on('menu-keybox-aosp', () => {
   void keybox.setAospKey()
