@@ -20,11 +20,7 @@
 .integrity-header-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px;
   width: 100%;
-  padding-bottom: 4px;
 }
 
 .integrity-action-row {
@@ -42,51 +38,63 @@
   }
 }
 
-.zygisk-status-pill {
-  display: inline-flex;
+.integrity-status-banner {
+  display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 14px;
-  border-radius: 999px;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  line-height: 1;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 16px;
+  font-size: 0.84375rem;
+  font-weight: 500;
+  line-height: 1.4;
   background: var(--md-sys-color-surface-container-high);
-  color: var(--md-sys-color-on-surface-variant);
+  color: var(--md-sys-color-on-surface);
   border: 1px solid var(--md-sys-color-outline-variant);
-  position: relative;
-  overflow: hidden;
-  user-select: none;
+  box-sizing: border-box;
+  width: 100%;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
 
-  .zygisk-status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--md-sys-color-outline);
-    transition: background-color 0.2s ease;
+  .integrity-status-icon {
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
     flex-shrink: 0;
   }
 
+  .integrity-status-text {
+    flex: 1;
+    min-width: 0;
+  }
+
   &--ok {
-    background: var(--md-sys-color-secondary-container);
-    color: var(--md-sys-color-on-secondary-container);
+    background: var(--md-sys-color-surface-container-high);
+    color: var(--md-sys-color-on-surface);
     border-color: transparent;
 
-    .zygisk-status-dot {
-      background: #2e7d32;
+    .integrity-status-icon {
+      color: #2e7d32;
     }
   }
 
   &--conflict {
-    background: #ffe0b2;
-    color: #e65100;
+    background: #fff3e0;
+    color: #b74600;
     border-color: #ffb74d;
 
-    .zygisk-status-dot {
-      background: #f57c00;
+    @media (prefers-color-scheme: dark) {
+      background: #3e2723;
+      color: #ffb74d;
+      border-color: #8d4a1f;
+    }
+
+    .integrity-status-icon {
+      color: #e65100;
+
+      @media (prefers-color-scheme: dark) {
+        color: #ff9800;
+      }
     }
   }
 
@@ -95,17 +103,13 @@
     color: var(--md-sys-color-on-error-container);
     border-color: transparent;
 
-    .zygisk-status-dot {
-      background: var(--md-sys-color-error);
+    .integrity-status-icon {
+      color: var(--md-sys-color-error);
     }
   }
 
-  &:hover {
-    filter: brightness(0.96);
-  }
-
   &:active {
-    filter: brightness(0.92);
+    filter: brightness(0.95);
   }
 }
 .integrity-main-layout {
@@ -145,7 +149,17 @@
   outline: none !important;
   box-shadow: none !important;
   -webkit-tap-highlight-color: transparent !important;
-  transition: background-color 0.15s ease;
+  transition: background-color 0.15s ease, opacity 0.25s cubic-bezier(0.2, 0, 0, 1);
+
+  &--muted {
+    opacity: 0.38;
+    pointer-events: none;
+    cursor: default;
+
+    md-switch {
+      pointer-events: none;
+    }
+  }
 
   &:focus,
   &:focus-visible {

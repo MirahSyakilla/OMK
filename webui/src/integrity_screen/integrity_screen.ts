@@ -37,6 +37,15 @@ const DEFAULTS: IntegrityState = {
   soter_beta: false,
 }
 
+const DEPENDENT_ROW_IDS = [
+  'row-spoof-build',
+  'row-spoof-props',
+  'row-spoof-vending',
+  'row-sync-patch',
+  'row-sync-ids',
+  'row-unify-props',
+] as const
+
 function parseBool(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined) return fallback
   const normalized = value.trim().toLowerCase()
@@ -168,7 +177,7 @@ export class IntegrityScreen {
     this.#container = container
     container.innerHTML = /* html */ `
       <div class="integrity-screen">
-        <!-- Screen actions & Zygisk telemetry bar -->
+        <!-- Screen actions -->
         <div class="integrity-header-bar">
           <md-chip-set class="integrity-action-row">
             <md-assist-chip id="pif-fetch-chip" elevated label="Fetch">
@@ -178,14 +187,13 @@ export class IntegrityScreen {
               <md-icon slot="icon">refresh</md-icon>
             </md-assist-chip>
           </md-chip-set>
-
-          <div id="pif-zygisk-status" class="zygisk-status-pill" role="button" tabindex="0">
-            <span class="zygisk-status-dot"></span>
-            <span class="zygisk-status-label">Detecting Zygisk...</span>
-            <md-ripple></md-ripple>
-          </div>
         </div>
-        <div class="integrity-main-layout">
+
+        <!-- Zygisk status & warning banner -->
+        <div id="pif-zygisk-status" class="integrity-status-banner">
+          <md-icon class="integrity-status-icon">check_circle</md-icon>
+          <span class="integrity-status-text">Detecting Zygisk...</span>
+        </div>
           <!-- Controls Pane -->
           <div class="integrity-controls-pane">
             <div class="switch-stack">
@@ -283,7 +291,9 @@ export class IntegrityScreen {
     this.#renderZygiskStatus(status)
 
     const state = await this.#readState()
-    this.#setSwitch('pif-enabled', state.enabled && this.#canEnable)
+    const isMasterEnabled = state.enabled && this.#canEnable
+    this.#setSwitch('pif-enabled', isMasterEnabled)
+    this.#updateDependentMuteState(isMasterEnabled)
     this.#setSwitch('pif-spoof-build', state.spoof_build)
     this.#setSwitch('pif-spoof-props', state.spoof_props)
     this.#setSwitch('pif-spoof-vending', state.spoof_vending_finger)
@@ -335,11 +345,12 @@ export class IntegrityScreen {
         row.addEventListener('click', (e) => {
           // Let native md-switch interaction handle direct clicks on the switch
           if (e.composedPath().some((n) => n instanceof Element && n.localName === 'md-switch')) return
-          if (sw.disabled) return
+          if (sw.disabled || row.classList.contains('switch-row--muted')) return
           sw.selected = !sw.selected
           this.#handleToggle(switchId, sw.selected)
         })
         sw.addEventListener('change', () => {
+          if (row.classList.contains('switch-row--muted')) return
           this.#handleToggle(switchId, sw.selected)
         })
       }
@@ -357,23 +368,26 @@ export class IntegrityScreen {
   #renderZygiskStatus(status: { provider: string | null; conflict: string | null }): void {
     const statusEl = this.#container?.querySelector<HTMLElement>('#pif-zygisk-status')
     if (!statusEl) return
-    const labelEl = statusEl.querySelector<HTMLElement>('.zygisk-status-label')
+    const iconEl = statusEl.querySelector<HTMLElement>('.integrity-status-icon')
+    const textEl = statusEl.querySelector<HTMLElement>('.integrity-status-text')
 
     if (status.conflict) {
-      statusEl.className = 'zygisk-status-pill zygisk-status-pill--conflict'
-      if (labelEl) labelEl.textContent = `Conflict: ${status.conflict}`
+      statusEl.className = 'integrity-status-banner integrity-status-banner--conflict'
+      if (iconEl) iconEl.textContent = 'warning'
+      if (textEl) textEl.textContent = `Disabled: ${status.conflict} is loaded. Remove it before enabling OMK Integrity.`
       this.#zygiskInfo = {
         provider: status.provider,
         conflict: status.conflict,
-        description: `Conflict: ${status.conflict} is loaded. Remove it before enabling OMK Integrity.`,
+        description: `Disabled: ${status.conflict} is loaded. Remove it before enabling OMK Integrity.`,
       }
     } else if (!status.provider) {
-      statusEl.className = 'zygisk-status-pill zygisk-status-pill--error'
-      if (labelEl) labelEl.textContent = 'Zygisk Not Found'
+      statusEl.className = 'integrity-status-banner integrity-status-banner--error'
+      if (iconEl) iconEl.textContent = 'error'
+      if (textEl) textEl.textContent = 'Disabled: Zygisk not found. Install ReZygisk (preferred), ZygiskNext, NeoZygisk, or Magisk Zygisk.'
       this.#zygiskInfo = {
         provider: null,
         conflict: null,
-        description: 'Zygisk not found. Install ReZygisk, ZygiskNext, NeoZygisk, or Magisk Zygisk.',
+        description: 'Disabled: Zygisk not found. Install ReZygisk (preferred), ZygiskNext, NeoZygisk, or Magisk Zygisk.',
       }
     } else {
       const label =
@@ -381,8 +395,9 @@ export class IntegrityScreen {
         : status.provider === 'zygisk_next' ? 'ZygiskNext'
         : status.provider === 'neozygisk' ? 'NeoZygisk'
         : 'Magisk Zygisk'
-      statusEl.className = 'zygisk-status-pill zygisk-status-pill--ok'
-      if (labelEl) labelEl.textContent = `Zygisk: ${label}`
+      statusEl.className = 'integrity-status-banner integrity-status-banner--ok'
+      if (iconEl) iconEl.textContent = 'check_circle'
+      if (textEl) textEl.textContent = `Zygisk: ${label}`
       this.#zygiskInfo = {
         provider: status.provider,
         conflict: null,
@@ -402,6 +417,10 @@ export class IntegrityScreen {
       this.#snackbar.show('Zygisk required to enable Integrity', false)
       this.#setSwitch('pif-enabled', false)
       return
+    }
+
+    if (switchId === 'pif-enabled') {
+      this.#updateDependentMuteState(value)
     }
 
     this.#scheduleSave()
@@ -473,6 +492,15 @@ export class IntegrityScreen {
       if (this.#hasPendingPersist) {
         this.#hasPendingPersist = false
         this.#scheduleSave()
+      }
+    }
+  }
+
+  #updateDependentMuteState(enabled: boolean): void {
+    for (const id of DEPENDENT_ROW_IDS) {
+      const row = this.#container?.querySelector<HTMLElement>(`#${id}`)
+      if (row) {
+        row.classList.toggle('switch-row--muted', !enabled)
       }
     }
   }

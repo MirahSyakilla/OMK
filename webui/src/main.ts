@@ -308,6 +308,7 @@ mainMenu.on('menu-keybox-local', () => {
   void keybox.setLocalKey()
 })
 mainMenu.on('menu-keybox-repo', () => keyboxRepo.show())
+mainMenu.on('menu-trust-settings', () => dialogController.showTrust())
 mainMenu.on('menu-help', () => dialogController.showHelp())
 mainMenu.on('menu-about', () => dialogController.showAbout())
 if (!Keybox.isKeygenAvailable() && !import.meta.env.DEV) {
