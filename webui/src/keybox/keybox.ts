@@ -446,8 +446,9 @@ export class Keybox {
     if (titleEl) {
       titleEl.textContent = focusSlot !== undefined ? this.slotLabel(focusSlot) : i18n.t('keybox_manage_title')
     }
-    await this.#renderManageList()
+    this.#manageList.innerHTML = '<div class="keybox-manage-loading"><md-circular-progress indeterminate></md-circular-progress></div>'
     this.#manageDialog.show()
+    await this.#renderManageList()
   }
 
   onSlotsChanged(cb: () => void): void {
@@ -638,24 +639,31 @@ export class Keybox {
 
   async #renderManageList(): Promise<void> {
     if (!this.#manageList) return
-    await this.#loadSlotNames()
-    const allSlots = [0, ...(await this.cli.getKeyboxSlots(this.#config.configPath).catch((): number[] => []))]
-    const slots = this.#manageFocusSlot !== undefined ? allSlots.filter((s) => s === this.#manageFocusSlot) : allSlots
+    const currentFocus = this.#manageFocusSlot
+    const [, slots] = await Promise.all([
+      this.#loadSlotNames(),
+      currentFocus !== undefined
+        ? Promise.resolve([currentFocus])
+        : this.cli.getKeyboxSlots(this.#config.configPath).then((s) => [0, ...s]).catch((): number[] => [0]),
+    ])
+    const slotEntries = await Promise.all(
+      slots.map(async (slot) => {
+        const path = this.getKeyboxPath(slot)
+        const [mtime, xml] = await Promise.all([
+          this.cli.getFileMtime(path),
+          File.read(path).catch(() => ''),
+        ])
+        return { slot, mtime, xml }
+      }),
+    )
+
+    if (this.#manageFocusSlot !== currentFocus) return
     this.#manageList.innerHTML = ''
-    for (const slot of slots) {
-      const path = this.getKeyboxPath(slot)
-      const [mtime, xml] = await Promise.all([
-        this.cli.getFileMtime(path),
-        File.read(path).catch(() => ''),
-      ])
+
+    for (const { slot, mtime, xml } of slotEntries) {
       const card = document.createElement('div')
       card.className = 'keybox-manage-card'
-      if (this.#manageFocusSlot !== undefined) {
-        card.classList.add('expanded')
-        card.setAttribute('aria-expanded', 'true')
-      } else {
-        card.setAttribute('aria-expanded', 'false')
-      }
+      const isFocused = this.#manageFocusSlot !== undefined
 
       const head = document.createElement('div')
       head.className = 'keybox-manage-head'
@@ -664,8 +672,6 @@ export class Keybox {
       name.textContent = this.#slotLabel(slot)
       const algos = document.createElement('div')
       algos.className = 'keybox-manage-algos'
-      const certs = certsFromXml(xml)
-      const expired = allExpiriesPassed(certs.map((cert) => cert.notAfter))
       for (const algo of algorithmsFromXml(xml)) {
         const pill = document.createElement('span')
         pill.className = 'keybox-algo-pill'
@@ -678,7 +684,6 @@ export class Keybox {
         pill.textContent = i18n.t('keybox_algo_unknown')
         algos.appendChild(pill)
       }
-      if (expired) algos.appendChild(this.#expiredPill())
       head.append(name, algos)
 
       const file = document.createElement('div')
@@ -703,18 +708,37 @@ export class Keybox {
       details.className = 'keybox-manage-certs'
       const certInner = document.createElement('div')
       certInner.className = 'keybox-manage-certs-inner'
-      for (const cert of certs) {
-        const row = document.createElement('span')
-        const passed = cert.notAfter.getTime() <= Date.now()
-        row.className = passed ? 'keybox-cert-pill keybox-meta-expired' : 'keybox-cert-pill'
-        const role = i18n.t(`keybox_cert_${cert.role}`)
-        const expiry = await formatDeviceDate(cert.notAfter, true)
-        row.textContent = cert.cn
-          ? i18n.t('keybox_cert_expires_cn', cert.algo, role, cert.cn, expiry)
-          : i18n.t('keybox_cert_expires', cert.algo, role, expiry)
-        certInner.appendChild(row)
-      }
       details.appendChild(certInner)
+
+      let certsRendered = false
+      const renderCerts = async () => {
+        if (certsRendered) return
+        certsRendered = true
+        const certs = certsFromXml(xml)
+        const expired = allExpiriesPassed(certs.map((cert) => cert.notAfter))
+        if (expired && !algos.querySelector('.keybox-expired-pill')) {
+          algos.appendChild(this.#expiredPill())
+        }
+        for (const cert of certs) {
+          const row = document.createElement('span')
+          const passed = cert.notAfter.getTime() <= Date.now()
+          row.className = passed ? 'keybox-cert-pill keybox-meta-expired' : 'keybox-cert-pill'
+          const role = i18n.t(`keybox_cert_${cert.role}`)
+          const expiry = await formatDeviceDate(cert.notAfter, true)
+          row.textContent = cert.cn
+            ? i18n.t('keybox_cert_expires_cn', cert.algo, role, cert.cn, expiry)
+            : i18n.t('keybox_cert_expires', cert.algo, role, expiry)
+          certInner.appendChild(row)
+        }
+      }
+
+      if (isFocused) {
+        card.classList.add('expanded')
+        card.setAttribute('aria-expanded', 'true')
+        void renderCerts()
+      } else {
+        card.setAttribute('aria-expanded', 'false')
+      }
 
       const actions = document.createElement('div')
       actions.className = 'keybox-manage-actions'
@@ -739,8 +763,8 @@ export class Keybox {
       card.addEventListener('click', () => {
         const open = card.classList.toggle('expanded')
         card.setAttribute('aria-expanded', open ? 'true' : 'false')
+        if (open) void renderCerts()
       })
-      card.setAttribute('aria-expanded', 'false')
       this.#manageList.appendChild(card)
     }
   }

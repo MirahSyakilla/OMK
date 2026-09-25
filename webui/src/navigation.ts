@@ -21,7 +21,8 @@ export class Navigation {
   #pages: HTMLElement[] = []
   #suppressTimer: number | null = null
   #onTabChangedCallbacks: Array<(index: number, tabId: string) => void> = []
-
+  #cachedScreenW = 0
+  #tabMetrics: Array<{ left: number; width: number }> = []
   constructor(track: HTMLElement, dock: HTMLElement, titleEl: HTMLElement) {
     this.#track = track
     this.#titleEl = titleEl
@@ -31,6 +32,7 @@ export class Navigation {
       (page): page is HTMLElement => page !== null,
     )
 
+    this.#measureMetrics()
     this.#initTabs()
     this.#initGestures()
     this.switchToTab(0, false)
@@ -49,29 +51,36 @@ export class Navigation {
   }
 
   /**
-   * Collapses every page except the active one so the document is only as tall
-   * as the visible screen. `unsuppressAll` keeps every page at full size, which
-   * the carousel needs while it slides and while a swipe is being dragged.
+   * Collapses every page except active/sliding ones so the document height
+   * matches the visible content. Only active and immediate sliding screens are allowed.
    */
-  #updatePageSuppression(activeIndex: number, unsuppressAll = false): void {
+  #updatePageSuppression(activeIndex: number, allowedIndices?: number[]): void {
     this.#pages.forEach((page, index) => {
-      page.classList.toggle('page--suppressed', !unsuppressAll && index !== activeIndex)
+      const isAllowed = allowedIndices ? allowedIndices.includes(index) : index === activeIndex
+      page.classList.toggle('page--suppressed', !isAllowed)
     })
   }
 
+  #measureMetrics(): void {
+    this.#cachedScreenW = this.#track.offsetWidth || window.innerWidth || 1
+    this.#tabMetrics = this.#tabs.map((tab) => ({
+      left: tab.offsetLeft,
+      width: tab.offsetWidth,
+    }))
+  }
+
   setIndicatorProgress(curIdx: number, targetIdx: number, progress: number): void {
-    const curTab = this.#tabs[curIdx]
-    const tgtTab = this.#tabs[targetIdx]
-    if (!curTab || !tgtTab || !this.#indicator) return
-    const left = curTab.offsetLeft + (tgtTab.offsetLeft - curTab.offsetLeft) * progress
-    const width = curTab.offsetWidth + (tgtTab.offsetWidth - curTab.offsetWidth) * progress
+    const cur = this.#tabMetrics[curIdx]
+    const tgt = this.#tabMetrics[targetIdx]
+    if (!cur || !tgt || !this.#indicator) return
+    const left = cur.left + (tgt.left - cur.left) * progress
+    const width = cur.width + (tgt.width - cur.width) * progress
     this.#indicator.style.transition = 'none'
     this.#indicator.style.transform = `translate3d(${left}px, 0, 0)`
     this.#indicator.style.width = `${width}px`
   }
-
   setTrackPosition(index: number, smooth = true, offsetPx = 0): void {
-    const screenW = this.#track.offsetWidth || window.innerWidth || 1
+    const screenW = this.#cachedScreenW || this.#track.offsetWidth || window.innerWidth || 1
     const basePct = -index * 100
     const deltaPct = (offsetPx / screenW) * 100
     const totalPct = basePct + deltaPct
@@ -96,13 +105,13 @@ export class Navigation {
     const prev = this.#activeIndex
     this.#activeIndex = index
 
-    // 1. Update active tab buttons immediately
+    // 1. Update active tab buttons so active tab expands its label
     this.#tabs.forEach((tab, i) => {
       tab.classList.toggle('nav-tab--active', i === index)
       tab.setAttribute('aria-selected', i === index ? 'true' : 'false')
     })
 
-    // 2. Reposition floating pill dock indicator FIRST (before page suppression touches 4,000px layout!)
+    // 2. Reposition floating pill dock indicator to the expanded active tab
     const activeTab = this.#tabs[index]
     if (activeTab) this.reposition(activeTab, smooth)
 
@@ -132,8 +141,8 @@ export class Navigation {
       }
     }
 
-    // 5. Unsuppress pages during animation, then collapse after indicator settles (370ms > 350ms indicator transition)
-    this.#updatePageSuppression(index, true)
+    // 5. Selectively unsuppress only prev and current page during slide (never unsuppress all 4 pages!)
+    this.#updatePageSuppression(index, smooth && prev !== index ? [prev, index] : [index])
     if (this.#suppressTimer !== null) {
       clearTimeout(this.#suppressTimer)
       this.#suppressTimer = null
@@ -141,10 +150,10 @@ export class Navigation {
     if (smooth) {
       this.#suppressTimer = window.setTimeout(() => {
         this.#suppressTimer = null
-        this.#updatePageSuppression(this.#activeIndex)
+        this.#updatePageSuppression(this.#activeIndex, [this.#activeIndex])
       }, 370)
     } else {
-      this.#updatePageSuppression(index)
+      this.#updatePageSuppression(index, [index])
     }
     // Scroll to top on page switch
     if (smooth && prev !== index) {
@@ -167,6 +176,7 @@ export class Navigation {
 
     // Re-align indicator on window resize
     window.addEventListener('resize', () => {
+      this.#measureMetrics()
       const active = this.#tabs[this.#activeIndex]
       if (active) this.reposition(active, false)
       this.setTrackPosition(this.#activeIndex, false)
@@ -178,6 +188,19 @@ export class Navigation {
     let startY = 0
     let startTime = 0
     let intent: 'none' | 'pending' | 'drag' | 'scroll' = 'none'
+    let pendingRaf: number | null = null
+    let latestEffectiveDx = 0
+    let latestDragRatio = 0
+    let latestTargetIdx = 0
+
+    const renderDragFrame = () => {
+      pendingRaf = null
+      if (intent !== 'drag') return
+      this.setTrackPosition(this.#activeIndex, false, latestEffectiveDx)
+      if (latestTargetIdx >= 0 && latestTargetIdx < this.#tabs.length) {
+        this.setIndicatorProgress(this.#activeIndex, latestTargetIdx, Math.min(1, Math.max(0, Math.abs(latestDragRatio))))
+      }
+    }
 
     document.addEventListener(
       'touchstart',
@@ -197,6 +220,7 @@ export class Navigation {
         startY = touch.clientY
         startTime = Date.now()
         intent = 'pending'
+        this.#measureMetrics()
       },
       { passive: true },
     )
@@ -220,8 +244,11 @@ export class Navigation {
           }
           if (Math.abs(dx) > 7 && Math.abs(dx) > Math.abs(dy)) {
             intent = 'drag'
-            // Unsuppress neighbouring pages only when horizontal carousel drag starts
-            this.#updatePageSuppression(this.#activeIndex, true)
+            // Unsuppress ONLY the current page and adjacent target page
+            const targetIdx = dx < 0 ? this.#activeIndex + 1 : this.#activeIndex - 1
+            const allowed = [this.#activeIndex]
+            if (targetIdx >= 0 && targetIdx < TABS.length) allowed.push(targetIdx)
+            this.#updatePageSuppression(this.#activeIndex, allowed)
           }
         }
         if (intent === 'drag') {
@@ -236,14 +263,13 @@ export class Navigation {
             effectiveDx = effectiveDx * 0.35
           }
 
-          this.setTrackPosition(this.#activeIndex, false, effectiveDx)
+          latestEffectiveDx = effectiveDx
+          const screenW = this.#cachedScreenW || 1
+          latestDragRatio = -effectiveDx / screenW
+          latestTargetIdx = latestDragRatio > 0 ? this.#activeIndex + 1 : this.#activeIndex - 1
 
-          // Update floating dock indicator in real time
-          const screenW = this.#track.offsetWidth || window.innerWidth || 1
-          const dragRatio = -effectiveDx / screenW
-          const targetIdx = dragRatio > 0 ? this.#activeIndex + 1 : this.#activeIndex - 1
-          if (targetIdx >= 0 && targetIdx < this.#tabs.length) {
-            this.setIndicatorProgress(this.#activeIndex, targetIdx, Math.min(1, Math.max(0, Math.abs(dragRatio))))
+          if (pendingRaf === null) {
+            pendingRaf = requestAnimationFrame(renderDragFrame)
           }
         }
       },
@@ -251,6 +277,10 @@ export class Navigation {
     )
 
     const onTouchEndOrCancel = (e: TouchEvent) => {
+      if (pendingRaf !== null) {
+        cancelAnimationFrame(pendingRaf)
+        pendingRaf = null
+      }
       if (intent !== 'drag') {
         intent = 'none'
         return
@@ -263,7 +293,7 @@ export class Navigation {
       if (touch) {
         const dx = touch.clientX - startX
         const dt = Date.now() - startTime
-        const screenW = this.#track.offsetWidth || window.innerWidth || 1
+        const screenW = this.#cachedScreenW || 1
         const distance = Math.abs(dx)
         const velocity = distance / Math.max(dt, 1)
 

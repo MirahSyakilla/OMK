@@ -225,6 +225,7 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 12px;
+  contain: paint;
 }
 
 // Collapsed pages must not contribute height, or the document scrolls past

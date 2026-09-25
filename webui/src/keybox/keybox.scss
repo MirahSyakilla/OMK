@@ -144,6 +144,14 @@
   gap: 12px;
 }
 
+.keybox-manage-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 36px 0;
+  min-height: 120px;
+}
+
 .keybox-manage-card {
   display: flex;
   flex-direction: column;
