@@ -10,7 +10,6 @@ const MENU_ITEMS: Array<[string, string]> = [
   ['keybox-local', 'menu-keybox-local'],
   ['keybox-repo', 'menu-keybox-repo'],
   ['keybox-custom', 'menu-keybox-custom'],
-  ['integrity-settings', 'menu-integrity-settings'],
   ['help', 'menu-help'],
   ['about', 'menu-about'],
 ]
@@ -69,9 +68,6 @@ export class MainMenu {
             </md-menu-item>
           </md-menu>
         </md-sub-menu>
-        <md-menu-item id="integrity-settings">
-          <div slot="headline">Integrity Settings</div>
-        </md-menu-item>
         <md-divider role="separator" tabindex="-1"></md-divider>
         <md-menu-item id="help">
           <div slot="headline">Help</div>

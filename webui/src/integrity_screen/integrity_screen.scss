@@ -145,7 +145,7 @@
   outline: none !important;
   box-shadow: none !important;
   -webkit-tap-highlight-color: transparent !important;
-  transition: border-radius 0.2s cubic-bezier(0.2, 0, 0, 1), background-color 0.15s ease;
+  transition: background-color 0.15s ease;
 
   &:focus,
   &:focus-visible {
@@ -164,16 +164,9 @@
     border-radius: 4px 4px 24px 24px;
   }
 
-  &.card-pressed {
-    border-radius: 20px !important;
-  }
-
   @media (hover: hover) and (pointer: fine) {
     &:hover {
       background: var(--md-sys-color-surface-container-highest);
-    }
-    &:active {
-      border-radius: 20px !important;
     }
   }
 

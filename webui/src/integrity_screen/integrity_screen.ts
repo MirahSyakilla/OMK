@@ -1,3 +1,4 @@
+import { exec } from 'kernelsu-alt'
 import type { MdSwitch } from '@material/web/all'
 import { Cli, type FlashBuild } from '../cli'
 import { Config } from '../config'
@@ -156,6 +157,7 @@ export class IntegrityScreen {
     conflict: null as string | null,
     description: '',
   }
+  #cachedProp: Record<string, string> = {}
   constructor(cli: Cli, config: Config, snackbar: Snackbar) {
     this.#cli = cli
     this.#config = config
@@ -294,8 +296,18 @@ export class IntegrityScreen {
     if (enabledSwitch) enabledSwitch.disabled = !this.#canEnable
     const soterSwitch = this.#container?.querySelector<MdSwitch>('#pif-soter')
     if (soterSwitch) soterSwitch.disabled = !this.#hasZygisk
-
-    this.#fingerprint = await this.#readFingerprint()
+    const propPath = (await File.exist(PROP_PATH)) ? PROP_PATH : PROP_PATH_DATA
+    if (await File.exist(propPath)) {
+      try {
+        this.#cachedProp = parseKv(await File.read(propPath))
+      } catch {
+        this.#cachedProp = {}
+      }
+    } else {
+      this.#cachedProp = {}
+    }
+    this.#fingerprint = this.#cachedProp.FINGERPRINT ?? ''
+    this.#product = this.#cachedProp.PRODUCT || (this.#cachedProp.FINGERPRINT ? this.#cachedProp.FINGERPRINT.split(/[/:]/)[1] ?? '' : '')
   }
 
   #bindEvents(): void {
@@ -316,18 +328,17 @@ export class IntegrityScreen {
       }
     })
 
-
-    // Switch Row Tap Feedback & Switch Direct Toggle
     const bindRow = (rowId: string, switchId: string) => {
       const row = this.#container?.querySelector<HTMLElement>(`#${rowId}`)
       const sw = this.#container?.querySelector<MdSwitch>(`#${switchId}`)
-      if (row) {
-        row.addEventListener('click', () => {
-          row.blur()
-          // Tapping the card provides ripple feedback but does NOT toggle the switch.
+      if (row && sw) {
+        row.addEventListener('click', (e) => {
+          // Let native md-switch interaction handle direct clicks on the switch
+          if (e.composedPath().some((n) => n instanceof Element && n.localName === 'md-switch')) return
+          if (sw.disabled) return
+          sw.selected = !sw.selected
+          this.#handleToggle(switchId, sw.selected)
         })
-      }
-      if (sw) {
         sw.addEventListener('change', () => {
           this.#handleToggle(switchId, sw.selected)
         })
@@ -401,7 +412,7 @@ export class IntegrityScreen {
     this.#saveTimer = window.setTimeout(() => {
       this.#saveTimer = null
       void this.#persistState()
-    }, 200)
+    }, 400)
   }
 
   async #persistState(): Promise<void> {
@@ -423,9 +434,6 @@ export class IntegrityScreen {
     }
 
     try {
-      await File.createDirectory(DATA_DIR)
-      await File.createDirectory(ADB_DIR)
-
       const toml = [
         `enabled = ${state.enabled}`,
         `spoof_build = ${state.spoof_build}`,
@@ -437,11 +445,11 @@ export class IntegrityScreen {
         `soter_beta = ${state.soter_beta}`,
       ].join('\n')
 
-      await File.write(TOML_PATH, toml)
-      await File.write(TOML_PATH_DATA, toml)
+      await exec(
+        `mkdir -p "${DATA_DIR}" "${ADB_DIR}" 2>/dev/null; cat << 'FileEOF' > "${TOML_PATH}"\n${toml}\nFileEOF\ncp -f "${TOML_PATH}" "${TOML_PATH_DATA}" 2>/dev/null; true`,
+      )
 
-      const propPath = (await File.exist(PROP_PATH)) ? PROP_PATH : PROP_PATH_DATA
-      const prop = parseKv((await File.exist(propPath)) ? await File.read(propPath) : '')
+      const prop = this.#cachedProp
 
       if (state.sync_trust_patch && prop.SECURITY_PATCH) {
         this.#config.set('trust', 'security_patch', prop.SECURITY_PATCH)
@@ -456,7 +464,7 @@ export class IntegrityScreen {
         await this.#cli.unifyProductProps(prop)
       }
 
-      await this.#cli.killIntegrityTargets()
+      void this.#cli.killIntegrityTargets()
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       this.#snackbar.show(`Error saving setting: ${msg}`, false)
@@ -495,18 +503,6 @@ export class IntegrityScreen {
       }
     } catch {
       return { ...DEFAULTS }
-    }
-  }
-
-  async #readFingerprint(): Promise<string> {
-    const propPath = (await File.exist(PROP_PATH)) ? PROP_PATH : PROP_PATH_DATA
-    if (!(await File.exist(propPath))) return ''
-    try {
-      const map = parseKv(await File.read(propPath))
-      this.#product = map.PRODUCT || (map.FINGERPRINT ? map.FINGERPRINT.split(/[/:]/)[1] ?? '' : '')
-      return map.FINGERPRINT ?? ''
-    } catch {
-      return ''
     }
   }
 
@@ -557,8 +553,9 @@ export class IntegrityScreen {
         await File.write(PROP_PATH, first.prop)
         await File.write(PROP_PATH_DATA, first.prop)
         await this.#cli.killIntegrityTargets()
+        this.#cachedProp = parseKv(first.prop)
+        this.#fingerprint = this.#cachedProp.FINGERPRINT ?? ''
         this.#snackbar.show('Product updated')
-        this.#fingerprint = await this.#readFingerprint()
         return
       }
 
@@ -605,9 +602,9 @@ export class IntegrityScreen {
           await File.createDirectory(ADB_DIR)
           await File.write(PROP_PATH, chosen.prop)
           await File.write(PROP_PATH_DATA, chosen.prop)
-          await this.#cli.killIntegrityTargets()
+          this.#cachedProp = parseKv(chosen.prop)
+          this.#fingerprint = this.#cachedProp.FINGERPRINT ?? ''
           this.#snackbar.show('Fingerprint applied')
-          this.#fingerprint = await this.#readFingerprint()
         }
       })
     } catch {
