@@ -66,7 +66,7 @@ export class Navigation {
     const left = curTab.offsetLeft + (tgtTab.offsetLeft - curTab.offsetLeft) * progress
     const width = curTab.offsetWidth + (tgtTab.offsetWidth - curTab.offsetWidth) * progress
     this.#indicator.style.transition = 'none'
-    this.#indicator.style.left = `${left}px`
+    this.#indicator.style.transform = `translate3d(${left}px, 0, 0)`
     this.#indicator.style.width = `${width}px`
   }
 
@@ -84,7 +84,7 @@ export class Navigation {
   reposition(tab: HTMLElement, smooth = true): void {
     if (!this.#indicator) return
     this.#indicator.style.transition = smooth ? '' : 'none'
-    this.#indicator.style.left = `${tab.offsetLeft}px`
+    this.#indicator.style.transform = `translate3d(${tab.offsetLeft}px, 0, 0)`
     this.#indicator.style.width = `${tab.offsetWidth}px`
   }
 

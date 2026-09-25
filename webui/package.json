@@ -16,7 +16,6 @@
     "@material/web": "^2.5.0",
     "asn1js": "^3.0.10",
     "kernelsu-alt": "^3.1.2",
-    "marked": "^18.0.14",
     "pkijs": "^3.4.1",
     "smol-toml": "^1.9.0"
   }

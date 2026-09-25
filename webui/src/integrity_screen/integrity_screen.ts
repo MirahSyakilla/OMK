@@ -13,8 +13,6 @@ const PROP_PATH = `${ADB_DIR}/integrity.prop`
 const TOML_PATH_DATA = `${DATA_DIR}/integrity.toml`
 const PROP_PATH_DATA = `${DATA_DIR}/integrity.prop`
 
-const MIN_FONT_SIZE = 8
-const MAX_FONT_SIZE = 24
 
 interface IntegrityState {
   enabled: boolean
@@ -149,9 +147,10 @@ export class IntegrityScreen {
   #fingerprint = ''
   #product = ''
   #canEnable = false
-  #fontSize = 14
-  #autoScroll = true
-
+  #hasZygisk = false
+  #saveTimer: number | null = null
+  #isPersisting = false
+  #hasPendingPersist = false
   constructor(cli: Cli, config: Config, snackbar: Snackbar) {
     this.#cli = cli
     this.#config = config
@@ -253,30 +252,8 @@ export class IntegrityScreen {
                 </div>
                 <md-switch icons="true" id="pif-soter"></md-switch>
               </div>
-            </div>
           </div>
 
-          <!-- Terminal Pane (matches PlayIntegrityFix inject design) -->
-          <div class="integrity-terminal-pane">
-            <div class="terminal-card">
-              <div class="terminal-header">
-                <div class="terminal-header-icon">
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" class="terminal-svg-icon">
-                    <path d="M160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h640q33 0 56.5 23.5T880-720v480q0 33-23.5 56.5T800-160H160Zm0-80h640v-400H160v400Zm140-40-56-56 103-104-104-104 57-56 160 160-160 160Zm180 0v-80h240v80H480Z" />
-                  </svg>
-                </div>
-                <md-text-button id="pif-term-clear" class="terminal-clear-btn">
-                  clear
-                  <svg slot="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" class="terminal-trash-icon">
-                    <path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm80-160h80v-360h-80v360Zm160 0h80v-360h-80v360Z" />
-                  </svg>
-                </md-text-button>
-              </div>
-              <div class="terminal-body" id="pif-term-body">
-                <p class="output-line">[ready] Play Integrity console initialized.</p>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     `
@@ -285,32 +262,10 @@ export class IntegrityScreen {
     void this.load()
   }
 
-  output(content: string, error = false): void {
-    const body = this.#container?.querySelector<HTMLElement>('#pif-term-body')
-    if (!body) return
-    if (content === '') {
-      body.appendChild(document.createElement('br'))
-    } else {
-      const p = document.createElement('p')
-      p.className = error ? 'output-line error' : 'output-line'
-      p.textContent = content
-      body.appendChild(p)
-    }
-    if (this.#autoScroll) {
-      body.scrollTop = body.scrollHeight
-    }
-  }
-
-  clear(): void {
-    const body = this.#container?.querySelector<HTMLElement>('#pif-term-body')
-    if (body) {
-      body.innerHTML = ''
-    }
-  }
-
   async load(): Promise<void> {
     const status = await this.#cli.detectIntegrityZygisk()
-    this.#canEnable = status.provider !== null && status.conflict === null
+    this.#hasZygisk = status.provider !== null
+    this.#canEnable = this.#hasZygisk && status.conflict === null
 
     const state = await this.#readState()
     this.#setSwitch('pif-enabled', state.enabled && this.#canEnable)
@@ -325,13 +280,9 @@ export class IntegrityScreen {
     const enabledSwitch = this.#container?.querySelector<MdSwitch>('#pif-enabled')
     if (enabledSwitch) enabledSwitch.disabled = !this.#canEnable
     const soterSwitch = this.#container?.querySelector<MdSwitch>('#pif-soter')
-    if (soterSwitch) soterSwitch.disabled = status.provider === null
+    if (soterSwitch) soterSwitch.disabled = !this.#hasZygisk
 
     this.#fingerprint = await this.#readFingerprint()
-    this.output(`[ready] Play Integrity status: Zygisk=${status.provider ?? 'none'}`)
-    if (this.#fingerprint) {
-      this.output(`[+] Active fingerprint: ${this.#fingerprint}`)
-    }
   }
 
   #bindEvents(): void {
@@ -345,86 +296,19 @@ export class IntegrityScreen {
       void this.#fetchProp(true)
     })
 
-    // Clear Terminal
-    this.#container.querySelector('#pif-term-clear')?.addEventListener('click', () => {
-      this.clear()
-    })
-
-    // Terminal Zoom & Scroll Tracking
-    const termBody = this.#container.querySelector<HTMLElement>('#pif-term-body')
-    if (termBody) {
-      let initialPinch: number | null = null
-      let initialFontSize = this.#fontSize
-
-      termBody.addEventListener(
-        'touchstart',
-        (e) => {
-          if (e.touches.length === 2 && e.touches[0] && e.touches[1]) {
-            const dx = e.touches[0].clientX - e.touches[1].clientX
-            const dy = e.touches[0].clientY - e.touches[1].clientY
-            initialPinch = Math.hypot(dx, dy)
-            initialFontSize = this.#fontSize
-          }
-        },
-        { passive: true },
-      )
-
-      termBody.addEventListener(
-        'touchmove',
-        (e) => {
-          if (initialPinch && e.touches.length === 2 && e.touches[0] && e.touches[1]) {
-            const dx = e.touches[0].clientX - e.touches[1].clientX
-            const dy = e.touches[0].clientY - e.touches[1].clientY
-            const dist = Math.hypot(dx, dy)
-            const scale = dist / initialPinch
-            this.#fontSize = Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, Math.round(initialFontSize * scale)))
-            termBody.style.fontSize = `${this.#fontSize}px`
-          }
-        },
-        { passive: true },
-      )
-
-      termBody.addEventListener(
-        'touchend',
-        () => {
-          initialPinch = null
-        },
-        { passive: true },
-      )
-
-      termBody.addEventListener(
-        'wheel',
-        (e) => {
-          if (e.ctrlKey || e.metaKey) {
-            e.preventDefault()
-            const delta = e.deltaY < 0 ? 1 : -1
-            this.#fontSize = Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, this.#fontSize + delta))
-            termBody.style.fontSize = `${this.#fontSize}px`
-          }
-        },
-        { passive: false },
-      )
-
-      termBody.addEventListener('scroll', () => {
-        const atBottom = termBody.scrollHeight - termBody.scrollTop - termBody.clientHeight <= 25
-        this.#autoScroll = atBottom
-      })
-    }
-
-    // Switch Stack Row Binds & Auto-Save
+    // Switch Row Tap Feedback & Switch Direct Toggle
     const bindRow = (rowId: string, switchId: string) => {
       const row = this.#container?.querySelector<HTMLElement>(`#${rowId}`)
       const sw = this.#container?.querySelector<MdSwitch>(`#${switchId}`)
-      if (row && sw) {
-        row.addEventListener('click', (e) => {
-          if (e.target === sw || (e.target instanceof Node && sw.contains(e.target))) return
-          if (!sw.disabled) {
-            sw.selected = !sw.selected
-            sw.dispatchEvent(new Event('change'))
-          }
+      if (row) {
+        row.addEventListener('click', () => {
+          row.blur()
+          // Tapping the card provides ripple feedback but does NOT toggle the switch.
         })
+      }
+      if (sw) {
         sw.addEventListener('change', () => {
-          void this.#handleToggle(switchId, sw.selected)
+          this.#handleToggle(switchId, sw.selected)
         })
       }
     }
@@ -439,20 +323,35 @@ export class IntegrityScreen {
     bindRow('row-soter', 'pif-soter')
   }
 
-  async #handleToggle(switchId: string, value: boolean): Promise<void> {
-    const zygisk = await this.#cli.detectIntegrityZygisk()
-    if (switchId === 'pif-soter' && value && zygisk.provider === null) {
+  #handleToggle(switchId: string, value: boolean): void {
+    if (switchId === 'pif-soter' && value && !this.#hasZygisk) {
       this.#snackbar.show('Zygisk required for Tencent Soter', false)
-      this.output('[!] Tencent Soter requires Zygisk', true)
       this.#setSwitch('pif-soter', false)
       return
     }
     if (switchId === 'pif-enabled' && value && !this.#canEnable) {
       this.#snackbar.show('Zygisk required to enable Integrity', false)
-      this.output('[!] Zygisk is required to enable Play Integrity', true)
       this.#setSwitch('pif-enabled', false)
       return
     }
+
+    this.#scheduleSave()
+  }
+
+  #scheduleSave(): void {
+    clearTimeout(this.#saveTimer ?? undefined)
+    this.#saveTimer = window.setTimeout(() => {
+      this.#saveTimer = null
+      void this.#persistState()
+    }, 200)
+  }
+
+  async #persistState(): Promise<void> {
+    if (this.#isPersisting) {
+      this.#hasPendingPersist = true
+      return
+    }
+    this.#isPersisting = true
 
     const state: IntegrityState = {
       enabled: this.#getSwitch('pif-enabled'),
@@ -500,11 +399,15 @@ export class IntegrityScreen {
       }
 
       await this.#cli.killIntegrityTargets()
-      const keyName = switchId.replace('pif-', '').replace(/-/g, '_')
-      this.output(`[+] ${keyName}: ${value ? 'enabled' : 'disabled'}`)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      this.output(`[!] Error saving setting: ${msg}`, true)
+      this.#snackbar.show(`Error saving setting: ${msg}`, false)
+    } finally {
+      this.#isPersisting = false
+      if (this.#hasPendingPersist) {
+        this.#hasPendingPersist = false
+        this.#scheduleSave()
+      }
     }
   }
 
@@ -552,11 +455,9 @@ export class IntegrityScreen {
 
   async #fetchProp(update: boolean): Promise<void> {
     try {
-      this.output(update ? '[...] Updating current product fingerprint...' : '[...] Fetching compatible Flashstation build...')
       let product = this.#product || (this.#fingerprint ? this.#fingerprint.split(/[/:]/)[1] ?? '' : '')
       if (update && !product) {
         this.#snackbar.show('Fetch a fingerprint first', false)
-        this.output('[!] Cannot update: no product selected yet.', true)
         return
       }
 
@@ -587,7 +488,6 @@ export class IntegrityScreen {
 
       if (matches.length === 0) {
         this.#snackbar.show('No compatible build found for this Android release', false)
-        this.output('[!] No compatible build found for this Android release', true)
         return
       }
 
@@ -599,9 +499,6 @@ export class IntegrityScreen {
         await File.write(PROP_PATH, first.prop)
         await File.write(PROP_PATH_DATA, first.prop)
         await this.#cli.killIntegrityTargets()
-        this.output(`[+] Updated product: ${first.product} (${first.build.releaseCandidateName || first.build.buildId})`)
-        this.output('[+] Saved integrity.prop')
-        this.output('[+] Stopped GMS, Vending, and unstable DroidGuard targets')
         this.#snackbar.show('Product updated')
         this.#fingerprint = await this.#readFingerprint()
         return
@@ -651,17 +548,12 @@ export class IntegrityScreen {
           await File.write(PROP_PATH, chosen.prop)
           await File.write(PROP_PATH_DATA, chosen.prop)
           await this.#cli.killIntegrityTargets()
-          this.output(`[+] Fetched build: ${chosen.build.releaseCandidateName || chosen.build.buildId}`)
-          this.output('[+] Saved integrity.prop')
-          this.output('[+] Stopped GMS, Vending, and unstable DroidGuard targets')
           this.#snackbar.show('Fingerprint applied')
           this.#fingerprint = await this.#readFingerprint()
         }
       })
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
+    } catch {
       this.#snackbar.show('Failed to fetch fingerprint', false)
-      this.output(`[!] Fetch exception: ${msg}`, true)
     }
   }
 

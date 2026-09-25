@@ -192,7 +192,9 @@ export class KeyboxScreen {
     if (!this.#container) return
 
     // Tile 1: Local File
-    this.#container.querySelector('#kb-action-local')?.addEventListener('click', async () => {
+    const actionLocal = this.#container.querySelector<HTMLElement>('#kb-action-local')
+    actionLocal?.addEventListener('click', async () => {
+      actionLocal.blur()
       try {
         await this.#keybox.setLocalKey()
         await this.refresh()
@@ -203,12 +205,16 @@ export class KeyboxScreen {
     })
 
     // Tile 2: Online Repo
-    this.#container.querySelector('#kb-action-repo')?.addEventListener('click', () => {
+    const actionRepo = this.#container.querySelector<HTMLElement>('#kb-action-repo')
+    actionRepo?.addEventListener('click', () => {
+      actionRepo.blur()
       this.#keyboxRepo.show()
     })
 
     // Tile 3: Self-Signed Keybox
-    this.#container.querySelector('#kb-action-generate')?.addEventListener('click', async () => {
+    const actionGenerate = this.#container.querySelector<HTMLElement>('#kb-action-generate')
+    actionGenerate?.addEventListener('click', async () => {
+      actionGenerate.blur()
       try {
         await this.#keybox.setUnknownKey()
         await this.refresh()
@@ -221,12 +227,16 @@ export class KeyboxScreen {
     // Tile 4: Presets Dialog
     const presetsDialog = document.querySelector<MdDialog>('#kb-presets-dialog')
     if (presetsDialog) {
-      this.#container.querySelector('#kb-action-presets')?.addEventListener('click', () => {
+      const actionPresets = this.#container.querySelector<HTMLElement>('#kb-action-presets')
+      actionPresets?.addEventListener('click', () => {
+        actionPresets.blur()
         presetsDialog.show()
         this.#history?.push('kb-presets-dialog', () => presetsDialog.close())
       })
 
-      document.querySelector('#kb-preset-cancel')?.addEventListener('click', () => {
+      const presetCancel = document.querySelector<HTMLElement>('#kb-preset-cancel')
+      presetCancel?.addEventListener('click', () => {
+        presetCancel.blur()
         presetsDialog.close()
       })
 
@@ -234,7 +244,9 @@ export class KeyboxScreen {
         this.#history?.consume('kb-presets-dialog')
       })
 
-      document.querySelector('#kb-preset-aosp')?.addEventListener('click', async () => {
+      const presetAosp = document.querySelector<HTMLElement>('#kb-preset-aosp')
+      presetAosp?.addEventListener('click', async () => {
+        presetAosp.blur()
         presetsDialog.close()
         try {
           await this.#keybox.setAospKey()
@@ -245,7 +257,9 @@ export class KeyboxScreen {
         }
       })
 
-      document.querySelector('#kb-preset-alwaysstrong')?.addEventListener('click', async () => {
+      const presetAlwaysStrong = document.querySelector<HTMLElement>('#kb-preset-alwaysstrong')
+      presetAlwaysStrong?.addEventListener('click', async () => {
+        presetAlwaysStrong.blur()
         presetsDialog.close()
         try {
           await this.#keybox.setAlwaysStrongKey()
@@ -257,12 +271,16 @@ export class KeyboxScreen {
       })
     }
     // Manage All Dialog
-    this.#container.querySelector('#kb-manage-all-btn')?.addEventListener('click', () => {
+    const manageAllBtn = this.#container.querySelector<HTMLElement>('#kb-manage-all-btn')
+    manageAllBtn?.addEventListener('click', () => {
+      manageAllBtn.blur()
       void this.#keybox.showManage()
     })
 
     // Add Custom Source
-    this.#container.querySelector('#kb-add-custom-btn')?.addEventListener('click', () => {
+    const addCustomBtn = this.#container.querySelector<HTMLElement>('#kb-add-custom-btn')
+    addCustomBtn?.addEventListener('click', () => {
+      addCustomBtn.blur()
       this.#keybox.custom.showDialog()
     })
   }
@@ -344,6 +362,7 @@ export class KeyboxScreen {
     // Tapping card or eye button opens the slot in the Manage Dialog
     listEl.querySelectorAll('.kb-slot-card').forEach((card) => {
       card.addEventListener('click', () => {
+        ;(card as HTMLElement).blur()
         const slot = Number.parseInt((card as HTMLElement).dataset.slot ?? '0', 10)
         void this.#keybox.showManage(slot)
       })
@@ -352,6 +371,7 @@ export class KeyboxScreen {
     listEl.querySelectorAll('[data-action="inspect"]').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation()
+        ;(btn as HTMLElement).blur()
         const slot = Number.parseInt((e.currentTarget as HTMLElement).dataset.slot ?? '0', 10)
         void this.#keybox.showManage(slot)
       })
@@ -390,6 +410,7 @@ export class KeyboxScreen {
 
     container.querySelectorAll('[data-action="edit"]').forEach((btn) => {
       btn.addEventListener('click', (e) => {
+        ;(btn as HTMLElement).blur()
         const idx = Number.parseInt((e.currentTarget as HTMLElement).dataset.customIndex ?? '0', 10)
         const entry = entries[idx]
         if (entry) this.#keybox.custom.showDialog(entry)

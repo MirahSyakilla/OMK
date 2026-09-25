@@ -344,11 +344,14 @@ body:has(#keybox-repo-overlay:not(.hidden)) .dock {
   position: absolute;
   top: 6px;
   bottom: 6px;
+  left: 0;
   border-radius: 9999px;
   background: var(--md-sys-color-secondary-container);
   z-index: 0;
   pointer-events: none;
-  transition: left 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+  will-change: transform;
+  transform-origin: left center;
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
               width 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
