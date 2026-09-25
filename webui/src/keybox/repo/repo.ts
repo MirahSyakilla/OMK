@@ -136,6 +136,7 @@ export class KeyboxRepo {
     this.#showLoading()
     this.#iframe.src = `${KEYBOX_REPO_URL}/${i18n.lang}`
     this.#overlay?.classList.remove('hidden')
+    document.querySelector('.dock')?.classList.add('dock-hide')
 
     this.#history.push(KeyboxRepo.HISTORY_KEY, () => this.close())
   }
@@ -145,6 +146,7 @@ export class KeyboxRepo {
     this.#overlay?.classList.add('closing')
     this.#history.consume(KeyboxRepo.HISTORY_KEY)
     this.#stopHandshake()
+    document.querySelector('.dock')?.classList.remove('dock-hide')
   }
 
   #onMessage(event: MessageEvent): void {

@@ -186,7 +186,10 @@ export class SettingsScreen {
   #bindRow(id: string, handler: () => void): void {
     const el = this.#container?.querySelector<HTMLElement>(`#${id}`)
     if (!el) return
-    el.addEventListener('click', handler)
+    el.addEventListener('click', () => {
+      el.blur()
+      handler()
+    })
     el.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault()

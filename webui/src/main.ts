@@ -297,7 +297,11 @@ keybox.custom.renderEntries()
 dialogController.appendAll(dialogContent)
 dialogContent.querySelectorAll<MdDialog>('md-dialog').forEach((dialog, index) => {
   const id = dialog.id || `md-dialog-${index}`
-  dialog.addEventListener('open', () => history.push(id, () => dialog.close()))
+  dialog.addEventListener('open', () => {
+    ;(document.activeElement as HTMLElement)?.blur()
+    document.querySelectorAll('.card-pressed').forEach((el) => el.classList.remove('card-pressed'))
+    history.push(id, () => dialog.close())
+  })
   dialog.addEventListener('closed', () => history.consume(id))
 })
 
@@ -328,6 +332,11 @@ navigation.onTabChanged((index) => {
 // Header scroll elevation & Floating Dock/FAB hide
 let lastScrollY = window.scrollY
 window.onscroll = () => {
+  if (activeTouchCard) {
+    activeTouchCard.classList.remove('card-pressed')
+    activeTouchCard = null
+  }
+  document.querySelectorAll('.card-pressed').forEach((el) => el.classList.remove('card-pressed'))
   document.querySelectorAll('md-menu').forEach((menu) => menu.close())
   document.querySelector('.header')?.classList.toggle('scroll', window.scrollY > 10)
   const hide = window.scrollY > lastScrollY && window.scrollY > 48
@@ -349,6 +358,11 @@ let activeTouchCard: HTMLElement | null = null
 document.addEventListener(
   'touchstart',
   (e) => {
+    if (activeTouchCard) {
+      activeTouchCard.classList.remove('card-pressed')
+      activeTouchCard = null
+    }
+    document.querySelectorAll('.card-pressed').forEach((el) => el.classList.remove('card-pressed'))
     const card = (e.target as Element | null)?.closest<HTMLElement>(
       '.card, .switch-row, .settings-row, .kb-slot-card, .kb-custom-card, .kac-tile, .update',
     )
@@ -359,6 +373,14 @@ document.addEventListener(
   },
   { passive: true },
 )
+
+window.addEventListener('blur', () => {
+  if (activeTouchCard) {
+    activeTouchCard.classList.remove('card-pressed')
+    activeTouchCard = null
+  }
+  document.querySelectorAll('.card-pressed').forEach((el) => el.classList.remove('card-pressed'))
+})
 
 document.addEventListener(
   'touchmove',

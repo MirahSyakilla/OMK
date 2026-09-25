@@ -88,9 +88,9 @@ export class Navigation {
     this.#indicator.style.width = `${tab.offsetWidth}px`
   }
 
-  switchToTab(index: number, smooth = true): void {
+  switchToTab(index: number, smooth = true, force = false): void {
     if (index < 0 || index >= TABS.length) return
-    if (smooth && index === this.#activeIndex && this.#tabs[index]?.classList.contains('nav-tab--active')) {
+    if (!force && smooth && index === this.#activeIndex && this.#tabs[index]?.classList.contains('nav-tab--active')) {
       return
     }
     const prev = this.#activeIndex
@@ -151,16 +151,17 @@ export class Navigation {
       window.scrollTo({ top: 0, behavior: 'instant' })
     }
 
-    // Notify listeners
-    for (const cb of this.#onTabChangedCallbacks) {
-      cb(index, tabDef.id)
+    if (prev !== index) {
+      for (const cb of this.#onTabChangedCallbacks) {
+        cb(index, tabDef.id)
+      }
     }
   }
 
   #initTabs(): void {
     this.#tabs.forEach((tab, index) => {
       tab.addEventListener('click', () => {
-        this.switchToTab(index, true)
+        this.switchToTab(index, true, true)
       })
     })
 
@@ -182,7 +183,7 @@ export class Navigation {
       'touchstart',
       (e: TouchEvent) => {
         if (e.touches.length !== 1 || !e.touches[0]) return
-        if (document.querySelector('md-dialog[open]')) return
+        if (document.querySelector('md-dialog[open], .keybox-repo-overlay:not(.hidden)')) return
         const target = e.target
         if (
           target instanceof Element &&
@@ -256,25 +257,27 @@ export class Navigation {
       }
 
       intent = 'none'
-      const touch = e.changedTouches[0]
-      if (!touch) return
-      const dx = touch.clientX - startX
-      const dt = Date.now() - startTime
-      const screenW = this.#track.offsetWidth || window.innerWidth || 1
-      const distance = Math.abs(dx)
-      const velocity = distance / Math.max(dt, 1)
-
-      // Threshold: moved > 22% of screen width OR flick velocity (> 0.45 px/ms)
+      const touch = e.changedTouches?.[0]
       let nextIdx = this.#activeIndex
-      if (distance > screenW * 0.22 || velocity > 0.45) {
-        if (dx < 0 && this.#activeIndex + 1 < TABS.length) {
-          nextIdx = this.#activeIndex + 1
-        } else if (dx > 0 && this.#activeIndex - 1 >= 0) {
-          nextIdx = this.#activeIndex - 1
+
+      if (touch) {
+        const dx = touch.clientX - startX
+        const dt = Date.now() - startTime
+        const screenW = this.#track.offsetWidth || window.innerWidth || 1
+        const distance = Math.abs(dx)
+        const velocity = distance / Math.max(dt, 1)
+
+        // Threshold: moved > 22% of screen width OR flick velocity (> 0.45 px/ms)
+        if (distance > screenW * 0.22 || velocity > 0.45) {
+          if (dx < 0 && this.#activeIndex + 1 < TABS.length) {
+            nextIdx = this.#activeIndex + 1
+          } else if (dx > 0 && this.#activeIndex - 1 >= 0) {
+            nextIdx = this.#activeIndex - 1
+          }
         }
       }
 
-      this.switchToTab(nextIdx, true)
+      this.switchToTab(nextIdx, true, true)
     }
 
     document.addEventListener('touchend', onTouchEndOrCancel, { passive: true })

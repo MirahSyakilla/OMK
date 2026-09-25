@@ -307,6 +307,10 @@ body {
     display: none !important;
   }
 }
+body:has(#keybox-repo-overlay:not(.hidden)) .dock {
+  display: none !important;
+}
+
 
 .dock {
   position: fixed;
@@ -409,10 +413,12 @@ body {
 .floating-content {
   position: fixed;
   left: 0;
-  bottom: 0;
+  bottom: calc(84px + var(--bottom-inset));
   width: 100%;
   pointer-events: none;
-  z-index: 80;
+  z-index: 1200;
+  display: flex;
+  justify-content: center;
 }
 
 .fab-container {
@@ -442,7 +448,7 @@ body {
 }
 
 .dialog-content {
-  z-index: 200;
+  z-index: 1500;
   position: relative;
 }
 
