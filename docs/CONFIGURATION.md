@@ -348,6 +348,20 @@ requires a keymint restart.
 unlocked. This does not actually lock or unlock the bootloader. Changing it
 requires a keymint restart.
 
+#### `sys.oem_unlock_allowed`
+
+This property has no configuration field. A stock build has no such property,
+so keymint never writes one: an unprivileged app that reads it would otherwise
+see that the module is present. When the property is present at keymint start
+it is removed instead, because a stale value is the same giveaway.
+
+Removal has a cost worth knowing about. `resetprop --delete` frees the
+property's node in the `/dev/__properties__` trie, and the freed run is never
+reclaimed, so the on-disk property area keeps an unallocated gap for the rest
+of the boot. A native scan of that area can observe the gap. The removal is
+gated on the property actually being present, so a device where init never
+published it never grows a gap, and repeated restarts do not repeat the work.
+
 ### `[device]`
 
 This section supplies device identity strings when an app explicitly requests

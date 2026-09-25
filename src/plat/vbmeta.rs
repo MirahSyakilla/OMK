@@ -503,6 +503,16 @@ fn sync_sysprops_if_needed(
     let vbmeta_device_state = if device_locked { "locked" } else { "unlocked" };
 
     sync_string_sysprop(FLASH_LOCKED_PROP, flash_locked)?;
+    // `sys.oem_unlock_allowed` is never written here: a stock build has no such
+    // property, so an unprivileged app reading one sees OMK's fingerprint. It
+    // is deleted instead, and only when it is actually present, because
+    // `resetprop --delete` frees the property's node in the
+    // `/dev/__properties__` trie and the run is never reclaimed. The delete
+    // therefore leaves a permanent gap in the on-disk property area for the
+    // rest of the boot. That gap is an accepted trade-off for keeping the
+    // property absent; `delete_property` gates on existence so repeated
+    // restarts do not redo the work, and a device where the property was
+    // never present never grows a gap at all.
     resetprop::delete_property("sys.oem_unlock_allowed");
     sync_string_sysprop(VERIFIED_BOOT_STATE_PROP, verified_boot_state_prop)?;
     sync_string_sysprop(VENDOR_VERIFIED_BOOT_STATE_PROP, verified_boot_state_prop)?;

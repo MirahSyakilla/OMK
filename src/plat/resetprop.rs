@@ -197,8 +197,24 @@ pub fn direct_write_and_verify_property(property: &str, value: &str) -> Result<(
     execute_write_and_verify(&command, property, value)
 }
 
+/// Whether the property area holds a node for `name`.
+///
+/// This deliberately does not reuse [`read_string_property`], which drops
+/// empty values. A property that exists with an empty value still occupies a
+/// node in `/dev/__properties__`, so treating it as absent would skip the
+/// delete and leave that node behind.
+pub fn property_exists(name: &str) -> bool {
+    rsproperties::get::<String>(name).is_ok()
+}
+
+/// Remove a property from the property area.
+///
+/// The existence gate matters: `resetprop --delete` frees the property's node
+/// and the run is never reclaimed, so deleting an absent property would still
+/// be a no-op while deleting a present one leaves a permanent gap for the boot.
+/// Callers gate on this so a repeated delete does no work.
 pub fn delete_property(property: &str) {
-    if read_string_property(property).is_none() {
+    if !property_exists(property) {
         return;
     }
     let Ok(command) = find_resetprop_command() else {
