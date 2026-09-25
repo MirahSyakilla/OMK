@@ -497,6 +497,67 @@ fn unlock_is_cached_and_replayed_after_session_change() {
 }
 
 #[test]
+fn passwordless_unlock_keeps_the_cached_secret() {
+    let _guard = route_state_test_guard();
+    let caller = CallerInfo {
+        uid: 1007,
+        sid: "u:r:system_server:s0".into(),
+        pid: 4242,
+        keyboxSlot: 0,
+        rkpCredential: 0,
+    };
+
+    remember_unlock(
+        &ParsedAuthorizationRequest::OnDeviceUnlocked {
+            user_id: 0,
+            password: Some(vec![9, 9, 9]),
+        },
+        &caller,
+        1,
+    );
+    remember_unlock(
+        &ParsedAuthorizationRequest::OnDeviceUnlocked {
+            user_id: 0,
+            password: None,
+        },
+        &caller,
+        2,
+    );
+    remember_unlock(
+        &ParsedAuthorizationRequest::OnDeviceUnlocked {
+            user_id: 0,
+            password: Some(vec![]),
+        },
+        &caller,
+        3,
+    );
+
+    let cached = LAST_UNLOCKED
+        .lock()
+        .expect("unlock cache poisoned")
+        .clone()
+        .expect("unlock should stay cached");
+    assert_eq!(cached.password.as_deref(), Some(&[9u8, 9, 9][..]));
+    assert_eq!(cached.session, 3);
+
+    remember_unlock(
+        &ParsedAuthorizationRequest::OnDeviceUnlocked {
+            user_id: 10,
+            password: None,
+        },
+        &caller,
+        4,
+    );
+    let other = LAST_UNLOCKED
+        .lock()
+        .expect("unlock cache poisoned")
+        .clone()
+        .expect("a different user still records an unlock");
+    assert_eq!(other.user_id, 10);
+    assert!(other.password.is_none());
+}
+
+#[test]
 fn storage_lock_clears_the_cached_unlock() {
     let _guard = route_state_test_guard();
     let caller = CallerInfo {

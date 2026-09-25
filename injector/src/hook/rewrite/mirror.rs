@@ -6,10 +6,11 @@ static MIRROR_RECOVERY_WORKER: OnceLock<Result<std::sync::mpsc::SyncSender<()>, 
     OnceLock::new();
 /// Last `onDeviceUnlocked` delivered to OMK, together with the RPC session that
 /// received it. Keystore super keys live only in keymint's memory, and the
-/// system sends this event exactly once per unlock, so a restarted keymint
-/// process must be replayed into or CredentialEncrypted keys stay `LOCKED`.
-/// The value is also persisted so the replay survives a keystore2 restart, which
-/// replaces the injector process itself.
+/// system sends the password-bearing event once per unlock, so a restarted
+/// keymint process must be replayed into or CredentialEncrypted keys stay
+/// `LOCKED`. A later password-less unlock must not drop that secret. The cache
+/// lives in this injector process, so a keystore2 restart still needs a fresh
+/// unlock before it can be replayed.
 static LAST_UNLOCKED: Mutex<Option<CachedUnlock>> = Mutex::new(None);
 
 const MAX_PENDING_MIRROR_REPLAYS: usize = 64;
@@ -211,13 +212,21 @@ pub(super) fn authorization_requires_mirror(request: &ParsedAuthorizationRequest
 fn remember_unlock(request: &ParsedAuthorizationRequest, caller: &CallerInfo, session: u64) {
     match request {
         ParsedAuthorizationRequest::OnDeviceUnlocked { user_id, password } => {
-            let cached = CachedUnlock {
+            let mut slot = LAST_UNLOCKED.lock().expect("unlock cache poisoned");
+            let password = match password {
+                Some(value) if !value.is_empty() => Some(value.clone()),
+                _ => slot.as_ref().and_then(|cached| {
+                    (cached.user_id == *user_id)
+                        .then(|| cached.password.clone())
+                        .flatten()
+                }),
+            };
+            *slot = Some(CachedUnlock {
                 user_id: *user_id,
-                password: password.clone(),
+                password,
                 caller: caller.clone(),
                 session,
-            };
-            *LAST_UNLOCKED.lock().expect("unlock cache poisoned") = Some(cached);
+            });
         }
         ParsedAuthorizationRequest::OnUserStorageLocked { .. }
         | ParsedAuthorizationRequest::OnDeviceLocked { .. } => {
@@ -232,11 +241,15 @@ fn remember_unlock(request: &ParsedAuthorizationRequest, caller: &CallerInfo, se
 /// Re-deliver the last unlock when the OMK session changed underneath us, which
 /// means keymint restarted and lost its in-memory super keys.
 fn replay_unlock_if_session_changed() -> anyhow::Result<()> {
-    if cached_unlock_for_stale_session(ipc::omk_session_generation()).is_none() {
+    if LAST_UNLOCKED
+        .lock()
+        .expect("unlock cache poisoned")
+        .is_none()
+    {
         return Ok(());
     }
-    // A successful probe keeps the generation; a dead session drops the cache and
-    // bumps the generation, which is how a keymint restart becomes visible here.
+    // Probe before comparing generations. A dead keymint still looks current
+    // until this call drops the cached Binder and bumps the generation.
     let _ = ipc::probe_omk_session();
     let Some(unlock) = cached_unlock_for_stale_session(ipc::omk_session_generation()) else {
         return Ok(());
