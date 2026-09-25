@@ -650,7 +650,7 @@ unsafe fn handle_keystore_transaction(
         let request_rewritten = precomputed_service_reply.is_some();
 
         trace!(
-            "event=decision command={} service_method={:?} code=0x{:x} uid={} pid={} sid='{}' packages={:?} allowed={} reason={:?}",
+            "event=decision command={} service_method={:?} code=0x{:x} uid={} pid={} sid='{}' packages={:?} allowed={} reason={:?} keybox_slot={}",
             command_name,
             method,
             original_code,
@@ -660,6 +660,7 @@ unsafe fn handle_keystore_transaction(
             decision.packages,
             decision.allowed,
             decision.reason,
+            caller.keyboxSlot,
         );
         trace!(
             "event=route method={:?} uid={} pid={} route={:?}",
@@ -797,7 +798,7 @@ unsafe fn handle_keystore_transaction(
         }
 
         trace!(
-            "event=decision command={} security_level_method={:?} code=0x{:x} uid={} pid={} sid='{}' packages={:?} allowed={} reason={:?} target=ptr:0x{:x}/cookie:0x{:x} security_level={:?} scoop_enabled={} omk_derived_route={}",
+            "event=decision command={} security_level_method={:?} code=0x{:x} uid={} pid={} sid='{}' packages={:?} allowed={} reason={:?} keybox_slot={} target=ptr:0x{:x}/cookie=0x{:x} security_level={:?} scoop_enabled={} omk_derived_route={}",
             command_name,
             method,
             tr.code,
@@ -807,6 +808,7 @@ unsafe fn handle_keystore_transaction(
             decision.packages,
             decision.allowed,
             decision.reason,
+            caller.keyboxSlot,
             target.ptr,
             target.cookie,
             target_info.security_level,
