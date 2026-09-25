@@ -4,14 +4,22 @@ static MIRROR_RECOVERY_STATE: LazyLock<Mutex<MirrorRecoveryState>> =
     LazyLock::new(|| Mutex::new(MirrorRecoveryState::default()));
 static MIRROR_RECOVERY_WORKER: OnceLock<Result<std::sync::mpsc::SyncSender<()>, String>> =
     OnceLock::new();
-/// Last `onDeviceUnlocked` delivered to OMK, together with the RPC session that
-/// received it. Keystore super keys live only in keymint's memory, and the
-/// system sends the password-bearing event once per unlock, so a restarted
-/// keymint process must be replayed into or CredentialEncrypted keys stay
-/// `LOCKED`. A later password-less unlock must not drop that secret. The cache
-/// lives in this injector process, so a keystore2 restart still needs a fresh
-/// unlock before it can be replayed.
-static LAST_UNLOCKED: Mutex<Option<CachedUnlock>> = Mutex::new(None);
+/// Last `onDeviceUnlocked` delivered to OMK, per user, together with the RPC
+/// session that received it. Keystore super keys live only in keymint's
+/// memory, and the system sends the password-bearing event once per unlock, so
+/// a restarted keymint process must be replayed into or CredentialEncrypted
+/// keys stay `LOCKED`. A later password-less unlock must not drop that secret.
+///
+/// The cache is keyed by user because a device can legitimately produce
+/// unlocks for more than one Android user. A cloned app runs under a synthetic
+/// user id, so a single device with one real user can still deliver an unlock
+/// for a second id; a single-slot cache would let that second unlock evict the
+/// first user's password and leave the first user's keys `LOCKED` after a
+/// keymint restart.
+///
+/// The cache lives in this injector process, so a keystore2 restart still needs
+/// a fresh unlock before it can be replayed.
+static LAST_UNLOCKED: Mutex<BTreeMap<i32, CachedUnlock>> = Mutex::new(BTreeMap::new());
 
 const MAX_PENDING_MIRROR_REPLAYS: usize = 64;
 const MIRROR_RECOVERY_RETRY_DELAY: Duration = Duration::from_secs(1);
@@ -25,14 +33,15 @@ struct CachedUnlock {
     session: u64,
 }
 
-/// Return the cached unlock when it predates the live OMK session.
-fn cached_unlock_for_stale_session(current: u64) -> Option<CachedUnlock> {
+/// Every cached unlock that predates the live OMK session, oldest user first.
+fn stale_cached_unlocks(current: u64) -> Vec<CachedUnlock> {
     LAST_UNLOCKED
         .lock()
         .expect("unlock cache poisoned")
-        .as_ref()
+        .values()
         .filter(|cached| cached.session != current)
         .cloned()
+        .collect()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -145,11 +154,11 @@ impl MirrorRecoveryState {
         // Idle: still poll while an unlock is cached so a restarted keymint is
         // detected and replayed into. Without a cached unlock there is nothing to
         // restore, so block until woken.
-        LAST_UNLOCKED
+        (!LAST_UNLOCKED
             .lock()
             .expect("unlock cache poisoned")
-            .is_some()
-            .then_some(MIRROR_UNLOCK_REPLAY_POLL)
+            .is_empty())
+        .then_some(MIRROR_UNLOCK_REPLAY_POLL)
     }
 }
 
@@ -208,70 +217,83 @@ pub(super) fn authorization_requires_mirror(request: &ParsedAuthorizationRequest
     )
 }
 
-/// Record the most recent unlock so a later keymint restart can be replayed into.
+/// Record the most recent unlock for its user so a later keymint restart can be
+/// replayed into. Lock and storage events drop only the affected user, because
+/// an unrelated user's super keys survive those.
 fn remember_unlock(request: &ParsedAuthorizationRequest, caller: &CallerInfo, session: u64) {
     match request {
         ParsedAuthorizationRequest::OnDeviceUnlocked { user_id, password } => {
-            let mut slot = LAST_UNLOCKED.lock().expect("unlock cache poisoned");
+            let mut cache = LAST_UNLOCKED.lock().expect("unlock cache poisoned");
+            // A password-less unlock for a user that already has one keeps the
+            // secret: only a fresh password supersedes it.
             let password = match password {
                 Some(value) if !value.is_empty() => Some(value.clone()),
-                _ => slot.as_ref().and_then(|cached| {
-                    (cached.user_id == *user_id)
-                        .then(|| cached.password.clone())
-                        .flatten()
-                }),
+                _ => cache
+                    .get(user_id)
+                    .and_then(|cached| cached.password.clone()),
             };
-            *slot = Some(CachedUnlock {
-                user_id: *user_id,
-                password,
-                caller: caller.clone(),
-                session,
-            });
+            cache.insert(
+                *user_id,
+                CachedUnlock {
+                    user_id: *user_id,
+                    password,
+                    caller: caller.clone(),
+                    session,
+                },
+            );
         }
-        ParsedAuthorizationRequest::OnUserStorageLocked { .. }
-        | ParsedAuthorizationRequest::OnDeviceLocked { .. } => {
-            // These drop the CE keys in OMK, so the cached unlock no longer
+        ParsedAuthorizationRequest::OnUserStorageLocked { user_id } => {
+            // Drops that user's CE keys, so the cached unlock no longer
             // describes keymint's state and must not be replayed.
-            *LAST_UNLOCKED.lock().expect("unlock cache poisoned") = None;
+            LAST_UNLOCKED
+                .lock()
+                .expect("unlock cache poisoned")
+                .remove(user_id);
+        }
+        ParsedAuthorizationRequest::OnDeviceLocked { user_id, .. } => {
+            LAST_UNLOCKED
+                .lock()
+                .expect("unlock cache poisoned")
+                .remove(user_id);
         }
         _ => {}
     }
 }
 
-/// Re-deliver the last unlock when the OMK session changed underneath us, which
-/// means keymint restarted and lost its in-memory super keys.
+/// Re-deliver the cached unlocks when the OMK session changed underneath us,
+/// which means keymint restarted and lost its in-memory super keys.
 fn replay_unlock_if_session_changed() -> anyhow::Result<()> {
     if LAST_UNLOCKED
         .lock()
         .expect("unlock cache poisoned")
-        .is_none()
+        .is_empty()
     {
         return Ok(());
     }
     // Probe before comparing generations. A dead keymint still looks current
     // until this call drops the cached Binder and bumps the generation.
     let _ = ipc::probe_omk_session();
-    let Some(unlock) = cached_unlock_for_stale_session(ipc::omk_session_generation()) else {
-        return Ok(());
-    };
-    ipc::with_omk_authorization_once(|auth| {
-        Ok(auth.r#onDeviceUnlocked(
-            Some(&unlock.caller),
-            unlock.user_id,
-            unlock.password.as_deref(),
-        )?)
-    })
-    .map_err(|error| anyhow::anyhow!("{error:?}"))?;
-    let mut cached = LAST_UNLOCKED.lock().expect("unlock cache poisoned");
-    if let Some(entry) = cached.as_mut() {
-        if entry.session == unlock.session {
-            entry.session = ipc::omk_session_generation();
+    let generation = ipc::omk_session_generation();
+    for unlock in stale_cached_unlocks(generation) {
+        ipc::with_omk_authorization_once(|auth| {
+            Ok(auth.r#onDeviceUnlocked(
+                Some(&unlock.caller),
+                unlock.user_id,
+                unlock.password.as_deref(),
+            )?)
+        })
+        .map_err(|error| anyhow::anyhow!("{error:?}"))?;
+        let mut cache = LAST_UNLOCKED.lock().expect("unlock cache poisoned");
+        if let Some(entry) = cache.get_mut(&unlock.user_id) {
+            if entry.session == unlock.session {
+                entry.session = generation;
+            }
         }
+        info!(
+            "event=mirror replayed onDeviceUnlocked for user {} after keymint restart",
+            unlock.user_id
+        );
     }
-    info!(
-        "event=mirror replayed onDeviceUnlocked for user {} after keymint restart",
-        unlock.user_id
-    );
     Ok(())
 }
 
@@ -318,7 +340,7 @@ pub(super) fn reset_mirror_state_for_tests() {
         .lock()
         .expect("mirror recovery state poisoned");
     *state = MirrorRecoveryState::default();
-    *LAST_UNLOCKED.lock().expect("unlock cache poisoned") = None;
+    LAST_UNLOCKED.lock().expect("unlock cache poisoned").clear();
 }
 
 fn remove_reserved_mirror_update(

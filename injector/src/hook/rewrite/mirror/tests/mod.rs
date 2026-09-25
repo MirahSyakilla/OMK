@@ -482,18 +482,65 @@ fn unlock_is_cached_and_replayed_after_session_change() {
     let cached = LAST_UNLOCKED
         .lock()
         .expect("unlock cache poisoned")
-        .clone()
+        .get(&0)
+        .cloned()
         .expect("unlock should be cached");
     assert_eq!(cached.user_id, 0);
     assert_eq!(cached.password.as_deref(), Some(&[1u8, 2, 3][..]));
     assert_eq!(cached.session, 7);
 
     assert!(
-        cached_unlock_for_stale_session(7).is_none(),
+        stale_cached_unlocks(7).is_empty(),
         "a matching session generation must not schedule a replay"
     );
-    let stale = cached_unlock_for_stale_session(8).expect("a new session must trigger a replay");
-    assert_eq!(stale.user_id, 0);
+    let stale = stale_cached_unlocks(8);
+    assert_eq!(stale.len(), 1);
+    assert_eq!(stale[0].user_id, 0);
+}
+
+#[test]
+fn a_second_user_does_not_evict_the_first() {
+    let _guard = route_state_test_guard();
+    let caller = CallerInfo {
+        uid: 1007,
+        sid: "u:r:system_server:s0".into(),
+        pid: 4242,
+        keyboxSlot: 0,
+        rkpCredential: 0,
+    };
+
+    // A cloned app runs under a synthetic user id, so one real user can still
+    // produce an unlock for a second id.
+    remember_unlock(
+        &ParsedAuthorizationRequest::OnDeviceUnlocked {
+            user_id: 0,
+            password: Some(vec![1, 1, 1]),
+        },
+        &caller,
+        1,
+    );
+    remember_unlock(
+        &ParsedAuthorizationRequest::OnDeviceUnlocked {
+            user_id: 999,
+            password: Some(vec![2, 2, 2]),
+        },
+        &caller,
+        2,
+    );
+
+    let cache = LAST_UNLOCKED.lock().expect("unlock cache poisoned");
+    assert_eq!(cache.len(), 2, "both users must stay cached");
+    assert_eq!(cache[&0].password.as_deref(), Some(&[1u8, 1, 1][..]));
+    assert_eq!(cache[&999].password.as_deref(), Some(&[2u8, 2, 2][..]));
+    drop(cache);
+
+    // Both are stale after a restart and both must be replayed.
+    let stale = stale_cached_unlocks(3);
+    let users: Vec<i32> = stale.iter().map(|entry| entry.user_id).collect();
+    assert_eq!(users, vec![0, 999]);
+    for entry in stale {
+        assert!(entry.password.is_some(), "each user keeps its own secret");
+    }
 }
 
 #[test]
@@ -535,11 +582,14 @@ fn passwordless_unlock_keeps_the_cached_secret() {
     let cached = LAST_UNLOCKED
         .lock()
         .expect("unlock cache poisoned")
-        .clone()
+        .get(&0)
+        .cloned()
         .expect("unlock should stay cached");
     assert_eq!(cached.password.as_deref(), Some(&[9u8, 9, 9][..]));
     assert_eq!(cached.session, 3);
 
+    // A different user is recorded on its own entry, and must not inherit the
+    // first user's secret.
     remember_unlock(
         &ParsedAuthorizationRequest::OnDeviceUnlocked {
             user_id: 10,
@@ -548,13 +598,51 @@ fn passwordless_unlock_keeps_the_cached_secret() {
         &caller,
         4,
     );
-    let other = LAST_UNLOCKED
-        .lock()
-        .expect("unlock cache poisoned")
-        .clone()
-        .expect("a different user still records an unlock");
+    let cache = LAST_UNLOCKED.lock().expect("unlock cache poisoned");
+    let other = cache.get(&10).cloned().expect("unlock should be cached");
     assert_eq!(other.user_id, 10);
     assert!(other.password.is_none());
+    assert_eq!(cache[&0].password.as_deref(), Some(&[9u8, 9, 9][..]));
+}
+
+#[test]
+fn a_second_user_keeps_the_first_when_a_lock_drops_one() {
+    let _guard = route_state_test_guard();
+    let caller = CallerInfo {
+        uid: 1007,
+        sid: String::new(),
+        pid: 4242,
+        keyboxSlot: 0,
+        rkpCredential: 0,
+    };
+
+    remember_unlock(
+        &ParsedAuthorizationRequest::OnDeviceUnlocked {
+            user_id: 0,
+            password: Some(vec![4, 4]),
+        },
+        &caller,
+        1,
+    );
+    remember_unlock(
+        &ParsedAuthorizationRequest::OnDeviceUnlocked {
+            user_id: 999,
+            password: Some(vec![5, 5]),
+        },
+        &caller,
+        1,
+    );
+
+    remember_unlock(
+        &ParsedAuthorizationRequest::OnUserStorageLocked { user_id: 999 },
+        &caller,
+        2,
+    );
+
+    let cache = LAST_UNLOCKED.lock().expect("unlock cache poisoned");
+    assert!(!cache.contains_key(&999), "the locked user is dropped");
+    assert_eq!(cache.len(), 1, "the other user is untouched");
+    assert_eq!(cache[&0].password.as_deref(), Some(&[4u8, 4][..]));
 }
 
 #[test]
@@ -576,7 +664,7 @@ fn storage_lock_clears_the_cached_unlock() {
         &caller,
         3,
     );
-    assert!(cached_unlock_for_stale_session(4).is_some());
+    assert!(!stale_cached_unlocks(4).is_empty());
 
     remember_unlock(
         &ParsedAuthorizationRequest::OnUserStorageLocked { user_id: 0 },
@@ -584,7 +672,7 @@ fn storage_lock_clears_the_cached_unlock() {
         3,
     );
     assert!(
-        cached_unlock_for_stale_session(4).is_none(),
+        stale_cached_unlocks(4).is_empty(),
         "locking storage must invalidate the replay so CE keys are not resurrected"
     );
 }
