@@ -17,8 +17,22 @@
 // md-chip-set already lays the chips out in a wrapping row. Horizontal
 // scrolling is deliberately not used here: a sideways drag on this row belongs
 // to the tab carousel.
+.integrity-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  width: 100%;
+  padding-bottom: 4px;
+}
+
 .integrity-action-row {
-  padding-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
 
   md-assist-chip {
     // PlayIntegrityFix tonal assist chip
@@ -28,6 +42,72 @@
   }
 }
 
+.zygisk-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  position: relative;
+  overflow: hidden;
+  user-select: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
+
+  .zygisk-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--md-sys-color-outline);
+    transition: background-color 0.2s ease;
+    flex-shrink: 0;
+  }
+
+  &--ok {
+    background: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container);
+    border-color: transparent;
+
+    .zygisk-status-dot {
+      background: #2e7d32;
+    }
+  }
+
+  &--conflict {
+    background: #ffe0b2;
+    color: #e65100;
+    border-color: #ffb74d;
+
+    .zygisk-status-dot {
+      background: #f57c00;
+    }
+  }
+
+  &--error {
+    background: var(--md-sys-color-error-container);
+    color: var(--md-sys-color-on-error-container);
+    border-color: transparent;
+
+    .zygisk-status-dot {
+      background: var(--md-sys-color-error);
+    }
+  }
+
+  &:hover {
+    filter: brightness(0.96);
+  }
+
+  &:active {
+    filter: brightness(0.92);
+  }
+}
 .integrity-main-layout {
   display: flex;
   flex-direction: column;

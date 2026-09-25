@@ -11,14 +11,6 @@ const MENU_ITEMS: Array<[string, string]> = [
   ['keybox-repo', 'menu-keybox-repo'],
   ['keybox-custom', 'menu-keybox-custom'],
   ['integrity-settings', 'menu-integrity-settings'],
-  ['trust-settings', 'menu-trust-settings'],
-  ['core-settings', 'menu-core-settings'],
-  ['injector-settings', 'menu-injector-settings'],
-  ['filter-settings', 'menu-filter-settings'],
-  ['intercept-settings', 'menu-intercept-settings'],
-  ['device-settings', 'menu-device-settings'],
-  ['crypto-settings', 'menu-crypto-settings'],
-  ['trust-record', 'menu-trust-record'],
   ['help', 'menu-help'],
   ['about', 'menu-about'],
 ]
@@ -79,30 +71,6 @@ export class MainMenu {
         </md-sub-menu>
         <md-menu-item id="integrity-settings">
           <div slot="headline">Integrity Settings</div>
-        </md-menu-item>
-        <md-menu-item id="trust-settings">
-          <div slot="headline">Trust Settings</div>
-        </md-menu-item>
-        <md-menu-item id="core-settings">
-          <div slot="headline">Core Settings</div>
-        </md-menu-item>
-        <md-menu-item id="injector-settings">
-          <div slot="headline">Injector Settings</div>
-        </md-menu-item>
-        <md-menu-item id="filter-settings">
-          <div slot="headline">Package Filter</div>
-        </md-menu-item>
-        <md-menu-item id="intercept-settings">
-          <div slot="headline">Intercept Matrix</div>
-        </md-menu-item>
-        <md-menu-item id="device-settings">
-          <div slot="headline">Device Properties</div>
-        </md-menu-item>
-        <md-menu-item id="crypto-settings">
-          <div slot="headline">Crypto Seeds</div>
-        </md-menu-item>
-        <md-menu-item id="trust-record">
-          <div slot="headline">Trust Record</div>
         </md-menu-item>
         <md-divider role="separator" tabindex="-1"></md-divider>
         <md-menu-item id="help">

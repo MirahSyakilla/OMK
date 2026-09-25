@@ -151,6 +151,11 @@ export class IntegrityScreen {
   #saveTimer: number | null = null
   #isPersisting = false
   #hasPendingPersist = false
+  #zygiskInfo = {
+    provider: null as string | null,
+    conflict: null as string | null,
+    description: '',
+  }
   constructor(cli: Cli, config: Config, snackbar: Snackbar) {
     this.#cli = cli
     this.#config = config
@@ -161,16 +166,23 @@ export class IntegrityScreen {
     this.#container = container
     container.innerHTML = /* html */ `
       <div class="integrity-screen">
-        <!-- Screen actions (PlayIntegrityFix chip set) -->
-        <md-chip-set class="integrity-action-row">
-          <md-assist-chip id="pif-fetch-chip" elevated label="Fetch">
-            <md-icon slot="icon">download</md-icon>
-          </md-assist-chip>
-          <md-assist-chip id="pif-update-chip" elevated label="Update">
-            <md-icon slot="icon">refresh</md-icon>
-          </md-assist-chip>
-        </md-chip-set>
+        <!-- Screen actions & Zygisk telemetry bar -->
+        <div class="integrity-header-bar">
+          <md-chip-set class="integrity-action-row">
+            <md-assist-chip id="pif-fetch-chip" elevated label="Fetch">
+              <md-icon slot="icon">download</md-icon>
+            </md-assist-chip>
+            <md-assist-chip id="pif-update-chip" elevated label="Update">
+              <md-icon slot="icon">refresh</md-icon>
+            </md-assist-chip>
+          </md-chip-set>
 
+          <div id="pif-zygisk-status" class="zygisk-status-pill" role="button" tabindex="0">
+            <span class="zygisk-status-dot"></span>
+            <span class="zygisk-status-label">Detecting Zygisk...</span>
+            <md-ripple></md-ripple>
+          </div>
+        </div>
         <div class="integrity-main-layout">
           <!-- Controls Pane -->
           <div class="integrity-controls-pane">
@@ -266,6 +278,7 @@ export class IntegrityScreen {
     const status = await this.#cli.detectIntegrityZygisk()
     this.#hasZygisk = status.provider !== null
     this.#canEnable = this.#hasZygisk && status.conflict === null
+    this.#renderZygiskStatus(status)
 
     const state = await this.#readState()
     this.#setSwitch('pif-enabled', state.enabled && this.#canEnable)
@@ -295,6 +308,14 @@ export class IntegrityScreen {
     this.#container.querySelector('#pif-update-chip')?.addEventListener('click', () => {
       void this.#fetchProp(true)
     })
+    const statusEl = this.#container?.querySelector<HTMLElement>('#pif-zygisk-status')
+    statusEl?.addEventListener('click', () => {
+      statusEl.blur()
+      if (this.#zygiskInfo.description) {
+        this.#snackbar.show(this.#zygiskInfo.description, !this.#zygiskInfo.conflict && !!this.#zygiskInfo.provider)
+      }
+    })
+
 
     // Switch Row Tap Feedback & Switch Direct Toggle
     const bindRow = (rowId: string, switchId: string) => {
@@ -322,6 +343,43 @@ export class IntegrityScreen {
     bindRow('row-unify-props', 'pif-unify-props')
     bindRow('row-soter', 'pif-soter')
   }
+  #renderZygiskStatus(status: { provider: string | null; conflict: string | null }): void {
+    const statusEl = this.#container?.querySelector<HTMLElement>('#pif-zygisk-status')
+    if (!statusEl) return
+    const labelEl = statusEl.querySelector<HTMLElement>('.zygisk-status-label')
+
+    if (status.conflict) {
+      statusEl.className = 'zygisk-status-pill zygisk-status-pill--conflict'
+      if (labelEl) labelEl.textContent = `Conflict: ${status.conflict}`
+      this.#zygiskInfo = {
+        provider: status.provider,
+        conflict: status.conflict,
+        description: `Conflict: ${status.conflict} is loaded. Remove it before enabling OMK Integrity.`,
+      }
+    } else if (!status.provider) {
+      statusEl.className = 'zygisk-status-pill zygisk-status-pill--error'
+      if (labelEl) labelEl.textContent = 'Zygisk Not Found'
+      this.#zygiskInfo = {
+        provider: null,
+        conflict: null,
+        description: 'Zygisk not found. Install ReZygisk, ZygiskNext, NeoZygisk, or Magisk Zygisk.',
+      }
+    } else {
+      const label =
+        status.provider === 'rezygisk' ? 'ReZygisk'
+        : status.provider === 'zygisk_next' ? 'ZygiskNext'
+        : status.provider === 'neozygisk' ? 'NeoZygisk'
+        : 'Magisk Zygisk'
+      statusEl.className = 'zygisk-status-pill zygisk-status-pill--ok'
+      if (labelEl) labelEl.textContent = `Zygisk: ${label}`
+      this.#zygiskInfo = {
+        provider: status.provider,
+        conflict: null,
+        description: `Active Zygisk implementation: ${label}`,
+      }
+    }
+  }
+
 
   #handleToggle(switchId: string, value: boolean): void {
     if (switchId === 'pif-soter' && value && !this.#hasZygisk) {

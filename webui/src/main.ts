@@ -292,6 +292,29 @@ mainMenu.on('menu-refresh', () => {
 mainMenu.on('menu-select-all', () => appList.selectAll())
 mainMenu.on('menu-deselect-all', () => appList.deselectAll())
 mainMenu.on('menu-add-system-app', () => dialogController.showSystemApp())
+mainMenu.on('menu-keybox-manage', () => {
+  void keybox.showManage()
+})
+mainMenu.on('menu-keybox-aosp', () => {
+  void keybox.setAospKey()
+})
+mainMenu.on('menu-keybox-unknown', () => {
+  void keybox.setUnknownKey()
+})
+mainMenu.on('menu-keybox-alwaysstrong', () => {
+  void keybox.setAlwaysStrongKey()
+})
+mainMenu.on('menu-keybox-local', () => {
+  void keybox.setLocalKey()
+})
+mainMenu.on('menu-keybox-repo', () => keyboxRepo.show())
+mainMenu.on('menu-integrity-settings', () => dialogController.showIntegrity())
+mainMenu.on('menu-help', () => dialogController.showHelp())
+mainMenu.on('menu-about', () => dialogController.showAbout())
+if (!Keybox.isKeygenAvailable() && !import.meta.env.DEV) {
+  const keyboxUnknown = document.getElementById('keybox-unknown')
+  if (keyboxUnknown) keyboxUnknown.style.display = 'none'
+}
 
 // Keybinds
 keybind.on('keybind-select-all', () => appList.selectAll())
