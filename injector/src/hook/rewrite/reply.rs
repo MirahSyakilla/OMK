@@ -32,18 +32,21 @@ fn omk_extra_pad(base_us: u64, span_us: u64) {
 }
 
 fn omk_begin_phase() {
-    omk_extra_pad(2500, 3500);
+    // Real TEE begin is about 9-21ms. Finish stays near 2.4x faster so a
+    // begin/finish ratio check does not collapse to 1.
+    omk_extra_pad(9000, 12000);
 }
 
 fn omk_finish_phase() {
-    omk_extra_pad(1200, 1500);
+    omk_extra_pad(3750, 5000);
 }
 
 fn omk_generate_key_phase(challenged: bool) {
     if challenged {
-        omk_extra_pad(15500, 800);
+        // Cert minting in a TEE is slower and less uniform than a plain generate.
+        omk_extra_pad(20000, 20000);
     } else {
-        omk_extra_pad(7000, 800);
+        omk_extra_pad(6000, 10000);
     }
 }
 

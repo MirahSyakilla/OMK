@@ -559,7 +559,10 @@ OMK business errors. Plain generation, imports, operations, System requests,
 and failures before generation dispatch do not receive this delay.
 
 This can mitigate clients that classify software KeyMint by generation
-timing. It does not provide hardware security or guarantee a detector result.
+timing. Built-in pads already cover begin (9-21 ms), finish (about 2.4x
+faster), plain generate (6-16 ms), and challenged generate (20-40 ms).
+This setting adds more only for challenged `generateKey`. It does not
+provide hardware security or guarantee a detector result.
 For example, `25` adds at least 25 ms before each affected generation;
 scheduling can add more. The wait occurs before creating or storing the new
 key, without holding the RPC connection or KeyMint/database locks. The Binder
