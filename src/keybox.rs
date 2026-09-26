@@ -18,7 +18,7 @@ use kmr_common::{
 };
 use kmr_crypto_boring::{ec::BoringEc, mldsa::BoringMlDsa, rsa::BoringRsa, sha256::BoringSha256};
 use kmr_ta::device::{
-    RetrieveCertSigningInfo, SigningAlgorithm, SigningInfoSnapshot, SigningKeyType,
+    RetrieveCertSigningInfo, SigningAlgorithm, SigningInfoSnapshot, SigningKey, SigningKeyType,
 };
 use kmr_wire::keymint;
 use log::{debug, error, info, warn};
@@ -196,9 +196,51 @@ impl KeyBox {
         })
     }
 
+    /// Resolve a credential that is distinct from `selected`.
+    ///
+    /// Device-unique attestation must never reuse the credential that batch
+    /// attestation resolves to. Real StrongBox answers a device-unique request with
+    /// a separate per-device key, so callers legitimately hold two different chains
+    /// and compare them; handing back the batch credential a second time makes the
+    /// two indistinguishable.
+    fn pick_distinct(&self, base: u32, selected: &CertSignAlgoInfo) -> Option<&CertSignAlgoInfo> {
+        let len = self.ec_infos.len();
+        if len > 1 {
+            for offset in 1..len {
+                let candidate = &self.ec_infos[(base as usize + offset) % len];
+                if candidate.key_der != selected.key_der {
+                    return Some(candidate);
+                }
+            }
+        }
+        self.rsa_info
+            .as_ref()
+            .filter(|rsa| rsa.key_der != selected.key_der)
+    }
+
     fn signing_info(&self, key_type: SigningKeyType) -> Result<SigningInfoSnapshot, Error> {
         let prefer_ec = matches!(key_type.algo_hint, SigningAlgorithm::Ec);
-        let info = self.pick(prefer_ec)?;
+        let base = active_credential();
+        let selected = self.pick(prefer_ec)?;
+        let info = if matches!(key_type.which, SigningKey::Batch) {
+            selected
+        } else {
+            match self.pick_distinct(base, selected) {
+                Some(distinct) => {
+                    debug!(
+                        "device-unique attestation resolved to a credential distinct from the batch credential"
+                    );
+                    distinct
+                }
+                None => {
+                    return Err(kmr_common::km_err!(
+                        AttestationKeysNotProvisioned,
+                        "keybox has no credential distinct from the batch attestation credential, \
+                         which device-unique attestation requires"
+                    ))
+                }
+            }
+        };
         Ok(SigningInfoSnapshot {
             signing_key: info.key.clone(),
             cert_chain: info.chain.clone(),
@@ -1033,6 +1075,63 @@ mod tests {
             .unwrap();
         validate_chain_matches_key(&second.signing_key, &second.cert_chain, KeyAlgorithm::Ec)
             .unwrap();
+    }
+
+    #[test]
+    fn device_unique_attestation_never_reuses_the_batch_credential() {
+        let keybox = KeyBox::from_xml_str(BUNDLED_KEYBOX_XML).unwrap();
+        let batch = keybox
+            .signing_info(SigningKeyType {
+                which: SigningKey::Batch,
+                algo_hint: SigningAlgorithm::Ec,
+            })
+            .unwrap();
+        let device_unique = keybox
+            .signing_info(SigningKeyType {
+                which: SigningKey::DeviceUnique,
+                algo_hint: SigningAlgorithm::Ec,
+            })
+            .unwrap();
+        assert_ne!(batch.signing_key, device_unique.signing_key);
+        assert_ne!(
+            batch.cert_chain.first(),
+            device_unique.cert_chain.first(),
+            "device-unique attestation must not serve the batch chain"
+        );
+        // Repeating either request must stay stable.
+        let batch_again = keybox
+            .signing_info(SigningKeyType {
+                which: SigningKey::Batch,
+                algo_hint: SigningAlgorithm::Ec,
+            })
+            .unwrap();
+        assert_eq!(batch.signing_key, batch_again.signing_key);
+    }
+
+    #[test]
+    fn device_unique_attestation_fails_closed_without_a_distinct_credential() {
+        let xml = BUNDLED_KEYBOX_XML;
+        let start = xml.find("<Key algorithm=\"rsa\">").unwrap();
+        let end = start + xml[start..].find("</Key>").unwrap() + "</Key>".len();
+        let keybox = KeyBox::from_xml_str(&format!("{}{}", &xml[..start], &xml[end..])).unwrap();
+        assert!(keybox.rsa_info.is_none());
+        assert_eq!(keybox.ec_infos.len(), 1);
+        assert!(keybox
+            .signing_info(SigningKeyType {
+                which: SigningKey::Batch,
+                algo_hint: SigningAlgorithm::Ec,
+            })
+            .is_ok());
+        let Err(error) = keybox.signing_info(SigningKeyType {
+            which: SigningKey::DeviceUnique,
+            algo_hint: SigningAlgorithm::Ec,
+        }) else {
+            panic!("device-unique attestation must not reuse the only credential");
+        };
+        assert!(
+            format!("{error:?}").contains("device-unique"),
+            "unexpected error: {error:?}"
+        );
     }
 
     #[test]

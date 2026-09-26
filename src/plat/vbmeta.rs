@@ -41,6 +41,43 @@ const VENDOR_VERIFIED_BOOT_STATE_PROP: &str = "vendor.boot.verifiedbootstate";
 const VBMETA_DEVICE_STATE_PROP: &str = "ro.boot.vbmeta.device_state";
 const VENDOR_VBMETA_DEVICE_STATE_PROP: &str = "vendor.boot.vbmeta.device_state";
 const VERITY_MODE_PROP: &str = "ro.boot.veritymode";
+
+/// Partition-scoped `ro.*.build.date` properties.
+///
+/// These are kept in agreement with `ro.build.version.security_patch` so a build
+/// date never contradicts the patch level reported next to it.
+const BUILD_DATE_PROPS: &[&str] = &[
+    "ro.build.date",
+    "ro.bootimage.build.date",
+    "ro.odm.build.date",
+    "ro.odm_dlkm.build.date",
+    "ro.product.build.date",
+    "ro.system.build.date",
+    "ro.system_dlkm.build.date",
+    "ro.system_ext.build.date",
+    "ro.vendor.build.date",
+    "ro.vendor_dlkm.build.date",
+];
+
+/// `.utc` counterparts of [`BUILD_DATE_PROPS`], plus the persistent vendor variant.
+const BUILD_DATE_UTC_PROPS: &[&str] = &[
+    "ro.build.date.utc",
+    "ro.bootimage.build.date.utc",
+    "ro.odm.build.date.utc",
+    "ro.odm_dlkm.build.date.utc",
+    "ro.product.build.date.utc",
+    "ro.system.build.date.utc",
+    "ro.system_dlkm.build.date.utc",
+    "ro.system_ext.build.date.utc",
+    "ro.vendor.build.date.utc",
+    "ro.vendor_dlkm.build.date.utc",
+    "persist.vendor.build.date.utc",
+];
+
+const DAY_NAMES: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTH_NAMES: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
 const ORIGINAL_HASH_TIMEOUT: Duration = Duration::from_secs(5);
 const AVB_HEADER_SIZE: usize = 256;
 const AVB_FOOTER_SIZE: usize = 64;
@@ -116,6 +153,18 @@ pub fn bootstrap_vbmeta(config_file: &ConfigFile) -> Result<ResolvedTrust> {
             "leaving {SECURITY_PATCH_PROP} unchanged because BRENE sets config_spoof_os_security_patch_level_property=1"
         );
     }
+
+    // Derive the build dates from whichever patch level is actually in effect, so
+    // they agree with the property above whether or not OMK wrote it.
+    let effective_patch = if patches.write_security_patch && !brene_owns_os_security_patch() {
+        patches.security_patch.as_str()
+    } else {
+        patches
+            .observed_security_patch
+            .as_deref()
+            .unwrap_or(patches.security_patch.as_str())
+    };
+    sync_build_date_props(effective_patch)?;
 
     let vb_key_hex = hex::encode(vb_key.value);
     let vb_hash_hex = hex::encode(vb_hash.value);
@@ -528,6 +577,73 @@ fn sync_sysprops_if_needed(
 fn sync_string_sysprop(property: &str, value: &str) -> Result<()> {
     if resetprop::read_string_property(property).as_deref() != Some(value) {
         resetprop::direct_write_and_verify_property(property, value)?;
+    }
+    Ok(())
+}
+
+/// Days from 1970-01-01 to a proleptic Gregorian date.
+///
+/// Howard Hinnant's `days_from_civil`, shifted so that March is the first month of
+/// the internal year and the leap day lands at the end.
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = if year >= 0 { year } else { year - 399 } / 400;
+    let year_of_era = year - era * 400;
+    let day_of_year = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    era * 146_097 + day_of_era - 719_468
+}
+
+/// A build date expressed both the way `ro.*.build.date` and `ro.*.build.date.utc`
+/// expect it.
+struct BuildDate {
+    epoch_seconds: i64,
+    formatted: String,
+}
+
+/// Derive a coherent build date from a `YYYY-MM-DD` patch level.
+///
+/// Returns `None` for anything that is not a plain patch level, so a custom or
+/// malformed patch string leaves the build dates untouched rather than writing a
+/// wrong value.
+fn build_date_from_patch(patch: &str) -> Option<BuildDate> {
+    let mut fields = patch.trim().split('-');
+    let year: i64 = fields.next()?.parse().ok()?;
+    let month: i64 = fields.next()?.parse().ok()?;
+    let day: i64 = fields.next()?.parse().ok()?;
+    if fields.next().is_some() || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+
+    let days = days_from_civil(year, month, day);
+    // 1970-01-01 was a Thursday, which is index 4 in DAY_NAMES.
+    let weekday = (days + 4).rem_euclid(7) as usize;
+    Some(BuildDate {
+        epoch_seconds: days * 86_400,
+        formatted: format!(
+            "{} {} {:2} 00:00:00 UTC {}",
+            DAY_NAMES[weekday],
+            MONTH_NAMES[(month - 1) as usize],
+            day,
+            year
+        ),
+    })
+}
+
+/// Align the partition build dates with the patch level actually in effect.
+fn sync_build_date_props(security_patch: &str) -> Result<()> {
+    let Some(build_date) = build_date_from_patch(security_patch) else {
+        log::warn!(
+            "leaving build dates unchanged because {security_patch} is not a YYYY-MM-DD patch level"
+        );
+        return Ok(());
+    };
+    for property in BUILD_DATE_PROPS {
+        sync_string_sysprop(property, &build_date.formatted)?;
+    }
+    let epoch_seconds = build_date.epoch_seconds.to_string();
+    for property in BUILD_DATE_UTC_PROPS {
+        sync_string_sysprop(property, &epoch_seconds)?;
     }
     Ok(())
 }
@@ -1051,6 +1167,70 @@ fn extract_verified_boot_hash_from_metadata(metadata: &KeyMetadata) -> Result<[u
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn build_dates_match_the_patch_level_they_are_derived_from() {
+        for (patch, formatted, epoch_seconds) in [
+            (
+                "2026-09-05",
+                "Sat Sep  5 00:00:00 UTC 2026",
+                1_788_566_400_i64,
+            ),
+            ("2026-02-05", "Thu Feb  5 00:00:00 UTC 2026", 1_770_249_600),
+            ("2024-02-29", "Thu Feb 29 00:00:00 UTC 2024", 1_709_164_800),
+            ("2021-06-09", "Wed Jun  9 00:00:00 UTC 2021", 1_623_196_800),
+            ("2026-12-31", "Thu Dec 31 00:00:00 UTC 2026", 1_798_675_200),
+        ] {
+            let build_date = build_date_from_patch(patch).unwrap();
+            assert_eq!(build_date.formatted, formatted, "patch {patch}");
+            assert_eq!(build_date.epoch_seconds, epoch_seconds, "patch {patch}");
+        }
+    }
+
+    #[test]
+    fn epoch_and_formatted_date_describe_the_same_instant() {
+        let build_date = build_date_from_patch("2026-09-05").unwrap();
+        assert_eq!(build_date.epoch_seconds, 1_788_566_400);
+        // The formatted value is midnight UTC, so the epoch must be a whole
+        // number of days and land on the same day boundary.
+        assert_eq!(build_date.epoch_seconds % 86_400, 0);
+        assert_eq!(
+            build_date.epoch_seconds / 86_400,
+            days_from_civil(2026, 9, 5)
+        );
+    }
+
+    #[test]
+    fn rejects_patch_levels_that_are_not_plain_dates() {
+        for patch in [
+            "",
+            "2026",
+            "2026-09",
+            "2026-09-05-extra",
+            "not-a-date",
+            "2026-13-05",
+            "2026-00-05",
+            "2026-09-00",
+            "2026-09-32",
+        ] {
+            assert!(
+                build_date_from_patch(patch).is_none(),
+                "expected {patch:?} to be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn every_build_date_property_is_covered_by_a_utc_counterpart() {
+        for property in BUILD_DATE_PROPS {
+            let utc = format!("{property}.utc");
+            assert!(
+                BUILD_DATE_UTC_PROPS.contains(&utc.as_str()),
+                "{utc} is missing from the utc property list"
+            );
+        }
+        assert!(BUILD_DATE_UTC_PROPS.contains(&"persist.vendor.build.date.utc"));
+    }
 
     #[test]
     fn brene_security_patch_flag_requires_an_active_module() {
