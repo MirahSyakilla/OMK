@@ -201,8 +201,8 @@ export class IntegrityScreen {
               <div class="switch-row" id="row-enabled" role="button" tabindex="0">
                 <md-ripple></md-ripple>
                 <div class="switch-row-content">
-                  <div class="switch-row-title">Enable Master Spoof</div>
-                  <div class="switch-row-sub">Activate Play Integrity property overrides</div>
+                  <div class="switch-row-title">Play Integrity</div>
+                  <div class="switch-row-sub">Master switch for property overrides & spoofing</div>
                 </div>
                 <md-switch icons="true" id="pif-enabled"></md-switch>
               </div>

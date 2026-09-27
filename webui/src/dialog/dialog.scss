@@ -597,6 +597,30 @@
           padding-top: 6px;
         }
 
+        .help-card-body {
+          font-size: 0.875rem;
+          line-height: 1.5;
+          color: var(--md-sys-color-on-surface-variant);
+
+          p {
+            margin: 0;
+          }
+
+          code {
+            font-family: monospace;
+            font-size: 0.8125rem;
+            padding: 2px 6px;
+            border-radius: 6px;
+            background: var(--md-sys-color-surface-container);
+            color: var(--md-sys-color-primary);
+          }
+
+          b {
+            color: var(--md-sys-color-on-surface);
+            font-weight: 600;
+          }
+        }
+
         md-outlined-text-field {
           width: 100%;
           overflow: visible;
