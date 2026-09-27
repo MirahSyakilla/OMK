@@ -10,6 +10,10 @@ export interface FlashBuild {
   buildId: string
   releaseCandidateName: string
   target: string
+  apiLevel?: number
+  version?: string
+  versionName?: string
+  releaseBuildMetadata?: { notes?: string; latest?: boolean }
   previewMetadata?: { releaseTrackName?: string; releaseTrackVersionName?: string; canary?: boolean }
 }
 

@@ -336,11 +336,10 @@ public:
             if (hook_property_read()) {
                 LOGI("hooked __system_property_read_callback");
             } else {
-                LOGE("property hook failed, Build spoof only");
+                LOGE("property hook failed, closing");
+                payloadLoaded = false;
                 api->setOption(DLCLOSE_MODULE_LIBRARY);
             }
-        } else {
-            api->setOption(DLCLOSE_MODULE_LIBRARY);
         }
     }
 

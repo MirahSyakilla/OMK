@@ -72,25 +72,6 @@ function androidMajor(value: string): string | null {
   return match ? match[1] : null
 }
 
-function propAndroidMajor(content: string): string | null {
-  const map = parseKv(content)
-  const fromRelease = androidMajor(map.RELEASE ?? '')
-  if (fromRelease) return fromRelease
-  const fingerprint = map.FINGERPRINT ?? ''
-  return androidMajor(fingerprint.split(/[/:]/)[3] ?? '')
-}
-
-function shuffle<T>(items: T[]): T[] {
-  const next = [...items]
-  for (let i = next.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    const current = next[i]
-    next[i] = next[j]
-    next[j] = current
-  }
-  return next
-}
-
 const BUILD_LETTER_MAJOR: Record<string, number> = {
   S: 12,
   T: 13,
@@ -101,28 +82,23 @@ const BUILD_LETTER_MAJOR: Record<string, number> = {
 }
 
 function buildMajor(build: FlashBuild): number | null {
+  const named = build.versionName?.match(/(\d+)\s*$/)
+  if (named) return Number.parseInt(named[1], 10)
   const track = build.previewMetadata?.releaseTrackName ?? ''
   const fromTrack = track.match(/^Android (\d+)/)
   if (fromTrack) return Number.parseInt(fromTrack[1], 10)
+  if (typeof build.apiLevel === 'number' && build.apiLevel > 0) return build.apiLevel - 20
   const letter = build.releaseCandidateName?.[0]?.toUpperCase() ?? ''
   return BUILD_LETTER_MAJOR[letter] ?? null
 }
 
-function buildCandidates(target: number): string[] {
-  return shuffle(PIXEL_DEVICES.filter((device) => device.min <= target && target <= device.max)).map(
-    (device) => device.product,
-  )
-}
-
-function pickBuild(builds: FlashBuild[], target: number | null): FlashBuild | null {
-  const usable = builds.filter((build) => build.target === `${build.product}-user`)
-  const matching = target === null ? usable : usable.filter((build) => buildMajor(build) === target)
-  if (matching.length === 0) return null
-  return matching.reduce((best, build) => {
-    const p1 = Number.parseInt(build.buildId, 10) || 0
-    const p2 = Number.parseInt(best.buildId, 10) || 0
-    return p1 > p2 ? build : best
-  })
+function latestFirst(left: FingerprintChoice, right: FingerprintChoice): number {
+  const leftLatest = left.build.releaseBuildMetadata?.latest ? 1 : 0
+  const rightLatest = right.build.releaseBuildMetadata?.latest ? 1 : 0
+  if (leftLatest !== rightLatest) return rightLatest - leftLatest
+  const l = Number.parseInt(left.build.buildId, 10) || 0
+  const r = Number.parseInt(right.build.buildId, 10) || 0
+  return r - l
 }
 
 function securityPatch(buildId: string): string {
@@ -131,10 +107,18 @@ function securityPatch(buildId: string): string {
   return `20${match[1]}-${match[2]}-${match[3]}`
 }
 
-function buildProp(build: FlashBuild, product: string, model: string, major: number): string {
+function buildProp(
+  build: FlashBuild,
+  product: string,
+  model: string,
+  major: number,
+  initialSdk: number,
+): string {
   const id = build.releaseCandidateName || build.buildId
   const patch = securityPatch(build.buildId)
+  const fingerprint = `google/${product}/${product}:${major}/${id}/${build.buildId}:user/release-keys`
   const lines = [
+    `FINGERPRINT=${fingerprint}`,
     `MANUFACTURER=Google`,
     `BRAND=google`,
     `PRODUCT=${product}`,
@@ -145,9 +129,19 @@ function buildProp(build: FlashBuild, product: string, model: string, major: num
     `INCREMENTAL=${build.buildId}`,
     `TYPE=user`,
     `TAGS=release-keys`,
+    `DEVICE_INITIAL_SDK_INT=${initialSdk}`,
   ]
   if (patch) lines.push(`SECURITY_PATCH=${patch}`)
   return lines.join('\n')
+}
+
+interface FingerprintChoice {
+  build: FlashBuild
+  product: string
+  model: string
+  major: number
+  initialSdk: number
+  prop: string
 }
 
 export class IntegrityScreen {
@@ -155,8 +149,6 @@ export class IntegrityScreen {
   #config: Config
   #snackbar: Snackbar
   #container: HTMLElement | null = null
-  #fingerprint = ''
-  #product = ''
   #canEnable = false
   #hasZygisk = false
   #saveTimer: number | null = null
@@ -181,11 +173,8 @@ export class IntegrityScreen {
         <!-- Screen actions -->
         <div class="integrity-header-bar">
           <md-chip-set class="integrity-action-row">
-            <md-assist-chip id="pif-fetch-chip" elevated label="Fetch">
+            <md-assist-chip id="pif-select-chip" elevated label="Select Fingerprint">
               <md-icon slot="icon">download</md-icon>
-            </md-assist-chip>
-            <md-assist-chip id="pif-update-chip" elevated label="Update">
-              <md-icon slot="icon">refresh</md-icon>
             </md-assist-chip>
           </md-chip-set>
         </div>
@@ -317,19 +306,14 @@ export class IntegrityScreen {
     } else {
       this.#cachedProp = {}
     }
-    this.#fingerprint = this.#cachedProp.FINGERPRINT ?? ''
-    this.#product = this.#cachedProp.PRODUCT || (this.#cachedProp.FINGERPRINT ? this.#cachedProp.FINGERPRINT.split(/[/:]/)[1] ?? '' : '')
   }
 
   #bindEvents(): void {
     if (!this.#container) return
 
     // Action Chips
-    this.#container.querySelector('#pif-fetch-chip')?.addEventListener('click', () => {
-      void this.#fetchProp(false)
-    })
-    this.#container.querySelector('#pif-update-chip')?.addEventListener('click', () => {
-      void this.#fetchProp(true)
+    this.#container.querySelector('#pif-select-chip')?.addEventListener('click', () => {
+      void this.#selectFingerprint()
     })
     const statusEl = this.#container?.querySelector<HTMLElement>('#pif-zygisk-status')
     statusEl?.addEventListener('click', () => {
@@ -536,109 +520,177 @@ export class IntegrityScreen {
   }
 
 
-  async #fetchProp(update: boolean): Promise<void> {
+  async #collectChoices(): Promise<FingerprintChoice[]> {
+    const results = await Promise.allSettled(
+      PIXEL_DEVICES.map(async (device) => {
+        const builds = await this.#cli.fetchFlashstationBuilds(device.product)
+        return builds
+          .filter((build) => build.target === `${build.product}-user`)
+          .map((build): FingerprintChoice | null => {
+            const major = buildMajor(build)
+            if (major === null) return null
+            return {
+              build,
+              product: device.product,
+              model: device.model,
+              major,
+              initialSdk: device.min + 20,
+              prop: buildProp(build, device.product, device.model, major, device.min + 20),
+            }
+          })
+          .filter((choice): choice is FingerprintChoice => choice !== null)
+      }),
+    )
+    const choices: FingerprintChoice[] = []
+    for (const result of results) {
+      if (result.status === 'fulfilled') choices.push(...result.value)
+    }
+    return choices
+  }
+
+  async #selectFingerprint(): Promise<void> {
+    let choices: FingerprintChoice[]
     try {
-      let product = this.#product || (this.#fingerprint ? this.#fingerprint.split(/[/:]/)[1] ?? '' : '')
-      if (update && !product) {
-        this.#snackbar.show('Fetch a fingerprint first', false)
-        return
+      choices = await this.#collectChoices()
+    } catch {
+      this.#snackbar.show('Failed to fetch fingerprint list', false)
+      return
+    }
+    if (choices.length === 0) {
+      this.#snackbar.show('No Google builds available', false)
+      return
+    }
+
+    const majors = [...new Set(choices.map((choice) => choice.major))].sort((a, b) => b - a)
+    const romMajor = Number.parseInt(androidMajor(await this.#cli.getBuildRelease()) ?? '', 10)
+    let major = majors.includes(romMajor) ? romMajor : (majors[0] as number)
+
+    const dialog = document.createElement('md-dialog')
+    const render = (): void => {
+      const products = [...new Set(choices.filter((c) => c.major === major).map((c) => c.product))]
+      const deviceOptions = products
+        .map((product) => {
+          const choice = choices.find((c) => c.major === major && c.product === product)
+          return `<md-select-option value="${escapeHtml(product)}" ${
+            product === products[0] ? 'selected' : ''
+          }><div slot="headline">${escapeHtml(choice?.model ?? product)} (${escapeHtml(product)})</div></md-select-option>`
+        })
+        .join('')
+
+      const builds = choices
+        .filter((c) => c.major === major)
+        .sort(latestFirst)
+      const byProduct = new Map<string, FingerprintChoice[]>()
+      for (const choice of builds) {
+        const list = byProduct.get(choice.product) ?? []
+        list.push(choice)
+        byProduct.set(choice.product, list)
       }
+      const activeProduct = products[0] as string
+      const activeBuilds = byProduct.get(activeProduct) ?? []
+      const buildOptions = activeBuilds
+        .map((choice, index) => {
+          const latest = choice.build.releaseBuildMetadata?.latest ? ' • latest' : ''
+          const notes = choice.build.releaseBuildMetadata?.notes
+          const carrier = notes ? ` • ${notes}` : ''
+          const label = `${choice.build.releaseCandidateName} • ${choice.build.buildId}${latest}${carrier}`
+          return `<md-select-option value="${index}" ${index === 0 ? 'selected' : ''}><div slot="headline">${escapeHtml(label)}</div></md-select-option>`
+        })
+        .join('')
 
-      const romMajor = androidMajor(await this.#cli.getBuildRelease())
-      const target = romMajor ? Number.parseInt(romMajor, 10) : null
-      const matchesRom = (content: string): boolean => {
-        if (target === null) return true
-        const parsed = propAndroidMajor(content)
-        return parsed !== null && Number.parseInt(parsed, 10) === target
-      }
-
-      const candidates = product ? [product] : buildCandidates(target ?? 14)
-      const matches: Array<{ build: FlashBuild; product: string; model: string; major: number; prop: string }> = []
-
-      for (const p of candidates) {
-        const builds = await this.#cli.fetchFlashstationBuilds(p)
-        const picked = pickBuild(builds, target)
-        if (!picked) continue
-        const major = buildMajor(picked)
-        if (major === null) continue
-        const device = PIXEL_DEVICES.find((entry) => entry.product === p)
-        const prop = buildProp(picked, p, device?.model ?? p, major)
-        if (matchesRom(prop)) {
-          matches.push({ build: picked, product: p, model: device?.model ?? p, major, prop })
-        }
-        if (matches.length >= 8) break
-      }
-
-      if (matches.length === 0) {
-        this.#snackbar.show('No compatible build found for this Android release', false)
-        return
-      }
-
-      if (update) {
-        const first = matches[0]
-        if (!first) return
-        await File.createDirectory(DATA_DIR)
-        await File.createDirectory(ADB_DIR)
-        await File.write(PROP_PATH, first.prop)
-        await File.write(PROP_PATH_DATA, first.prop)
-        await this.#cli.killIntegrityTargets()
-        this.#cachedProp = parseKv(first.prop)
-        this.#fingerprint = this.#cachedProp.FINGERPRINT ?? ''
-        this.#snackbar.show('Product updated')
-        return
-      }
-
-      const dialog = document.createElement('md-dialog')
-      dialog.innerHTML = /* html */ `
-        <div slot="headline">Select Device Fingerprint</div>
-        <form slot="content" id="build-form" method="dialog" style="display: flex; flex-direction: column; gap: 8px;">
-          ${matches
-            .map(
-              (m, idx) => `
-            <label style="display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 12px; cursor: pointer; background: var(--md-sys-color-surface-container-high);">
-              <md-radio name="build-choice" value="${idx}" ${idx === 0 ? 'checked' : ''}></md-radio>
-              <div style="display: flex; flex-direction: column;">
-                <span style="font-weight: 600; color: var(--md-sys-color-on-surface);">${escapeHtml(m.model)} (${escapeHtml(m.product)})</span>
-                <span style="font-size: 0.8125rem; color: var(--md-sys-color-on-surface-variant);">${escapeHtml(m.build.releaseCandidateName || m.build.buildId)} • Android ${escapeHtml(String(m.major))}</span>
-              </div>
-            </label>
-          `,
-            )
-            .join('')}
-        </form>
-        <div slot="actions">
-          <md-text-button id="dialog-cancel">Cancel</md-text-button>
-          <md-filled-button id="dialog-apply">Apply</md-filled-button>
+      const preview = activeBuilds[0]
+      const body = dialog.querySelector('#fp-body')
+      if (!body) return
+      const keepProduct = body.querySelector('md-outlined-select[data-role="device"]')
+        ?.getAttribute('value') ?? ''
+      const keepBuild = body.querySelector('md-outlined-select[data-role="build"]')?.getAttribute('value') ?? ''
+      body.innerHTML = /* html */ `
+        <div style="display: flex; flex-direction: column; gap: 12px; min-width: 320px;">
+          <md-outlined-select data-role="version" label="Android version" menu-positioning="popover" value="${major}">
+            ${majors
+              .map(
+                (value) =>
+                  `<md-select-option value="${value}" ${value === major ? 'selected' : ''}><div slot="headline">Android ${value}</div></md-select-option>`,
+              )
+              .join('')}
+          </md-outlined-select>
+          <md-outlined-select data-role="device" label="Device" menu-positioning="popover" value="${escapeHtml(keepProduct || activeProduct)}">
+            ${deviceOptions}
+          </md-outlined-select>
+          <md-outlined-select data-role="build" label="Build" menu-positioning="popover" value="${escapeHtml(keepBuild || '0')}">
+            ${buildOptions}
+          </md-outlined-select>
+          <md-outlined-text-field id="fp-preview" label="Resulting integrity.prop" readonly>
+            <div slot="supporting-text">${escapeHtml(preview?.prop ?? '')}</div>
+          </md-outlined-text-field>
         </div>
       `
-      document.body.appendChild(dialog)
-      dialog.show()
-
-      dialog.querySelector('#dialog-cancel')?.addEventListener('click', () => {
-        dialog.close()
-        dialog.remove()
-      })
-
-      dialog.querySelector('#dialog-apply')?.addEventListener('click', async () => {
-        const form = dialog.querySelector<HTMLFormElement>('#build-form')
-        const choice = (form?.elements.namedItem('build-choice') as RadioNodeList | null)?.value
-        const chosen = matches[Number.parseInt(choice ?? '0', 10)]
-        dialog.close()
-        dialog.remove()
-
-        if (chosen) {
-          await File.createDirectory(DATA_DIR)
-          await File.createDirectory(ADB_DIR)
-          await File.write(PROP_PATH, chosen.prop)
-          await File.write(PROP_PATH_DATA, chosen.prop)
-          this.#cachedProp = parseKv(chosen.prop)
-          this.#fingerprint = this.#cachedProp.FINGERPRINT ?? ''
-          this.#snackbar.show('Fingerprint applied')
-        }
-      })
-    } catch {
-      this.#snackbar.show('Failed to fetch fingerprint', false)
+      syncPreview()
     }
+
+    const current = (): { product: string; build: number } => {
+      const body = dialog.querySelector('#fp-body')
+      const product = body?.querySelector('md-outlined-select[data-role="device"]')?.getAttribute('value') ?? ''
+      const raw = body?.querySelector('md-outlined-select[data-role="build"]')?.getAttribute('value') ?? '0'
+      return { product, build: Number.parseInt(raw, 10) || 0 }
+    }
+
+    const syncPreview = (): void => {
+      const { product, build } = current()
+      const list = choices
+        .filter((c) => c.major === major && c.product === product)
+        .sort(latestFirst)
+      const choice = list[build] ?? list[0]
+      const field = dialog.querySelector('#fp-preview')
+      const support = field?.querySelector('[slot="supporting-text"]')
+      if (support) support.textContent = choice?.prop ?? ''
+      if (field) (field as HTMLInputElement).value = choice?.prop ?? ''
+    }
+
+    dialog.innerHTML = /* html */ `
+      <div slot="headline">Select Device Fingerprint</div>
+      <form slot="content" id="fp-body" method="dialog"></form>
+      <div slot="actions">
+        <md-text-button id="fp-cancel">Cancel</md-text-button>
+        <md-filled-button id="fp-apply">Apply</md-filled-button>
+      </div>
+    `
+    document.body.appendChild(dialog)
+    render()
+    dialog.show()
+
+    dialog.querySelector('#fp-body')?.addEventListener('change', (event) => {
+      const role = (event.target as HTMLElement)?.getAttribute?.('data-role')
+      if (role === 'version') {
+        major = Number.parseInt((event.target as HTMLElement).getAttribute('value') ?? '', 10) || major
+        render()
+      } else if (role === 'device') {
+        render()
+      } else {
+        syncPreview()
+      }
+    })
+
+    dialog.querySelector('#fp-cancel')?.addEventListener('click', () => {
+      dialog.close()
+      dialog.remove()
+    })
+
+    dialog.querySelector('#fp-apply')?.addEventListener('click', async () => {
+      const { product, build } = current()
+      const list = choices.filter((c) => c.major === major && c.product === product).sort(latestFirst)
+      const chosen = list[build] ?? list[0]
+      dialog.close()
+      dialog.remove()
+      if (!chosen) return
+      await File.createDirectory(DATA_DIR)
+      await File.createDirectory(ADB_DIR)
+      await File.write(PROP_PATH, chosen.prop)
+      await File.write(PROP_PATH_DATA, chosen.prop)
+      await this.#cli.killIntegrityTargets()
+      this.#cachedProp = parseKv(chosen.prop)
+      this.#snackbar.show(`Applied ${chosen.model} ${chosen.build.releaseCandidateName}`)
+    })
   }
 
   #syncDevice(prop: Record<string, string>): void {

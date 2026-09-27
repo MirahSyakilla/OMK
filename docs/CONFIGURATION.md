@@ -817,11 +817,18 @@ soter_beta = false
 ```
 
 `integrity.prop` uses Play Integrity Fix key=value fields. `FINGERPRINT` is
-required to enable. `DEVICE_INITIAL_SDK_INT` is the first API level of that
-profile. Pixel 8 is `34`. A missing value is not spoofed. Fetch selects a
-Pixel build from Google's Android Flash
-Tool build list and matches it to the ROM's Android release (12 through 17);
-Update refreshes the current product. Saving an enabled configuration restarts
+required to enable; without it the zygisk companion disables itself and no
+process is spoofed. `DEVICE_INITIAL_SDK_INT` is the first API level of that
+profile. Pixel 8 is `34`. A missing value is not spoofed.
+
+Select Fingerprint opens a picker over Google's Android Flash Tool build list.
+Choose an Android version, then a device, then a build. Every Android release
+that has a published Pixel build is offered, not only the release the ROM
+itself runs, and any supported device can be chosen regardless of what was
+selected before. Applying a selection writes `integrity.prop` and restarts the
+affected processes.
+
+Saving an enabled configuration restarts
 keymint and the injector, then kills `com.google.android.gms.unstable` and
 force-stops `com.android.vending`. A new zygisk `.so` takes effect after a
 reboot.
