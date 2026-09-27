@@ -90,7 +90,7 @@ export class PolicyEditor {
     }
 
     if (meta.type === 'boolean') {
-      return `<label class="switch-item outlined" for="policy-${key}">
+      return `<label class="switch-item" for="policy-${key}">
         <md-ripple></md-ripple>
         <span class="switch-item-label">${meta.label}</span>
         <md-switch icons="true" id="policy-${key}" class="policy-${key}"${meta.defaultValue ? ' selected' : ''}></md-switch>

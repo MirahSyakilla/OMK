@@ -27,9 +27,11 @@
   padding: 8px 16px;
   max-width: 100%;
   border-radius: 999px;
-  background: var(--md-sys-color-surface-container-high);
-  color: var(--md-sys-color-on-surface-variant);
-  font-size: 0.85em;
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-primary);
+  font-family: monospace;
+  font-size: 0.8125rem;
+  font-weight: 500;
   overflow-wrap: anywhere;
   box-sizing: border-box;
 

@@ -6,21 +6,19 @@
     margin-bottom: 8px;
   }
 
-  #injector-settings-dialog {
+  #injector-settings-dialog,
+  #filter-settings-dialog {
     --md-dialog-container-min-inline-size: min(92vw, 420px);
     --md-dialog-container-max-inline-size: min(94vw, 480px);
-    --md-dialog-container-min-block-size: 360px;
-  }
 
-  #injector-settings-dialog [slot="content"] {
-    overflow: visible;
-    min-block-size: 240px;
-  }
+    [slot="content"] {
+      overflow: visible;
+    }
 
-  #injector-settings-dialog md-outlined-select {
-    width: 100%;
+    md-outlined-select {
+      width: 100%;
+    }
   }
-
   #integrity-settings-dialog {
     --md-dialog-container-min-inline-size: min(92vw, 420px);
     --md-dialog-container-max-inline-size: min(94vw, 480px);
@@ -193,27 +191,43 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: 14px;
     position: relative;
-    padding: 16px;
+    padding: 12px 16px;
     box-sizing: border-box;
-    font-size: 1.2em;
     user-select: none;
+    cursor: pointer;
+    background: var(--md-sys-color-surface-container);
+    border-radius: 16px;
+    border: none !important;
+    transition: background-color 0.15s ease;
+
+    .switch-item-label {
+      font-size: 0.9375rem;
+      font-weight: 500;
+      color: var(--md-sys-color-on-surface);
+      line-height: 1.3;
+      flex: 1;
+      min-width: 0;
+    }
+
+    md-switch {
+      flex-shrink: 0;
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+      &:hover {
+        background: var(--md-sys-color-surface-container-highest);
+      }
+    }
+
+    &:active {
+      background: var(--md-sys-color-surface-container-highest);
+    }
 
     &.contrast {
       background-color: var(--md-sys-color-primary-container);
       color: var(--md-sys-color-on-primary-container);
-      border: none;
-      border-radius: 20px;
-    }
-
-    &.outlined {
-      border-radius: 8px;
-      border: solid 1px var(--md-sys-color-outline);
-
-      &:hover {
-        border-color: var(--md-sys-color-on-surface);
-      }
     }
   }
 
@@ -404,9 +418,10 @@
   md-dialog.dialog--fullscreen {
     --md-dialog-container-elevation: 0;
 
-    // Mobile (Compact): Edge-to-edge full screen
-    @media (max-width: 600px) {
+    // Mobile (Compact): Edge-to-edge full screen for portrait & constrained landscape
+    @media (max-width: 599.98px), (max-height: 539.98px) {
       --md-dialog-container-shape: 0px !important;
+      --md-dialog-container-elevation: 0 !important;
       --md-dialog-container-color: var(--md-sys-color-surface) !important;
       position: fixed !important;
       inset: 0 !important;
@@ -423,23 +438,26 @@
       border-radius: 0 !important;
     }
 
-    // Tablet / Desktop (Expanded): Adaptive centered card
-    @media (min-width: 601px) {
+    // Tablet / Desktop (Expanded): Adaptive centered card (width >= 600px AND height >= 540px)
+    @media (min-width: 600px) and (min-height: 540px) {
       --md-dialog-container-shape: 28px !important;
+      --md-dialog-container-elevation: 3 !important;
       --md-dialog-container-color: var(--md-sys-color-surface) !important;
       position: fixed !important;
       inset: 0 !important;
       margin: auto !important;
       width: min(680px, 92vw) !important;
-      height: min(840px, 90vh) !important;
+      height: min(840px, 88vh) !important;
       max-width: min(680px, 92vw) !important;
-      max-height: min(840px, 90vh) !important;
+      max-height: min(840px, 88vh) !important;
       min-width: 360px !important;
       min-height: 360px !important;
       border-radius: 28px !important;
-      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45) !important;
-    }
 
+      .fullscreen-dialog-content {
+        padding-bottom: 24px !important;
+      }
+    }
     [slot="actions"] {
       display: none !important;
     }
@@ -449,11 +467,14 @@
       align-items: center !important;
       justify-content: space-between !important;
       width: 100% !important;
-      padding: max(env(safe-area-inset-top, 0px), 12px) 16px 12px 12px !important;
+      padding-top: max(env(safe-area-inset-top, 0px), 12px) !important;
+      padding-bottom: 12px !important;
+      padding-left: max(env(safe-area-inset-left, 0px), 12px) !important;
+      padding-right: max(env(safe-area-inset-right, 0px), 16px) !important;
       gap: 8px !important;
       background: var(--md-sys-color-surface) !important;
       border-bottom: 1px solid var(--md-sys-color-outline-variant) !important;
-
+      box-sizing: border-box !important;
       .fs-back-btn {
         flex-shrink: 0;
         --md-icon-button-icon-color: var(--md-sys-color-on-surface);
@@ -495,13 +516,16 @@
     }
 
     .fullscreen-dialog-content {
-      padding: 16px 16px calc(env(safe-area-inset-bottom, 0px) + 32px) !important;
+      padding-top: 16px !important;
+      padding-left: max(env(safe-area-inset-left, 0px), 16px) !important;
+      padding-right: max(env(safe-area-inset-right, 0px), 16px) !important;
+      padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 32px) !important;
       max-width: 680px;
       margin: 0 auto;
       display: flex;
       flex-direction: column;
       gap: 12px;
-
+      box-sizing: border-box !important;
       .fs-section-title {
         font-size: 0.6875rem; // 11px
         font-weight: 700;
@@ -668,6 +692,65 @@
     min-width: 280px;
     max-width: min(340px, 88vw);
 
+
+  // Standard Modal Dialogs (Matching OMK M3 Design System)
+  md-dialog:not(.dialog--fullscreen) {
+    --md-dialog-container-shape: 28px !important;
+    --md-dialog-container-color: var(--md-sys-color-surface-container-high) !important;
+    --md-dialog-container-elevation: 3;
+    max-width: min(480px, 92vw);
+
+    [slot="headline"] {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: var(--md-sys-color-on-surface);
+      line-height: 1.3;
+    }
+
+    [slot="content"] {
+      color: var(--md-sys-color-on-surface-variant);
+      font-size: 0.875rem;
+      line-height: 1.4;
+    }
+
+    [slot="actions"] {
+      padding: 16px 24px;
+      gap: 8px;
+
+      md-text-button,
+      md-outlined-button {
+        --md-outlined-button-container-shape: 9999px;
+      }
+
+      md-filled-button {
+        --md-filled-button-container-shape: 9999px;
+      }
+    }
+
+    md-outlined-text-field:not([type="textarea"]) {
+      --md-outlined-text-field-container-shape: 28px;
+      --md-outlined-field-container-shape: 28px;
+      width: 100%;
+      overflow: visible;
+    }
+
+    md-outlined-text-field[type="textarea"],
+    md-outlined-text-field.mono-field {
+      --md-outlined-text-field-container-shape: 16px;
+      --md-outlined-field-container-shape: 16px;
+      --md-outlined-text-field-input-text-font: monospace;
+      font-family: monospace;
+      font-size: 0.8125rem;
+      word-break: break-all;
+      width: 100%;
+      resize: none !important;
+      overflow: visible;
+    }
+
+    md-outlined-select {
+      width: 100%;
+    }
+  }
     [slot="headline"] {
       font-size: 1.25rem;
       font-weight: 500;
