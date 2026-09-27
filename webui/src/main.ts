@@ -184,6 +184,10 @@ const dock = document.querySelector<HTMLElement>('.dock')!
 const titleEl = document.querySelector<HTMLElement>('#title')!
 const navigation = new Navigation(track, dock, titleEl)
 
+const titleStatus = new TitleStatus(cli, document.querySelector<HTMLElement>('#title-status')!)
+titleStatus.start()
+
+
 // Controls visibility per tab
 const searchButton = document.getElementById('search-button') as MdIconButton
 const mainMenuContainer = document.querySelector<HTMLElement>('.main-menu')!
@@ -246,7 +250,7 @@ mainMenu.appendTo(mainMenuContainer)
 const reloadMenu = new ReloadMenu(cli, snackbar)
 reloadMenu.appendTo(document.querySelector<HTMLElement>('.reload-menu')!)
 
-new TitleStatus(cli, document.querySelector<HTMLElement>('#title-status')!).start()
+
 
 // PIF Conflict Alert Dialog
 const pifDialogTemplate = document.createElement('template')

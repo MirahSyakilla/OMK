@@ -321,6 +321,10 @@ export class IntegrityScreen {
     this.#product = this.#cachedProp.PRODUCT || (this.#cachedProp.FINGERPRINT ? this.#cachedProp.FINGERPRINT.split(/[/:]/)[1] ?? '' : '')
   }
 
+  async refresh(): Promise<void> {
+    await this.load()
+  }
+
   #bindEvents(): void {
     if (!this.#container) return
 

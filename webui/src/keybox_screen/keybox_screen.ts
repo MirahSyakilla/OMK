@@ -55,7 +55,19 @@ export class KeyboxScreen {
     this.#config = config
     this.#snackbar = snackbar
     this.#history = history
-    this.#keybox.onSlotsChanged(() => {
+    this.#keybox.onSlotsChanged((deletedSlot?: number) => {
+      if (typeof deletedSlot === 'number') {
+        const card = this.#container?.querySelector<HTMLElement>(`.kb-slot-card[data-slot="${deletedSlot}"]`)
+        if (card) {
+          card.classList.add('removing')
+          this.#slots = this.#slots.filter((s) => s.slot !== deletedSlot)
+          setTimeout(() => {
+            card.remove()
+            void this.refresh()
+          }, 240)
+          return
+        }
+      }
       void this.refresh()
     })
     this.#keybox.custom.onChange(() => {

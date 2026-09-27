@@ -152,7 +152,7 @@ export class Keybox {
   #pendingNewName = ''
   #onNamesChanged: (() => void) | null = null
 
-  #onSlotsChanged: (() => void) | null = null
+  #onSlotsChanged: ((slot?: number) => void) | null = null
 
   constructor(cli: Cli, config: Config, fileSelector: FileSelector, snackbar: Snackbar) {
     this.cli = cli
@@ -334,6 +334,7 @@ export class Keybox {
       if (this.#pendingNewName && selectedSlot > 0) {
         await this.#setSlotName(selectedSlot, this.#pendingNewName)
       }
+      this.#onSlotsChanged?.()
       this.#pendingNewName = ''
       return 'saved'
     } catch {
@@ -437,7 +438,7 @@ export class Keybox {
     return this.#exportSlot(slot)
   }
 
-  onSlotsChanged(cb: () => void): void {
+  onSlotsChanged(cb: (slot?: number) => void): void {
     this.#onSlotsChanged = cb
   }
 
@@ -662,6 +663,7 @@ export class Keybox {
     this.#deleteDialog?.close()
     if (slot === null || slot <= 0) return
     try {
+      this.#onSlotsChanged?.(slot)
       const path = this.getKeyboxPath(slot)
       if (await File.exist(path)) await File.delete(path)
       if (await File.exist(`${path}.bak`)) await File.delete(`${path}.bak`)
@@ -674,6 +676,7 @@ export class Keybox {
       this.#snackbar.show(i18n.t('prompt_keybox_deleted'), true)
     } catch {
       this.#snackbar.show(i18n.t('prompt_keybox_delete_error'), false)
+      this.#onSlotsChanged?.()
     }
   }
 

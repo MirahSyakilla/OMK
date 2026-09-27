@@ -179,6 +179,10 @@ export class SettingsScreen {
     this.#updateText('#sub-device', this.#getDeviceSummary())
   }
 
+  async refresh(): Promise<void> {
+    this.updateSummaries()
+  }
+
   #updateText(selector: string, text: string): void {
     const el = this.#container?.querySelector(selector)
     if (el) el.textContent = text
