@@ -145,7 +145,7 @@ await config.read()
 const appList = new AppList(config)
 const keybox = new Keybox(cli, config, fileSelector, snackbar)
 const keyboxRepo = new KeyboxRepo(keybox, history, snackbar)
-const dialogController = new DialogController(cli, config, appList, snackbar)
+const dialogController = new DialogController(cli, config, appList, snackbar, history)
 
 await keybox.loadSlotNames()
 appList.setSlotLabel((slot) => keybox.slotLabel(slot))
@@ -175,14 +175,21 @@ keyboxScreen.render(keyboxPage)
 
 // Tab 3: Settings Screen
 const settingsPage = document.querySelector<HTMLElement>('#settings-page')!
-const settingsScreen = new SettingsScreen(dialogController, config)
+const settingsScreen = new SettingsScreen(dialogController, config, snackbar)
 settingsScreen.render(settingsPage)
+dialogController.onSaved = () => {
+  settingsScreen.updateSummaries()
+}
 
 // Shell Navigation
 const track = document.querySelector<HTMLElement>('#pages')!
 const dock = document.querySelector<HTMLElement>('.dock')!
 const titleEl = document.querySelector<HTMLElement>('#title')!
 const navigation = new Navigation(track, dock, titleEl)
+
+const titleStatus = new TitleStatus(cli, document.querySelector<HTMLElement>('#title-status')!)
+titleStatus.start()
+
 
 // Controls visibility per tab
 const searchButton = document.getElementById('search-button') as MdIconButton
@@ -210,6 +217,8 @@ navigation.onTabChanged((index) => {
     window.setTimeout(() => void keyboxScreen.refresh(), 360)
   } else if (index === 2) {
     window.setTimeout(() => void integrityScreen.load(), 360)
+  } else if (index === 3) {
+    settingsScreen.updateSummaries()
   }
 })
 
@@ -246,7 +255,7 @@ mainMenu.appendTo(mainMenuContainer)
 const reloadMenu = new ReloadMenu(cli, snackbar)
 reloadMenu.appendTo(document.querySelector<HTMLElement>('.reload-menu')!)
 
-new TitleStatus(cli, document.querySelector<HTMLElement>('#title-status')!).start()
+
 
 // PIF Conflict Alert Dialog
 const pifDialogTemplate = document.createElement('template')
@@ -344,11 +353,16 @@ dialogContent.querySelectorAll<MdDialog>('md-dialog').forEach((dialog, index) =>
   dialog.addEventListener('open', () => {
     ;(document.activeElement as HTMLElement)?.blur()
     document.querySelectorAll('.card-pressed').forEach((el) => el.classList.remove('card-pressed'))
-    history.push(id, () => dialog.close())
+    history.push(id, () => {
+      if ('requestClose' in dialog && typeof dialog.requestClose === 'function') {
+        dialog.requestClose()
+      } else {
+        dialog.close()
+      }
+    })
   })
   dialog.addEventListener('closed', () => history.consume(id))
 })
-
 // Android Back Navigation Rule:
 // Back from any tab other than the first returns to the first tab instead of
 // leaving the WebUI. The synthetic entry lives on the same stack as dialogs and

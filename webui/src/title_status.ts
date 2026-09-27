@@ -18,6 +18,10 @@ export class TitleStatus {
     }, POLL_MS)
   }
 
+  async refresh(): Promise<void> {
+    await this.#refresh()
+  }
+
   async #refresh(): Promise<void> {
     try {
       const status = await this.#cli.getServiceStatus()

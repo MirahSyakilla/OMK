@@ -290,6 +290,19 @@ export const FILTER_SCHEMA = new PolicySchema({
     defaultValue: false,
   },
 })
+export const INTERCEPT_KEYS = [
+  'get_security_level',
+  'get_key_entry',
+  'update_subcomponent',
+  'list_entries',
+  'delete_key',
+  'grant',
+  'ungrant',
+  'get_number_of_entries',
+  'list_entries_batched',
+  'get_supplementary_attestation_info',
+] as const
+
 
 export const INTERCEPT_SCHEMA = new PolicySchema({
   get_security_level: { type: 'boolean', label: 'getSecurityLevel', defaultValue: true },

@@ -8,6 +8,7 @@ import { HelpDialog } from './help'
 import { SystemAppDialog } from './system_app'
 import { IntegrityDialog } from './integrity'
 import { Snackbar } from '../snackbar/snackbar'
+import { History } from '../history'
 import './dialog.scss'
 
 export class DialogController {
@@ -23,21 +24,28 @@ export class DialogController {
   readonly device: SectionDialog
   readonly crypto: SectionDialog
   readonly runtime: RuntimeDialog
+  onSaved?: () => void
 
-  constructor(cli: Cli, config: Config, appList: AppList, snackbar: Snackbar) {
+  constructor(cli: Cli, config: Config, appList: AppList, snackbar: Snackbar, history?: History) {
     this.about = new AboutDialog(cli)
-    this.help = new HelpDialog()
+    this.help = new HelpDialog(history)
     this.systemApp = new SystemAppDialog(appList)
     this.integrity = new IntegrityDialog(cli, config, snackbar, () => {
       void appList.refresh(false)
     })
-    this.trust = new SectionDialog(config, 'trust', 'trust-settings-dialog')
-    this.core = new SectionDialog(config, 'omk_main', 'core-settings-dialog')
-    this.injector = new SectionDialog(config, 'injector_main', 'injector-settings-dialog')
-    this.filter = new SectionDialog(config, 'filter', 'filter-settings-dialog')
-    this.intercept = new SectionDialog(config, 'intercept', 'intercept-settings-dialog')
-    this.device = new SectionDialog(config, 'device', 'device-settings-dialog')
-    this.crypto = new SectionDialog(config, 'crypto', 'crypto-settings-dialog')
+    const sectionOptions = (fullscreen?: boolean) => ({
+      fullscreen,
+      snackbar,
+      history,
+      onSaved: () => this.onSaved?.(),
+    })
+    this.trust = new SectionDialog(config, 'trust', 'trust-settings-dialog', sectionOptions(true))
+    this.core = new SectionDialog(config, 'omk_main', 'core-settings-dialog', sectionOptions(false))
+    this.injector = new SectionDialog(config, 'injector_main', 'injector-settings-dialog', sectionOptions(false))
+    this.filter = new SectionDialog(config, 'filter', 'filter-settings-dialog', sectionOptions(false))
+    this.intercept = new SectionDialog(config, 'intercept', 'intercept-settings-dialog', sectionOptions(true))
+    this.device = new SectionDialog(config, 'device', 'device-settings-dialog', sectionOptions(true))
+    this.crypto = new SectionDialog(config, 'crypto', 'crypto-settings-dialog', sectionOptions(true))
     this.runtime = new RuntimeDialog(config)
   }
 

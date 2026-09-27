@@ -1,31 +1,21 @@
 import type { DialogController } from '../dialog/dialog'
-import type { Config, Policy } from '../config'
+import { Config, type Policy, INTERCEPT_KEYS } from '../config'
+import type { Snackbar } from '../snackbar/snackbar'
+import type { MdSwitch } from '@material/web/switch/switch'
 import { escapeHtml } from '../html'
 import './settings_screen.scss'
-
-const INTERCEPT_KEYS = [
-  'get_security_level',
-  'get_key_entry',
-  'update_subcomponent',
-  'list_entries',
-  'delete_key',
-  'grant',
-  'ungrant',
-  'get_number_of_entries',
-  'list_entries_batched',
-  'get_supplementary_attestation_info',
-]
 
 export class SettingsScreen {
   readonly #dialogController: DialogController
   readonly #config: Config
+  readonly #snackbar?: Snackbar
   #container: HTMLElement | null = null
 
-  constructor(dialogController: DialogController, config: Config) {
+  constructor(dialogController: DialogController, config: Config, snackbar?: Snackbar) {
     this.#dialogController = dialogController
     this.#config = config
+    this.#snackbar = snackbar
   }
-
   render(container: HTMLElement): void {
     this.#container = container
     container.innerHTML = /* html */ `
@@ -34,12 +24,12 @@ export class SettingsScreen {
         <div class="settings-section-title">KeyMint</div>
         <div class="settings-group">
           <div class="settings-row" id="setting-core" role="button" tabindex="0">
-            <div class="settings-icon"><md-icon>memory</md-icon></div>
+            <div class="settings-icon"><md-icon>fingerprint</md-icon></div>
             <div class="settings-content">
-              <div class="settings-title">Core Settings</div>
-              <div class="settings-sub" id="sub-core">${escapeHtml(this.#getCoreSummary())}</div>
+              <div class="settings-title">Skip Biometric HAT Verification</div>
+              <div class="settings-sub">Bypass system biometric hardware authentication token checks</div>
             </div>
-            <div class="settings-arrow"><md-icon>chevron_right</md-icon></div>
+            <md-switch icons="true" id="switch-core"${this.#isCoreSkipEnabled() ? ' selected' : ''}></md-switch>
             <md-ripple></md-ripple>
           </div>
         </div>
@@ -157,7 +147,50 @@ export class SettingsScreen {
       </div>
     `
 
-    this.#bindRow('setting-core', () => this.#dialogController.showCore())
+    const coreRow = this.#container?.querySelector<HTMLElement>('#setting-core')
+    const coreSwitch = this.#container?.querySelector<MdSwitch>('#switch-core')
+    if (coreRow && coreSwitch) {
+      const handleToggle = async (selected: boolean) => {
+        const prev = !selected
+        try {
+          this.#config.set('omk_main', {
+            force_skip_system_biometric_hat_verification: selected,
+          })
+          if (!import.meta.env.DEV) {
+            await this.#config.write()
+          }
+          this.#snackbar?.show(
+            selected
+              ? 'Biometric HAT verification bypass enabled'
+              : 'Biometric HAT verification bypass disabled',
+            true
+          )
+        } catch {
+          coreSwitch.selected = prev
+          this.#snackbar?.show('Failed to save setting', false)
+        }
+      }
+
+      coreSwitch.addEventListener('change', () => {
+        void handleToggle(coreSwitch.selected)
+      })
+
+      coreRow.addEventListener('click', (e) => {
+        if (e.composedPath().some((n) => n instanceof Element && n.localName === 'md-switch')) {
+          return
+        }
+        coreSwitch.selected = !coreSwitch.selected
+        void handleToggle(coreSwitch.selected)
+      })
+
+      coreRow.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          coreSwitch.selected = !coreSwitch.selected
+          void handleToggle(coreSwitch.selected)
+        }
+      })
+    }
     this.#bindRow('setting-trust', () => this.#dialogController.showTrust())
     this.#bindRow('setting-runtime', () => this.#dialogController.showRuntime())
     this.#bindRow('setting-injector', () => this.#dialogController.showInjector())
@@ -171,12 +204,19 @@ export class SettingsScreen {
 
   updateSummaries(): void {
     if (!this.#container) return
-    this.#updateText('#sub-core', this.#getCoreSummary())
+    const coreSwitch = this.#container.querySelector<MdSwitch>('#switch-core')
+    if (coreSwitch) {
+      coreSwitch.selected = this.#isCoreSkipEnabled()
+    }
     this.#updateText('#sub-trust', this.#getTrustSummary())
     this.#updateText('#sub-injector', this.#getInjectorSummary())
     this.#updateText('#sub-filter', this.#getFilterSummary())
     this.#updateText('#sub-intercept', this.#getInterceptSummary())
     this.#updateText('#sub-device', this.#getDeviceSummary())
+  }
+
+  async refresh(): Promise<void> {
+    this.updateSummaries()
   }
 
   #updateText(selector: string, text: string): void {
@@ -199,10 +239,9 @@ export class SettingsScreen {
     })
   }
 
-  #getCoreSummary(): string {
+  #isCoreSkipEnabled(): boolean {
     const main = this.#config.get('omk_main') as Policy | undefined
-    const skip = main?.force_skip_system_biometric_hat_verification === true
-    return `biometric: ${skip ? 'bypass' : 'default'}`
+    return main?.force_skip_system_biometric_hat_verification === true
   }
 
   #getTrustSummary(): string {
@@ -235,7 +274,7 @@ export class SettingsScreen {
     for (const key of INTERCEPT_KEYS) {
       if (!intercept || intercept[key] !== false) count++
     }
-    return `${count}/${INTERCEPT_KEYS.length} routed`
+    return `${count}/${INTERCEPT_KEYS.length} features enabled`
   }
 
   #getDeviceSummary(): string {

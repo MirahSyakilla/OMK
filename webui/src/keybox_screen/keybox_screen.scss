@@ -428,6 +428,18 @@
   &.expanded {
     background: var(--md-sys-color-surface-container-highest);
   }
+
+  &.removing {
+    opacity: 0 !important;
+    transform: scale(0.92) !important;
+    max-height: 0 !important;
+    margin-bottom: 0 !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    overflow: hidden !important;
+    pointer-events: none !important;
+    transition: opacity 0.2s ease, transform 0.2s ease, max-height 0.24s cubic-bezier(0.2, 0, 0, 1), margin 0.24s ease, padding 0.24s ease !important;
+  }
 }
 
 .ksc-main-row {
