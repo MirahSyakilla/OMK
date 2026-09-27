@@ -122,11 +122,10 @@
   cargo test --target aarch64-linux-android --workspace --no-run
   ```
 
-- When an authorized aarch64 Android device is available, execute every generated workspace test
-  binary on-device. If the device is unavailable, report that the device gate was not run; do not
-  present host-side compilation as full validation. Documentation-only changes do not require code
-  tests.
-- For binary hot updates, prefer:
+- Obtain explicit user confirmation before using a live device. Do not connect, push, or run anything
+  on a device on your own initiative, and treat a general "build and hand over a zip" as meaning the
+  zip only. A rule that mandates an on-device gate is not by itself permission to take the device.
+- A hot install replaces or updates the whole module and restarts its services. For that, prefer:
 
   ```sh
   python scripts/deploy_hot_update.py --serial <serial> --abi arm64-v8a --restart all
@@ -135,5 +134,26 @@
   It builds, deploys, verifies hashes, and restarts KeyMint and the injector without rebooting.
   Verify the affected runtime path after deployment; a healthy KeyMint listener alone does not
   prove that keystore2 has refreshed a stale injector RPC session.
+- Hot install first, then run the device gate. On-device tests exercise the installed module, so
+  running them before a hot install only tests the previously installed build.
+- When an authorized aarch64 Android device is available and confirmed, execute every generated
+  workspace test binary on-device. If the device is unavailable, report that the device gate was not
+  run; do not present host-side compilation as full validation. Documentation-only changes do not
+  require code tests.
+- Take the on-device test list from Cargo, not from a filesystem glob. `target/` retains every test
+  binary from every prior build, so a glob such as `target/**/out/*` also runs stale executables from
+  earlier weeks and reports failures that no longer exist. Collect the current paths from the
+  `compiler-artifact` messages of:
+
+  ```sh
+  cargo test --target aarch64-linux-android --workspace --no-run --message-format json
+  ```
+
+- Never execute a module control script, such as `template/service.sh` or `post-fs-data.sh`, from a
+  copied module directory. These scripts spawn and manage their daemons by absolute path, so a copy
+  starts a second real instance alongside the installed one. Two injectors contending for the same
+  targets put `keystore2` into a crash loop and break every keystore-using app, which presents as an
+  unrelated application failing. In a test harness, stub out `start_daemon` and run the logic under
+  test against a sandbox path only.
 - Do not add `#[allow(...)]` solely to silence Clippy. Any necessary exception must have a concrete,
   documented reason and direct approval from user.
