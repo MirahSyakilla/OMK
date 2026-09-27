@@ -206,25 +206,28 @@ export class AppList {
   /**
    * Arm icon loading for a freshly appended chunk.
    *
-   * With content-visibility supported, the browser's own visibility state is the
-   * trigger, because an observer never sees skipped contents. Without it, the
-   * observer is the only option. Either way a card is loaded at most once.
+   * Both triggers are registered, and the observer is not made conditional.
+   * contentvisibilityautostatechange only fires when an element's skipped state
+   * *changes*, so a card that is already on screen when it is appended never
+   * raises it and would sit at the loading placeholder forever. The observer is
+   * what reliably reports the initially visible rows, and it reports a card once
+   * the browser has made it relevant for a scrolled-to one. Registering only the
+   * visibility event broke every icon; registering only the observer is correct
+   * on its own. Either way #ensureIcon's guard means a card loads at most once.
    */
   #watchChunk(fragment: DocumentFragment): void {
     const holders = fragment.querySelectorAll('.app-icon-container')
-    if (AppList.#supportsContentVisibility) {
-      holders.forEach((holder) => {
-        holder.addEventListener(
-          'contentvisibilityautostatechange',
-          (event) => {
-            if (!(event as Event & { skipped?: boolean }).skipped) this.#ensureIcon(holder)
-          },
-          { passive: true },
-        )
-      })
-    } else {
-      holders.forEach((el) => this.#iconObserver?.observe(el))
-    }
+    holders.forEach((holder) => {
+      this.#iconObserver?.observe(holder)
+      if (!AppList.#supportsContentVisibility) return
+      holder.addEventListener(
+        'contentvisibilityautostatechange',
+        (event) => {
+          if (!(event as Event & { skipped?: boolean }).skipped) this.#ensureIcon(holder)
+        },
+        { passive: true },
+      )
+    })
   }
 
   #appendChunked(
@@ -588,8 +591,12 @@ export class AppList {
           if (this.#iconQueue.length > 0) this.#flushIconQueue()
         })
     }
-    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(send)
-    else setTimeout(send, 0)
+    // A timer rather than an animation frame. Frames are not delivered while the
+    // WebView is hidden, so an rAF flush would strand the queue and leave the
+    // affected rows at the loading placeholder if the list rendered in the
+    // background. The work is a single bridge call, so it does not need to be
+    // aligned to a frame.
+    setTimeout(send, 0)
   }
 
   #loadIcon(packageName: string, scopeEl?: HTMLElement): void {
