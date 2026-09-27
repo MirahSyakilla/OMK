@@ -145,7 +145,7 @@ await config.read()
 const appList = new AppList(config)
 const keybox = new Keybox(cli, config, fileSelector, snackbar)
 const keyboxRepo = new KeyboxRepo(keybox, history, snackbar)
-const dialogController = new DialogController(cli, config, appList, snackbar)
+const dialogController = new DialogController(cli, config, appList, snackbar, history)
 
 await keybox.loadSlotNames()
 appList.setSlotLabel((slot) => keybox.slotLabel(slot))
@@ -348,11 +348,16 @@ dialogContent.querySelectorAll<MdDialog>('md-dialog').forEach((dialog, index) =>
   dialog.addEventListener('open', () => {
     ;(document.activeElement as HTMLElement)?.blur()
     document.querySelectorAll('.card-pressed').forEach((el) => el.classList.remove('card-pressed'))
-    history.push(id, () => dialog.close())
+    history.push(id, () => {
+      if ('requestClose' in dialog && typeof dialog.requestClose === 'function') {
+        dialog.requestClose()
+      } else {
+        dialog.close()
+      }
+    })
   })
   dialog.addEventListener('closed', () => history.consume(id))
 })
-
 // Android Back Navigation Rule:
 // Back from any tab other than the first returns to the first tab instead of
 // leaving the WebUI. The synthetic entry lives on the same stack as dialogs and

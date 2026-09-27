@@ -8,6 +8,7 @@ import { HelpDialog } from './help'
 import { SystemAppDialog } from './system_app'
 import { IntegrityDialog } from './integrity'
 import { Snackbar } from '../snackbar/snackbar'
+import { History } from '../history'
 import './dialog.scss'
 
 export class DialogController {
@@ -24,20 +25,20 @@ export class DialogController {
   readonly crypto: SectionDialog
   readonly runtime: RuntimeDialog
 
-  constructor(cli: Cli, config: Config, appList: AppList, snackbar: Snackbar) {
+  constructor(cli: Cli, config: Config, appList: AppList, snackbar: Snackbar, history?: History) {
     this.about = new AboutDialog(cli)
     this.help = new HelpDialog()
     this.systemApp = new SystemAppDialog(appList)
     this.integrity = new IntegrityDialog(cli, config, snackbar, () => {
       void appList.refresh(false)
     })
-    this.trust = new SectionDialog(config, 'trust', 'trust-settings-dialog', { snackbar })
-    this.core = new SectionDialog(config, 'omk_main', 'core-settings-dialog', { snackbar })
-    this.injector = new SectionDialog(config, 'injector_main', 'injector-settings-dialog', { snackbar })
-    this.filter = new SectionDialog(config, 'filter', 'filter-settings-dialog', { snackbar })
-    this.intercept = new SectionDialog(config, 'intercept', 'intercept-settings-dialog', { snackbar })
-    this.device = new SectionDialog(config, 'device', 'device-settings-dialog', { fullscreen: true, snackbar })
-    this.crypto = new SectionDialog(config, 'crypto', 'crypto-settings-dialog', { fullscreen: true, snackbar })
+    this.trust = new SectionDialog(config, 'trust', 'trust-settings-dialog', { fullscreen: true, snackbar, history })
+    this.core = new SectionDialog(config, 'omk_main', 'core-settings-dialog', { snackbar, history })
+    this.injector = new SectionDialog(config, 'injector_main', 'injector-settings-dialog', { snackbar, history })
+    this.filter = new SectionDialog(config, 'filter', 'filter-settings-dialog', { snackbar, history })
+    this.intercept = new SectionDialog(config, 'intercept', 'intercept-settings-dialog', { fullscreen: true, snackbar, history })
+    this.device = new SectionDialog(config, 'device', 'device-settings-dialog', { fullscreen: true, snackbar, history })
+    this.crypto = new SectionDialog(config, 'crypto', 'crypto-settings-dialog', { fullscreen: true, snackbar, history })
     this.runtime = new RuntimeDialog(config)
   }
 
