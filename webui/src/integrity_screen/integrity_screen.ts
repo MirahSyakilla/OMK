@@ -168,14 +168,6 @@ export class IntegrityScreen {
     container.innerHTML = /* html */ `
       <div class="integrity-screen">
         <!-- Screen actions -->
-        <div class="integrity-header-bar">
-          <md-chip-set class="integrity-action-row">
-            <md-assist-chip id="pif-select-chip" elevated label="Select Fingerprint">
-              <md-icon slot="icon">download</md-icon>
-            </md-assist-chip>
-          </md-chip-set>
-        </div>
-
         <!-- Zygisk status & warning banner -->
         <div id="pif-zygisk-status" class="integrity-status-banner">
           <md-icon class="integrity-status-icon">check_circle</md-icon>
@@ -191,6 +183,19 @@ export class IntegrityScreen {
                   <div class="switch-row-sub">Master switch for property overrides & spoofing</div>
                 </div>
                 <md-switch icons="true" id="pif-enabled" aria-label="Play Integrity"></md-switch>
+              </div>
+
+              <!--
+                Sits directly under the master switch rather than in a header bar:
+                it configures what that master switch turns on, and as a small
+                chip in the corner it read as an overflow action.
+              -->
+              <div class="integrity-picker">
+                <md-filled-button id="pif-select-fp" class="integrity-picker-button">
+                  <md-icon slot="icon">download</md-icon>
+                  Select Fingerprint
+                </md-filled-button>
+                <div class="integrity-picker-hint">Click to select your integrity fingerprint</div>
               </div>
 
               <div class="switch-row" id="row-spoof-build" role="button" tabindex="0">
@@ -272,6 +277,11 @@ export class IntegrityScreen {
 
     this.#bindEvents()
     void this.load()
+    // Warm the build list in the background. Without this the first tap on the
+    // picker is the one that pays for every fetch, which is the tap the user
+    // notices; a warm cache makes it instant. Failures are ignored because the
+    // picker reports them itself when it is actually opened.
+    void this.#collectChoices()
   }
 
   async load(): Promise<void> {
@@ -328,8 +338,7 @@ export class IntegrityScreen {
   #bindEvents(): void {
     if (!this.#container) return
 
-    // Action Chips
-    this.#container.querySelector('#pif-select-chip')?.addEventListener('click', () => {
+    this.#container.querySelector('#pif-select-fp')?.addEventListener('click', () => {
       void this.#selectFingerprint()
     })
     const statusEl = this.#container?.querySelector<HTMLElement>('#pif-zygisk-status')

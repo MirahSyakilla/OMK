@@ -17,25 +17,29 @@
 // md-chip-set already lays the chips out in a wrapping row. Horizontal
 // scrolling is deliberately not used here: a sideways drag on this row belongs
 // to the tab carousel.
-.integrity-header-bar {
+// Full-width picker action, placed under the Play Integrity master switch.
+// The master switch is the thing this configures, so the control belongs with
+// it rather than in a corner chip that read as an overflow action.
+.integrity-picker {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  gap: 6px;
   width: 100%;
+  padding: 10px 2px 14px;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  margin-bottom: 6px;
 }
 
-.integrity-action-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
+.integrity-picker-button {
+  width: 100%;
+  --md-filled-button-container-height: 52px;
+  --md-sys-color-on-primary: var(--md-sys-color-on-primary);
+}
 
-  md-assist-chip {
-    // PlayIntegrityFix tonal assist chip
-    --md-assist-chip-elevated-container-shadow-color: #00000000;
-    --md-sys-color-on-surface: var(--md-sys-color-on-secondary-container);
-    --md-sys-color-surface-container-low: var(--md-sys-color-secondary-container);
-  }
+.integrity-picker-hint {
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--md-sys-color-on-surface-variant);
 }
 
 .integrity-status-banner {

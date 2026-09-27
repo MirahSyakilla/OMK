@@ -43,6 +43,9 @@ export class Cli {
   /// Build lists per product, so switching between picker openings or products
   /// does not refetch. Entries are dropped once older than the TTL below.
   static #buildCache = new Map<string, { at: number; builds: FlashBuild[] }>()
+  /// In-flight fetches per product, so a tap that races the background warm-up
+  /// joins the request already running instead of starting a second one.
+  static #buildInFlight = new Map<string, Promise<FlashBuild[]>>()
   /// Baseline build lists persisted to disk, so the picker can populate
   /// immediately and still work with no network at all. The cache file lives
   /// beside the module's other state, is written once per successful fetch, and
@@ -229,6 +232,16 @@ export class Cli {
     if (cached && Date.now() - cached.at < FLASHSTATION_BUILD_TTL_MS) {
       return cached.builds
     }
+    const inFlight = Cli.#buildInFlight.get(product)
+    if (inFlight) return inFlight
+    const request = this.#fetchFlashstationBuilds(product).finally(() => {
+      Cli.#buildInFlight.delete(product)
+    })
+    Cli.#buildInFlight.set(product, request)
+    return request
+  }
+
+  async #fetchFlashstationBuilds(product: string): Promise<FlashBuild[]> {
     const key = await this.fetchFlashstationKey()
     const url =
       `https://content-flashstation-pa.googleapis.com/v1/builds` +
