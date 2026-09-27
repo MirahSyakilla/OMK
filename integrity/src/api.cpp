@@ -39,7 +39,7 @@ T_Callback o_callback = nullptr;
 
 bool product_field(std::string_view prop, std::string_view field) {
     const std::string_view prefix("ro.product.");
-    if (prop.size() < prefix.size() + field.size() + 1 || prop.compare(0, prefix.size(), prefix) != 0) {
+    if (prop.size() < prefix.size() + field.size() || prop.compare(0, prefix.size(), prefix) != 0) {
         return false;
     }
     if (prop.compare(prop.size() - field.size(), field.size(), field) != 0) {
