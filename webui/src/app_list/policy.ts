@@ -1,5 +1,5 @@
 import type { MdOutlinedSelect, MdOutlinedTextField, MdSwitch } from '@material/web/all'
-import type { Policy, PolicySchema, SelectFieldMeta, TextFieldMeta, ButtonFieldMeta } from '../config'
+import type { Policy, PolicySchema, SelectFieldMeta, TextFieldMeta, ButtonFieldMeta, PolicyFieldMeta } from '../config'
 import { snakeToLabel } from '../config'
 import { i18n } from '../i18n'
 
@@ -73,37 +73,39 @@ export class PolicyEditor {
     return true
   }
 
+  static fieldHtml(key: string, meta: PolicyFieldMeta): string {
+    if (meta.type === 'button') {
+      return `<md-outlined-button class="full-width-button policy-${key}">${i18n.t(meta.label)}</md-outlined-button>`
+    }
+
+    if (meta.type === 'boolean') {
+      return `<label class="switch-item outlined" for="policy-${key}">
+        <md-ripple></md-ripple>
+        <span class="switch-item-label">${meta.label}</span>
+        <md-switch icons="true" id="policy-${key}" class="policy-${key}"${meta.defaultValue ? ' selected' : ''}></md-switch>
+      </label>`
+    }
+
+    if (meta.type === 'select') {
+      const options = meta.options.map((option) =>
+        `<md-select-option value="${option}"><div slot="headline">${option}</div></md-select-option>`
+      ).join('')
+      return `<md-outlined-select class="policy-${key}" label="${meta.label}" menu-positioning="popover">${options}</md-outlined-select>`
+    }
+
+    // text field
+    const textMeta = meta as TextFieldMeta
+    const options = textMeta.options?.length ? ` [${textMeta.options.join('/')}]` : ''
+    const hint = textMeta.placeholder ?? key
+    const displayLabel = textMeta.label ?? snakeToLabel(key)
+    const textarea = textMeta.textarea ? ' type="textarea" rows="3"' : ''
+    const maxlength = textMeta.maxlength != null ? ` maxlength="${textMeta.maxlength}"` : ''
+    const extraClass = textMeta.textarea ? ' mono-field' : ''
+    return `<md-outlined-text-field class="policy-${key}${extraClass}" label="${displayLabel}" placeholder="${hint}${options}" autocapitalize="none"${maxlength}${textarea}></md-outlined-text-field>`
+  }
+
   static html(schema: PolicySchema): string {
-    const fields = schema.getFields().map(([key, meta]) => {
-      if (meta.type === 'button') {
-        return `<md-outlined-button class="full-width-button policy-${key}">${i18n.t(meta.label)}</md-outlined-button>`
-      }
-
-      if (meta.type === 'boolean') {
-        return `<label class="switch-item outlined" for="policy-${key}">
-          <md-ripple></md-ripple>
-          <span>${meta.label}</span>
-          <md-switch icons="true" id="policy-${key}" class="policy-${key}"${meta.defaultValue ? ' selected' : ''}></md-switch>
-        </label>`
-      }
-
-      if (meta.type === 'select') {
-        const options = meta.options.map((option) =>
-          `<md-select-option value="${option}"><div slot="headline">${option}</div></md-select-option>`
-        ).join('')
-        return `<md-outlined-select class="policy-${key}" label="${meta.label}" menu-positioning="popover">${options}</md-outlined-select>`
-      }
-
-      // text field
-      const textMeta = meta as TextFieldMeta
-      const options = textMeta.options?.length ? ` [${textMeta.options.join('/')}]` : ''
-      const hint = textMeta.placeholder ?? key
-      const displayLabel = textMeta.label ?? snakeToLabel(key)
-      const textarea = textMeta.textarea ? ' type="textarea" rows="4"' : ''
-      const maxlength = textMeta.maxlength != null ? ` maxlength="${textMeta.maxlength}"` : ''
-      return `<md-outlined-text-field class="policy-${key}" label="${displayLabel}" placeholder="${hint}${options}" autocapitalize="none"${maxlength}${textarea}></md-outlined-text-field>`
-    }).join('\n')
-    return fields
+    return schema.getFields().map(([key, meta]) => PolicyEditor.fieldHtml(key, meta)).join('\n')
   }
 
   setPolicy(policy: Policy | null): void {

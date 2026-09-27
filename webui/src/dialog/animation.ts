@@ -10,6 +10,24 @@ export function applyDialogAnimation(dialog: MdDialog): void {
 
   dialog.getOpenAnimation = () => {
     document.body.style.overflow = 'hidden'
+    if (dialog.classList.contains('dialog--fullscreen')) {
+      return {
+        dialog: [
+          [
+            [{ opacity: 0, transform: 'translateY(100%)' }, { opacity: 1, transform: 'translateY(0)' }],
+            { duration: 320, easing: 'cubic-bezier(0.05, 0.7, 0.1, 1.0)' },
+          ],
+        ],
+        scrim: [
+          [
+            [{ opacity: 0 }, { opacity: 0.32 }],
+            { duration: 280, easing: 'linear' },
+          ],
+        ],
+        container: [],
+      }
+    }
+
     const defaultAnim = defaultOpenAnim.call(dialog)
     return {
       ...defaultAnim,
@@ -31,6 +49,24 @@ export function applyDialogAnimation(dialog: MdDialog): void {
 
   dialog.getCloseAnimation = () => {
     document.body.style.overflow = ''
+    if (dialog.classList.contains('dialog--fullscreen')) {
+      return {
+        dialog: [
+          [
+            [{ opacity: 1, transform: 'translateY(0)' }, { opacity: 0, transform: 'translateY(100%)' }],
+            { duration: 240, easing: 'cubic-bezier(0.3, 0, 0.8, 0.15)' },
+          ],
+        ],
+        scrim: [
+          [
+            [{ opacity: 0.32 }, { opacity: 0 }],
+            { duration: 240, easing: 'linear' },
+          ],
+        ],
+        container: [],
+      }
+    }
+
     const defaultAnim = defaultCloseAnim.call(dialog)
     return {
       ...defaultAnim,

@@ -31,13 +31,13 @@ export class DialogController {
     this.integrity = new IntegrityDialog(cli, config, snackbar, () => {
       void appList.refresh(false)
     })
-    this.trust = new SectionDialog(config, 'trust', 'trust-settings-dialog')
-    this.core = new SectionDialog(config, 'omk_main', 'core-settings-dialog')
-    this.injector = new SectionDialog(config, 'injector_main', 'injector-settings-dialog')
-    this.filter = new SectionDialog(config, 'filter', 'filter-settings-dialog')
-    this.intercept = new SectionDialog(config, 'intercept', 'intercept-settings-dialog')
-    this.device = new SectionDialog(config, 'device', 'device-settings-dialog')
-    this.crypto = new SectionDialog(config, 'crypto', 'crypto-settings-dialog')
+    this.trust = new SectionDialog(config, 'trust', 'trust-settings-dialog', { snackbar })
+    this.core = new SectionDialog(config, 'omk_main', 'core-settings-dialog', { snackbar })
+    this.injector = new SectionDialog(config, 'injector_main', 'injector-settings-dialog', { snackbar })
+    this.filter = new SectionDialog(config, 'filter', 'filter-settings-dialog', { snackbar })
+    this.intercept = new SectionDialog(config, 'intercept', 'intercept-settings-dialog', { snackbar })
+    this.device = new SectionDialog(config, 'device', 'device-settings-dialog', { fullscreen: true, snackbar })
+    this.crypto = new SectionDialog(config, 'crypto', 'crypto-settings-dialog', { fullscreen: true, snackbar })
     this.runtime = new RuntimeDialog(config)
   }
 
