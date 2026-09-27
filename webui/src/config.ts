@@ -451,6 +451,9 @@ export const SECTION_SCHEMAS: Record<Exclude<SectionKey, 'trust_record'>, Policy
 export class Config {
   readonly identity = 'OMK'
 
+  /** Tail of the write queue. See write(). */
+  static #writeChain: Promise<void> = Promise.resolve()
+
   protected readonly CONFIG_PATH = '/data/misc/keystore/omk'
   protected readonly CONFIG_FILE = `${this.CONFIG_PATH}/config.toml`
   protected readonly INJECTOR_FILE = `${this.CONFIG_PATH}/injector.toml`
@@ -659,6 +662,29 @@ export class Config {
   }
 
   async write(): Promise<void> {
+    // Writes are serialised. Two callers can each mutate #data and call write()
+    // in quick succession, for example two rapid toggle presses; without a
+    // queue the second write can finish first and the older snapshot wins,
+    // silently reverting the newer value. Only one write is in flight at a time
+    // and later callers wait for it, so the last mutation is the last write.
+    const previous = Config.#writeChain
+    let release: () => void = () => {}
+    Config.#writeChain = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    try {
+      await previous
+    } catch {
+      // A failed predecessor must not block this write.
+    }
+    try {
+      await this.#writeNow()
+    } finally {
+      release()
+    }
+  }
+
+  async #writeNow(): Promise<void> {
     const data = this.#data
 
     const injector = this.#injector ?? {}

@@ -154,12 +154,20 @@ export class SectionDialog {
       const confirmSaveBtn = fragment.querySelector<HTMLElement>(`#${this.#dialogId}-confirm-save`)
       if (confirmSaveBtn) {
         confirmSaveBtn.onclick = () => {
+          // Cleared before the confirm closes. The re-arm listener below keys off
+          // #isDirty, and a save that is under way is not a dismissal, so leaving
+          // it set would push a history entry for a dialog that is about to
+          // close, and the matching consume() only calls back() once.
+          this.#isDirty = false
           this.#confirmDialog?.close()
           void this.#save()
         }
       }
 
-      // Re-arm history stack if confirm dialog is dismissed without discarding/saving
+      // Re-arm the history entry when the confirm is dismissed without saving or
+      // discarding, because a back press already popped the dialog's entry and
+      // the dialog is still open. This is deliberately not done on the save or
+      // discard paths: both clear #isDirty or close the dialog themselves.
       this.#confirmDialog?.addEventListener('closed', () => {
         if (this.#dialog?.open && this.#isDirty) {
           this.#history?.push(this.#dialogId, () => this.#handleBackRequest())

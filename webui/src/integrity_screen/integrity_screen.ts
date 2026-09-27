@@ -275,6 +275,19 @@ export class IntegrityScreen {
   }
 
   async load(): Promise<void> {
+    // A pending debounced save carries an unsaved toggle. This method overwrites
+    // every switch from disk, so without settling the queue first a toggle
+    // followed by leaving and re-entering the tab inside the debounce window
+    // visibly reverts, and the queued write then persists the value it captured
+    // rather than what the user last chose.
+    if (this.#saveTimer !== null) {
+      clearTimeout(this.#saveTimer)
+      this.#saveTimer = null
+    }
+    if (this.#isPersisting) {
+      await this.#persistState()
+    }
+
     const status = await this.#cli.detectIntegrityZygisk()
     this.#hasZygisk = status.provider !== null
     this.#canEnable = this.#hasZygisk && status.conflict === null

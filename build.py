@@ -136,16 +136,53 @@ def cargo_env_for_target(target: str) -> dict[str, str]:
     return env
 
 
+def resolve_npm() -> str:
+    """Return the npm to use, preferring one already on PATH.
+
+    Node is installed through nvm, so it is not on the default PATH and a bare
+    "npm" only resolves when the caller happened to export it. Falling back to
+    the newest nvm version keeps a plain `python3 build.py` working instead of
+    failing with a bare FileNotFoundError from subprocess.
+    """
+    found = shutil.which("npm")
+    if found:
+        return found
+    nvm_dir = Path.home() / ".nvm" / "versions" / "node"
+    candidates = sorted(nvm_dir.glob("*/bin/npm")) if nvm_dir.is_dir() else []
+    if not candidates:
+        raise RuntimeError(
+            "npm not found on PATH and no nvm install under "
+            f"{nvm_dir}. Install Node via nvm, or add its bin directory to PATH."
+        )
+    newest = candidates[-1]
+    print(f"npm not on PATH; using {newest}")
+    return os.fspath(newest)
+
+
+def webui_env() -> dict[str, str]:
+    """Environment for npm, with the resolved node directory on PATH.
+
+    npm is a shim that runs the node next to it, so putting only npm on PATH is
+    not enough; the sibling directory has to come with it.
+    """
+    npm = resolve_npm()
+    env = os.environ.copy()
+    env["PATH"] = f"{Path(npm).parent}{os.pathsep}{env.get('PATH', '')}"
+    return env
+
+
 def build_webui() -> None:
     webui_dir = REPO_ROOT / "webui"
     if not webui_dir.exists():
         raise FileNotFoundError(f"WebUI directory not found at {webui_dir}")
 
+    npm = resolve_npm()
+    env = webui_env()
     package_lock = webui_dir / "package-lock.json"
-    install_cmd = ["npm", "ci"] if package_lock.exists() else ["npm", "install"]
+    install_cmd = [npm, "ci"] if package_lock.exists() else [npm, "install"]
 
-    run(install_cmd, cwd=webui_dir)
-    run(["npm", "run", "build"], cwd=webui_dir)
+    run(install_cmd, cwd=webui_dir, env=env)
+    run([npm, "run", "build"], cwd=webui_dir, env=env)
 
 
 def build_binary(
