@@ -874,3 +874,30 @@ Saving an enabled configuration restarts
 keymint and the injector, then kills `com.google.android.gms.unstable` and
 force-stops `com.android.vending`. A new zygisk `.so` takes effect after a
 reboot.
+
+### WebUI caches
+
+The WebUI keeps two caches outside the module directory so they survive a module
+update, and both are removed by `uninstall.sh`:
+
+| Path | Contents |
+|---|---|
+| `/data/misc/keystore/omk/data/webui/icon-cache.json` | App icons already resolved, with the `versionCode` each was captured at |
+| `/data/misc/keystore/omk/data/webui/flashstation-cache.json` | Flash Station build lists backing the fingerprint picker |
+
+`icon-cache.json` is a cache of icons that have already been looked at, not a
+prefill; a device that has never opened the app list has no entry for anything. An
+entry is only reused while the package's `versionCode` still matches, so an app
+update invalidates it, and packages that are no longer installed are pruned on
+the next save. The whole file is discarded after seven days, which is the
+backstop for an icon that changes without a version bump, such as a theme pack
+or a runtime-swapped adaptive icon. Writes are debounced and only happen when an
+entry actually changed, and the file is not written at all if it would exceed
+12 MB.
+
+Neither cache is required for correctness. If the file is missing, unreadable,
+stale, or the manager does not expose the bulk icon API, the WebUI falls back to
+the per-icon `ksu://icon/` path and then to the placeholder.
+
+Nothing here is affected by Restart All or Restart Daemon; those restart the
+KeyMint and injector services, which do not read either file.

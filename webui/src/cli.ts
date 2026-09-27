@@ -11,7 +11,13 @@ const FLASHSTATION_KEY_FALLBACK = 'AIzaSyD-bwHpMvFCN3PfRN4Txsw_ECg_iptNfMQ'
 /// a new build within a day.
 const FLASHSTATION_BUILD_TTL_MS = 6 * 60 * 60 * 1000
 /// Where the baseline build lists are cached between sessions.
-const FLASHSTATION_CACHE_PATH = '/data/adb/omk/flashstation-cache.json'
+///
+/// Under the WebUI-owned cache directory, so uninstall.sh can remove it along
+/// with the icon cache. It is outside the module directory on purpose: that
+/// directory is replaced on every module update, which would silently throw the
+/// cache away.
+const WEBUI_CACHE_DIR = '/data/misc/keystore/omk/data/webui'
+const FLASHSTATION_CACHE_PATH = `${WEBUI_CACHE_DIR}/flashstation-cache.json`
 
 export interface FlashBuild {
   product: string
@@ -77,6 +83,7 @@ export class Cli {
     try {
       const payload: Record<string, { at: number; builds: FlashBuild[] }> = {}
       for (const [product, entry] of Cli.#buildCache) payload[product] = entry
+      await File.createDirectory(WEBUI_CACHE_DIR)
       await File.write(FLASHSTATION_CACHE_PATH, JSON.stringify(payload))
     } catch {
       // A cache that cannot be written only costs a network fetch next time.

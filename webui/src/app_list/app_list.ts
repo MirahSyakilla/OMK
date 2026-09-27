@@ -1,5 +1,6 @@
 import { listPackages, getPackagesInfo } from 'kernelsu-alt'
 import { BulkIcons } from '../cli'
+import { iconCache } from '../icon_cache'
 import type { PackagesInfo } from 'kernelsu-alt'
 import type { MdDialog, MdFilledButton } from '@material/web/all'
 import { Config } from '../config'
@@ -26,10 +27,14 @@ export interface AppEntry {
   packageName: string
   appName: string
   isSystem: boolean
+  /** Used to invalidate a cached icon when the package is updated. */
+  versionCode?: number
 }
 
 export class AppList {
   #entries: AppEntry[] = []
+  /** packageName -> versionCode, so icon invalidation is a map lookup. */
+  #versionByPackage = new Map<string, number | undefined>()
   #config: Config
   #iconObserver: IntersectionObserver | null = null
   #systemAppIconObserver: IntersectionObserver | null = null
@@ -81,13 +86,21 @@ export class AppList {
       infos = []
     }
 
+    // Icons already resolved in a previous session are served from disk, and
+    // anything no longer installed is dropped from the file.
+    await iconCache.load()
+    iconCache.retain(new Set(pkgs))
+
     const infoMap = new Map(infos.map((info) => [info.packageName, info]))
+    this.#versionByPackage.clear()
+    for (const info of infos) this.#versionByPackage.set(info.packageName, info.versionCode)
     this.#entries = pkgs.map((pkg: string) => {
       const info = infoMap.get(pkg)
       return {
         packageName: pkg,
         appName: info?.appLabel || pkg,
         isSystem: info?.isSystem ?? false,
+        versionCode: typeof info?.versionCode === 'number' ? info.versionCode : undefined,
       }
     })
   }
@@ -578,6 +591,8 @@ export class AppList {
             const url = icons.get(item.packageName)
             if (url) {
               this.#iconCache.set(item.packageName, url)
+              const versionCode = this.#versionByPackage.get(item.packageName)
+              iconCache.put(item.packageName, versionCode, url)
               this.#showIcon(item.img, item.loader, url)
             } else {
               // The manager had nothing for this package, so the per-icon path
@@ -609,6 +624,15 @@ export class AppList {
     const cached = this.#iconCache.get(packageName)
     if (cached) {
       this.#showIcon(img, loader, cached)
+      return
+    }
+    // Then the on-disk cache, but only while the package's version code still
+    // matches what was stored, so an update invalidates the entry.
+    const versionCode = this.#versionByPackage.get(packageName)
+    const persisted = iconCache.get(packageName, versionCode)
+    if (persisted) {
+      this.#iconCache.set(packageName, persisted)
+      this.#showIcon(img, loader, persisted)
       return
     }
     // A manager with the bulk bridge decodes a page of packages in one call and

@@ -57,6 +57,7 @@ REQUIRED_TEMPLATE_FILES = (
     "module.prop",
     "post-fs-data.sh",
     "service.sh",
+    "uninstall.sh",
     "verify.sh",
 )
 
@@ -72,6 +73,7 @@ MODULE_TEXT_FILES = (
     "post-fs-data.sh",
     "sepolicy.rule",
     "service.sh",
+    "uninstall.sh",
     "verify.sh",
     "META-INF/com/google/android/update-binary",
     "META-INF/com/google/android/updater-script",
