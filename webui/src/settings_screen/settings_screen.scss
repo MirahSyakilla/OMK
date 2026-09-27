@@ -73,6 +73,10 @@
       border-radius: 20px !important;
     }
   }
+
+  md-switch {
+    flex-shrink: 0;
+  }
 }
 
 .settings-icon {

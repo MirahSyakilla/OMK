@@ -175,7 +175,7 @@ keyboxScreen.render(keyboxPage)
 
 // Tab 3: Settings Screen
 const settingsPage = document.querySelector<HTMLElement>('#settings-page')!
-const settingsScreen = new SettingsScreen(dialogController, config)
+const settingsScreen = new SettingsScreen(dialogController, config, snackbar)
 settingsScreen.render(settingsPage)
 
 // Shell Navigation
