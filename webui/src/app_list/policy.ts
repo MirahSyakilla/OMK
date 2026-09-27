@@ -41,10 +41,21 @@ export class PolicyEditor {
       const field = this.#fields.get(key) as MdOutlinedTextField | undefined
       if (!field) continue
       const textMeta = meta as TextFieldMeta
+      const updateRows = () => {
+        if (!textMeta.textarea) return
+        const val = field.value || ''
+        const lines = (val.match(/\n/g) || []).length + 1
+        const wrap = Math.ceil(val.length / 32)
+        field.rows = Math.min(Math.max(lines, wrap, 2), 6)
+      }
       field.oninput = () => {
-        const val = field.value.trim().toLowerCase()
-        field.value = val
-        const result = textMeta.validate(val)
+        if (!textMeta.textarea) {
+          const val = field.value.trim().toLowerCase()
+          field.value = val
+        } else {
+          updateRows()
+        }
+        const result = textMeta.validate(field.value.trim().toLowerCase())
         if (result === true) {
           field.error = false
         } else {
@@ -98,7 +109,7 @@ export class PolicyEditor {
     const options = textMeta.options?.length ? ` [${textMeta.options.join('/')}]` : ''
     const hint = textMeta.placeholder ?? key
     const displayLabel = textMeta.label ?? snakeToLabel(key)
-    const textarea = textMeta.textarea ? ' type="textarea" rows="3"' : ''
+    const textarea = textMeta.textarea ? ' type="textarea" rows="2"' : ''
     const maxlength = textMeta.maxlength != null ? ` maxlength="${textMeta.maxlength}"` : ''
     const extraClass = textMeta.textarea ? ' mono-field' : ''
     return `<md-outlined-text-field class="policy-${key}${extraClass}" label="${displayLabel}" placeholder="${hint}${options}" autocapitalize="none"${maxlength}${textarea}></md-outlined-text-field>`
@@ -131,6 +142,12 @@ export class PolicyEditor {
       if (!field) continue
       field.value = (policy?.[key] as string) ?? ''
       if ('error' in field) field.error = false
+      if ((meta as TextFieldMeta).textarea) {
+        const val = field.value || ''
+        const lines = (val.match(/\n/g) || []).length + 1
+        const wrap = Math.ceil(val.length / 32)
+        field.rows = Math.min(Math.max(lines, wrap, 2), 6)
+      }
     }
   }
 

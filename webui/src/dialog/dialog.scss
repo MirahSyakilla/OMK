@@ -519,9 +519,8 @@
         display: flex;
         flex-direction: column;
         gap: 14px;
-        overflow: hidden;
+        overflow: visible;
         box-sizing: border-box;
-
         .fs-card-header {
           display: flex;
           align-items: center;
@@ -561,11 +560,13 @@
         .fs-card-fields {
           display: flex;
           flex-direction: column;
-          gap: 12px;
+          gap: 16px;
+          padding-top: 6px;
         }
 
         md-outlined-text-field {
           width: 100%;
+          overflow: visible;
         }
 
         // Author requested: Make input border pill shaped (28px = height/2 for 56px input)
@@ -574,7 +575,7 @@
           --md-outlined-field-container-shape: 28px;
         }
 
-        // Author requested: Rounded corners + min & max bounds on textarea so it cannot collapse or expand infinitely
+        // Modern Auto-Grow Textarea with bounds (Approach B)
         md-outlined-text-field[type="textarea"],
         md-outlined-text-field.mono-field {
           --md-outlined-text-field-container-shape: 16px;
@@ -583,9 +584,8 @@
           font-family: monospace;
           font-size: 0.8125rem;
           word-break: break-all;
-          resize: vertical !important;
-          min-height: 84px !important;
-          max-height: 180px !important;
+          resize: none !important;
+          overflow: visible;
         }
 
         .switch-row {

@@ -422,7 +422,7 @@ export class SectionDialog {
     const options = textMeta.options?.length ? ` [${textMeta.options.join('/')}]` : ''
     const hint = textMeta.placeholder ?? key
     const displayLabel = textMeta.label ?? snakeToLabel(key)
-    const textarea = textMeta.textarea ? ' type="textarea" rows="3"' : ''
+    const textarea = textMeta.textarea ? ' type="textarea" rows="2"' : ''
     const maxlength = textMeta.maxlength != null ? ` maxlength="${textMeta.maxlength}"` : ''
     const extraClass = textMeta.textarea ? ' mono-field' : ''
     return `<md-outlined-text-field class="policy-${key}${extraClass}" label="${displayLabel}" placeholder="${hint}${options}" autocapitalize="none"${maxlength}${textarea}></md-outlined-text-field>`
