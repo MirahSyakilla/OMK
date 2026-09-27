@@ -383,3 +383,84 @@ printf '%s %s\\n' "$provider" "$conflict"
     return candidates[0]
   }
 }
+
+/// Icon size requested from the bulk bridge, in pixels.
+///
+/// Small on purpose. A list row is 48dp, and the `ksu://icon/` handler in some
+/// manager builds decodes and compresses at a hardcoded 512px, which is wasted
+/// work and wasted heap for every one of the several hundred rows.
+const ICON_SIZE_PX = 96
+
+interface BulkIcon {
+  packageName?: string
+  icon?: string
+}
+
+export interface IconBatch {
+  packageName: string
+  /** A `data:` URL, or an empty string when the bridge had no icon. */
+  dataUrl: string
+}
+
+/**
+ * Bulk icon access, when the manager exposes it.
+ *
+ * The per-icon `ksu://icon/<pkg>` path is served by `shouldInterceptRequest`,
+ * which Chromium dispatches sequentially on a single thread, and a device with
+ * several hundred packages therefore queues several hundred serialized native
+ * decodes. KernelSU-Next's manager exposes `getPackagesIcons` plus
+ * `cacheAllPackageIcons` for exactly this reason: one bridge call, a bounded
+ * icon size, and a native cache.
+ *
+ * `kernelsu-alt` does not wrap those methods, so they are called on the global
+ * bridge directly and their presence is detected at runtime. A manager without
+ * them reports no support and callers fall back to the lazy per-icon path.
+ */
+export class BulkIcons {
+  /// How many packages per bridge call. Binder transactions have a ~1MB budget
+  /// and base64 adds a third, so a page is kept small rather than requesting all
+  /// packages at once.
+  static readonly PAGE = 24
+
+  static supported(): boolean {
+    const bridge = (globalThis as { ksu?: Record<string, unknown> }).ksu
+    return typeof bridge?.getPackagesIcons === 'function'
+  }
+
+  /// Ask the manager to pre-decode and cache every icon at the given size.
+  /// Best effort: a manager that lacks the method, or a failure, is not an error.
+  static async warm(sizePx: number = ICON_SIZE_PX): Promise<void> {
+    const bridge = (globalThis as { ksu?: Record<string, unknown> }).ksu
+    if (typeof bridge?.cacheAllPackageIcons !== 'function') return
+    try {
+      ;(bridge.cacheAllPackageIcons as (size: number) => void)(sizePx)
+    } catch {
+      // Cache warming is an optimisation, never a requirement.
+    }
+  }
+
+  static async fetch(packages: string[], sizePx: number = ICON_SIZE_PX): Promise<Map<string, string>> {
+    const out = new Map<string, string>()
+    if (!BulkIcons.supported() || packages.length === 0) return out
+    const bridge = (globalThis as { ksu?: Record<string, unknown> }).ksu
+    for (let index = 0; index < packages.length; index += BulkIcons.PAGE) {
+      const page = packages.slice(index, index + BulkIcons.PAGE)
+      try {
+        const raw = (bridge!.getPackagesIcons as (json: string, size: number) => string)(
+          JSON.stringify(page),
+          sizePx,
+        )
+        const parsed = JSON.parse(raw) as BulkIcon[]
+        if (!Array.isArray(parsed)) continue
+        for (const entry of parsed) {
+          if (entry?.packageName && entry.icon) {
+            out.set(entry.packageName, `data:image/png;base64,${entry.icon}`)
+          }
+        }
+      } catch {
+        // A failed page falls back to the per-icon path for those packages.
+      }
+    }
+    return out
+  }
+}
