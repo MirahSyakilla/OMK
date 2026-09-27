@@ -440,6 +440,9 @@ export class BulkIcons {
     return typeof bridge?.cacheAllPackageIcons === 'function'
   }
 
+  /// Fetch one page. Callers batch the packages that are actually on screen into
+  /// a single call, because a call per package costs a bridge round trip each
+  /// and gains nothing over the interception path it replaces.
   static async fetch(packages: string[], sizePx: number = ICON_SIZE_PX): Promise<Map<string, string>> {
     const out = new Map<string, string>()
     if (!BulkIcons.supported() || packages.length === 0) return out

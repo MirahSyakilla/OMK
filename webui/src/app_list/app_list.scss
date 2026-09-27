@@ -29,6 +29,15 @@
     }
   }
 
+  // Isolation for WebViews without content-visibility. They render every card,
+  // which is slower but correct, so the property is feature-detected rather than
+  // assumed.
+  @supports not (content-visibility: auto) {
+    .card {
+      contain: layout style paint;
+    }
+  }
+
   .card {
     // Skips layout and paint for cards that are off screen. The app list can
     // hold several hundred cards and painting them all is the main-thread work

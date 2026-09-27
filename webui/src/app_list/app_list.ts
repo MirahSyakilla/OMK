@@ -501,6 +501,20 @@ export class AppList {
   #iconCache = new Map<string, string>()
   /** Packages whose icon a bulk request is currently in flight for. */
   #iconPending = new Set<string>()
+  /**
+   * Rows waiting to be resolved by the bulk bridge.
+   *
+   * Batched rather than fetched per row: the bridge is synchronous on a single
+   * thread, so a call per package would be one round trip per icon and would
+   * gain nothing over the interception path it is meant to replace.
+   */
+  #iconQueue: Array<{
+    packageName: string
+    img: HTMLImageElement
+    loader: HTMLElement | null
+    root: ParentNode
+  }> = []
+  #iconFlushScheduled = false
 
   /**
    * Whether this WebView supports content-visibility.
@@ -540,6 +554,44 @@ export class AppList {
   }
 
 
+  /**
+   * Send everything queued so far as one bridge call.
+   *
+   * The observer fires for a whole screenful at once, so the queue normally
+   * holds one or two pages' worth and a single call covers them. A page cap
+   * keeps each call's base64 payload bounded, because the manager returns the
+   * icons inline in one JSON string and Binder transactions have a ~1MB budget.
+   */
+  #flushIconQueue(): void {
+    if (this.#iconFlushScheduled) return
+    this.#iconFlushScheduled = true
+    const send = (): void => {
+      this.#iconFlushScheduled = false
+      const batch = this.#iconQueue.splice(0, BulkIcons.PAGE)
+      if (batch.length === 0) return
+      void BulkIcons.fetch(batch.map((item) => item.packageName))
+        .then((icons) => {
+          for (const item of batch) {
+            const url = icons.get(item.packageName)
+            if (url) {
+              this.#iconCache.set(item.packageName, url)
+              this.#showIcon(item.img, item.loader, url)
+            } else {
+              // The manager had nothing for this package, so the per-icon path
+              // still gets a chance rather than the row showing its placeholder.
+              this.#showIcon(item.img, item.loader, `ksu://icon/${item.packageName}`, item.packageName, item.root)
+            }
+          }
+        })
+        .finally(() => {
+          for (const item of batch) this.#iconPending.delete(item.packageName)
+          if (this.#iconQueue.length > 0) this.#flushIconQueue()
+        })
+    }
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(send)
+    else setTimeout(send, 0)
+  }
+
   #loadIcon(packageName: string, scopeEl?: HTMLElement): void {
     const root = scopeEl ?? document
     const img = root.querySelector<HTMLImageElement>(`.app-icon[data-package="${packageName}"]`)
@@ -554,21 +606,12 @@ export class AppList {
     }
     // A manager with the bulk bridge decodes a page of packages in one call and
     // caches them natively, instead of one intercepted native decode per row.
+    // The package is queued rather than fetched immediately so that everything
+    // the observer reported in the same frame goes out as one call.
     if (BulkIcons.supported() && !this.#iconPending.has(packageName)) {
       this.#iconPending.add(packageName)
-      void BulkIcons.fetch([packageName])
-        .then((batch) => {
-          const url = batch.get(packageName)
-          if (url) {
-            this.#iconCache.set(packageName, url)
-            this.#showIcon(img, loader, url)
-          } else {
-            // The manager had nothing for this package, so the per-icon path
-            // still gets a chance rather than the row showing the fallback.
-            this.#showIcon(img, loader, `ksu://icon/${packageName}`, packageName, root)
-          }
-        })
-        .finally(() => this.#iconPending.delete(packageName))
+      this.#iconQueue.push({ packageName, img, loader, root })
+      this.#flushIconQueue()
       return
     }
     this.#showIcon(img, loader, `ksu://icon/${packageName}`, packageName, root)
