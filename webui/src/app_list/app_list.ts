@@ -41,6 +41,12 @@ export class AppList {
   #pifEnabled = false
   #pifDialog: MdDialog | null = null
   #pifResolve: ((proceed: boolean) => void) | null = null
+  /**
+   * Bumped on every render. A progressive render that is still appending cards
+   * is abandoned when a newer render starts, so a filter change or a tab switch
+   * cannot leave stale cards appearing in the new list.
+   */
+  #renderGeneration = 0
   menuOpen = false
 
   constructor(config: Config) {
@@ -179,15 +185,46 @@ export class AppList {
       return (a.appName || '').localeCompare(b.appName || '')
     })
 
-    const fragment = document.createDocumentFragment()
-    for (const entry of displayed) {
-      fragment.appendChild(this.#createCard(entry, target.includes(entry.packageName)))
-    }
-    container.appendChild(fragment)
-
     this.#iconObserver?.disconnect()
     this.#iconObserver = this.#setupIconObserver(container)
     this.#setupCardListeners(container)
+    this.#appendChunked(container, displayed, (entry) => target.includes(entry.packageName))
+  }
+
+  /**
+   * Append cards in small batches, one per animation frame.
+   *
+   * A device can have several hundred packages, and each card contains an
+   * md-ripple, an md-checkbox and an inline SVG. Building every card and
+   * appending them in one pass parses and upgrades thousands of nodes without
+   * yielding, which blocks the main thread long enough to stall the animated
+   * header border and make the list feel frozen. Batching keeps each slice of
+   * work short, so the frame loop stays responsive and the list fills in
+   * progressively. Icons are observed per chunk so they start arriving while the
+   * rest of the list is still being built.
+   */
+  #appendChunked(
+    container: HTMLElement,
+    entries: AppEntry[],
+    isSelected: (entry: AppEntry) => boolean,
+  ): void {
+    const generation = ++this.#renderGeneration
+    const CHUNK = 20
+    let index = 0
+    const step = (): void => {
+      if (generation !== this.#renderGeneration) return
+      const fragment = document.createDocumentFragment()
+      const end = Math.min(index + CHUNK, entries.length)
+      for (; index < end; index++) {
+        fragment.appendChild(this.#createCard(entries[index] as AppEntry, isSelected(entries[index] as AppEntry)))
+      }
+      container.appendChild(fragment)
+      fragment.querySelectorAll('.app-icon-container').forEach((el) => this.#iconObserver?.observe(el))
+      if (index < entries.length) {
+        requestAnimationFrame(step)
+      }
+    }
+    requestAnimationFrame(step)
   }
 
   renderSystemAppList(container: HTMLElement): void {
@@ -203,16 +240,10 @@ export class AppList {
       return (a.appName || '').localeCompare(b.appName || '')
     })
 
-    const fragment = document.createDocumentFragment()
-    for (const entry of systemEntries) {
-      const cardBox = this.#createCard(entry, additionalApps.includes(entry.packageName))
-      fragment.appendChild(cardBox)
-    }
-    container.appendChild(fragment)
-
     this.#systemAppIconObserver?.disconnect()
     this.#systemAppIconObserver = this.#setupIconObserver(container)
     this.#setupSystemAppListeners(container)
+    this.#appendChunked(container, systemEntries, (entry) => additionalApps.includes(entry.packageName))
   }
 
   getAdditionalApps(): string[] {
@@ -451,6 +482,7 @@ export class AppList {
     container.querySelectorAll('.app-icon-container').forEach((el) => observer.observe(el))
     return observer
   }
+
 
   #loadIcon(packageName: string, scopeEl?: HTMLElement): void {
     const root = scopeEl ?? document

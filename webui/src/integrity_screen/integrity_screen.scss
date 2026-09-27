@@ -20,26 +20,20 @@
 // Full-width picker action, placed under the Play Integrity master switch.
 // The master switch is the thing this configures, so the control belongs with
 // it rather than in a corner chip that read as an overflow action.
-.integrity-picker {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: 100%;
-  padding: 10px 2px 14px;
-  border-bottom: 1px solid var(--md-sys-color-outline-variant);
-  margin-bottom: 6px;
-}
+// An action row rather than a switch row, so it is built from the same shell as
+// its neighbours and only the trailing control is missing.
+.integrity-picker-row {
+  cursor: pointer;
 
-.integrity-picker-button {
-  width: 100%;
-  --md-filled-button-container-height: 52px;
-  --md-sys-color-on-primary: var(--md-sys-color-on-primary);
-}
+  .integrity-picker-icon {
+    color: var(--md-sys-color-on-surface-variant);
+    flex-shrink: 0;
+  }
 
-.integrity-picker-hint {
-  font-size: 0.75rem;
-  line-height: 1.35;
-  color: var(--md-sys-color-on-surface-variant);
+  &:focus-visible {
+    outline: 2px solid var(--md-sys-color-primary);
+    outline-offset: -2px;
+  }
 }
 
 .integrity-status-banner {
@@ -231,5 +225,36 @@
   &.badge-tertiary {
     background: var(--md-sys-color-tertiary-container);
     color: var(--md-sys-color-on-tertiary-container);
+  }
+}
+
+// The fingerprint picker. It is built by creating an md-dialog in script rather
+// than from markup, so nothing in the shared dialog stylesheet reaches it and
+// it rendered with square-cornered selects and an option list that overflowed
+// the dialog and ran off the bottom of the screen.
+#fp-picker-dialog {
+  --md-dialog-container-min-inline-size: min(92vw, 420px);
+  --md-dialog-container-max-inline-size: min(94vw, 480px);
+
+  [slot='content'] {
+    overflow: visible;
+  }
+
+  md-outlined-select {
+    --md-outlined-select-text-field-container-shape: 28px !important;
+    --md-outlined-select-container-shape: 28px !important;
+    --md-outlined-field-container-shape: 28px !important;
+    width: 100%;
+  }
+
+  md-outlined-text-field {
+    --md-outlined-text-field-container-shape: 28px !important;
+    --md-outlined-field-container-shape: 28px !important;
+  }
+
+  // md-menu takes its max-height by inheritance, so bounding it here makes the
+  // list scroll inside the dialog instead of expanding past it.
+  md-menu {
+    max-height: min(46vh, 320px);
   }
 }

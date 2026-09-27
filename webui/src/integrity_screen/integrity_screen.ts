@@ -186,16 +186,18 @@ export class IntegrityScreen {
               </div>
 
               <!--
-                Sits directly under the master switch rather than in a header bar:
-                it configures what that master switch turns on, and as a small
-                chip in the corner it read as an overflow action.
+                Shaped like the rows around it, but with no trailing switch.
+                It is an action, not a setting, so a toggle that cannot stay put
+                would misrepresent it, and the empty right-hand space is what
+                keeps the stack reading as one list.
               -->
-              <div class="integrity-picker">
-                <md-filled-button id="pif-select-fp" class="integrity-picker-button">
-                  <md-icon slot="icon">download</md-icon>
-                  Select Fingerprint
-                </md-filled-button>
-                <div class="integrity-picker-hint">Click to select your integrity fingerprint</div>
+              <div class="switch-row integrity-picker-row" id="row-select-fp" role="button" tabindex="0" aria-label="Select Fingerprint">
+                <md-ripple></md-ripple>
+                <div class="switch-row-content">
+                  <div class="switch-row-title">Select Fingerprint</div>
+                  <div class="switch-row-sub">Click to select your integrity fingerprint</div>
+                </div>
+                <md-icon class="integrity-picker-icon">chevron_right</md-icon>
               </div>
 
               <div class="switch-row" id="row-spoof-build" role="button" tabindex="0">
@@ -338,7 +340,15 @@ export class IntegrityScreen {
   #bindEvents(): void {
     if (!this.#container) return
 
-    this.#container.querySelector('#pif-select-fp')?.addEventListener('click', () => {
+    const pickerRow = this.#container.querySelector<HTMLElement>('#row-select-fp')
+    pickerRow?.addEventListener('click', () => {
+      void this.#selectFingerprint()
+    })
+    // Match the other rows: the element claims role="button", so it has to act
+    // like one for keyboard and switch users.
+    pickerRow?.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return
+      e.preventDefault()
       void this.#selectFingerprint()
     })
     const statusEl = this.#container?.querySelector<HTMLElement>('#pif-zygisk-status')
@@ -606,6 +616,10 @@ export class IntegrityScreen {
     let major = majors.includes(romMajor) ? romMajor : (majors[0] as number)
 
     const dialog = document.createElement('md-dialog')
+    // The id is what the pill-shape and sizing rules in the stylesheet key on.
+    // Without it the selects render as square-cornered fields at their default
+    // width, and the option list escapes the dialog instead of scrolling.
+    dialog.id = 'fp-picker-dialog'
     // Scrim clicks and Escape close the dialog, and neither path runs the
     // Cancel or Apply handler, so removal is bound to the closed event instead
     // of being done by hand in each button.
