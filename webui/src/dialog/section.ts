@@ -257,7 +257,7 @@ export class SectionDialog {
   #renderFields(): string {
     if (this.#section === 'device') {
       return [
-        this.#renderCard('Device Identity', [
+        this.#renderCard('Device Identity', 'Basic hardware and build properties', 'devices', [
           'brand',
           'device',
           'product',
@@ -265,19 +265,23 @@ export class SectionDialog {
           'model',
           'serial',
         ]),
-        this.#renderSwitchGroup('Telephony Override', ['overrideTelephonyProperties']),
-        this.#renderCard('Telephony Identifiers', ['meid', 'imei', 'imei2']),
+        this.#renderCard('Telephony Identifiers', 'IMEI and MEID overrides for attestation', 'cell_tower', [
+          'overrideTelephonyProperties',
+          'meid',
+          'imei',
+          'imei2',
+        ]),
       ].join('\n')
     }
 
     if (this.#section === 'crypto') {
       return [
-        this.#renderCard('Master Seeds (64 Hex)', [
+        this.#renderCard('Master Seeds', 'Hardware-backed root derivation seeds (64 hex characters)', 'vpn_key', [
           'root_kek_seed',
           'kak_seed',
           'shared_secret_seed',
         ]),
-        this.#renderCard('Authentication & Nonce', [
+        this.#renderCard('Authentication & Nonce', 'Auth token HMAC key and negotiation nonce', 'security', [
           'shared_secret_nonce',
           'auth_token_hmac_key',
         ]),
@@ -286,26 +290,35 @@ export class SectionDialog {
 
     if (this.#section === 'trust') {
       return [
-        this.#renderCard('Attestation Values', ['os_version', 'security_patch']),
-        this.#renderCard('Verified Boot Keys & Hashes', ['vb_key', 'vb_hash']),
-        this.#renderSwitchGroup('Boot State Flags', ['verified_boot_state', 'device_locked']),
+        this.#renderCard('Attestation Values', 'OS version and build security patch level', 'verified_user', [
+          'os_version',
+          'security_patch',
+        ]),
+        this.#renderCard('Verified Boot Keys & Hashes', 'Cryptographic keys and digests for boot attestation', 'fingerprint', [
+          'vb_key',
+          'vb_hash',
+        ]),
+        this.#renderSwitchGroup('Boot State Flags', 'Hardware boot lock & verification state', 'lock', [
+          'verified_boot_state',
+          'device_locked',
+        ]),
       ].join('\n')
     }
 
     if (this.#section === 'intercept') {
       return [
-        this.#renderSwitchGroup('Key Retrieval & Metadata', [
+        this.#renderSwitchGroup('Key Retrieval & Metadata', 'Keystore inspection and entry retrieval', 'vpn_key', [
           'get_security_level',
           'get_key_entry',
           'get_number_of_entries',
           'get_supplementary_attestation_info',
         ]),
-        this.#renderSwitchGroup('Listing & Updates', [
+        this.#renderSwitchGroup('Listing & Updates', 'Alias queries and subcomponent modification', 'list_alt', [
           'list_entries',
           'list_entries_batched',
           'update_subcomponent',
         ]),
-        this.#renderSwitchGroup('Key Management & Grants', [
+        this.#renderSwitchGroup('Key Management & Grants', 'Lifecycle deletion and caller authorization', 'admin_panel_settings', [
           'delete_key',
           'grant',
           'ungrant',
@@ -316,7 +329,7 @@ export class SectionDialog {
     return PolicyEditor.html(this.#config.getSectionSchema(this.#section))
   }
 
-  #renderCard(title: string, fieldKeys: string[]): string {
+  #renderCard(title: string, subtitle: string, icon: string, fieldKeys: string[]): string {
     const schema = this.#config.getSectionSchema(this.#section)
     const fieldsHtml = fieldKeys
       .map((key) => {
@@ -327,14 +340,22 @@ export class SectionDialog {
       .join('\n')
 
     return `
-      <div class="fs-section-title">${title}</div>
       <div class="fs-card">
-        ${fieldsHtml}
+        <div class="fs-card-header">
+          <md-icon class="fs-card-icon">${icon}</md-icon>
+          <div class="fs-card-title-group">
+            <div class="fs-card-title">${title}</div>
+            ${subtitle ? `<div class="fs-card-subtitle">${subtitle}</div>` : ''}
+          </div>
+        </div>
+        <div class="fs-card-fields">
+          ${fieldsHtml}
+        </div>
       </div>
     `
   }
 
-  #renderSwitchGroup(title: string, fieldKeys: string[]): string {
+  #renderSwitchGroup(title: string, subtitle: string, icon: string, fieldKeys: string[]): string {
     const schema = this.#config.getSectionSchema(this.#section)
     const switchesHtml = fieldKeys
       .map((key) => {
@@ -356,9 +377,17 @@ export class SectionDialog {
       .join('\n')
 
     return `
-      <div class="fs-section-title">${title}</div>
-      <div class="switch-stack">
-        ${switchesHtml}
+      <div class="fs-card">
+        <div class="fs-card-header">
+          <md-icon class="fs-card-icon">${icon}</md-icon>
+          <div class="fs-card-title-group">
+            <div class="fs-card-title">${title}</div>
+            ${subtitle ? `<div class="fs-card-subtitle">${subtitle}</div>` : ''}
+          </div>
+        </div>
+        <div class="switch-stack">
+          ${switchesHtml}
+        </div>
       </div>
     `
   }
