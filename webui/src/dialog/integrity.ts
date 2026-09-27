@@ -5,6 +5,7 @@ import { Config } from '../config'
 import { PIXEL_DEVICES } from '../constant'
 import { File } from '../file'
 import { buildProp } from '../integrity_prop'
+import { activeTemplate } from '../fingerprint_template'
 import { Snackbar } from '../snackbar/snackbar'
 import { applyDialogAnimation } from './animation'
 
@@ -23,6 +24,11 @@ interface IntegrityState {
   sync_trust_patch: boolean
   sync_device_ids: boolean
   unify_product_props: boolean
+  /**
+   * Owned by the Integrity screen's switch. This dialog has no row for it, so it
+   * is carried through unchanged rather than dropped when the block is rewritten.
+   */
+  auto_fetch_fingerprint: boolean
   soter_beta: boolean
 }
 
@@ -35,6 +41,7 @@ const DEFAULTS: IntegrityState = {
   sync_device_ids: true,
   unify_product_props: false,
   soter_beta: false,
+  auto_fetch_fingerprint: false,
 }
 
 function parseBool(value: string | undefined, fallback: boolean): boolean {
@@ -125,6 +132,8 @@ export class IntegrityDialog {
   #snackbar: Snackbar
   #pendingProp: string | null = null
   #fingerprint = ''
+  /** Mirrors integrity.toml's auto_fetch_fingerprint, which this dialog never edits. */
+  #autoFetchFingerprint = false
   #product = ''
   #canEnable = false
   #onSaved: (() => void) | null = null
@@ -243,6 +252,7 @@ export class IntegrityDialog {
     if (soter) soter.disabled = status.provider === null
 
     this.#fingerprint = await this.#readFingerprint()
+    this.#autoFetchFingerprint = (await this.#readState()).auto_fetch_fingerprint
     this.#renderFingerprint()
     this.#dialog?.show()
   }
@@ -294,6 +304,7 @@ export class IntegrityDialog {
         sync_trust_patch: parseBool(map.sync_trust_patch, true),
         sync_device_ids: parseBool(map.sync_device_ids, true),
         unify_product_props: parseBool(map.unify_product_props, false),
+        auto_fetch_fingerprint: parseBool(map.auto_fetch_fingerprint, false),
         soter_beta: parseBool(map.soter_beta, false),
       }
     } catch {
@@ -340,7 +351,7 @@ export class IntegrityDialog {
 
       for (const candidate of ordered) {
         try {
-          const content = await this.#fetchBuildProp(candidate, target)
+          const content = await this.#fetchBuildProp(candidate, target, update)
           if (!content || !matchesRom(content)) continue
           product = candidate
           this.#pendingProp = content
@@ -371,8 +382,17 @@ export class IntegrityDialog {
     }
   }
 
-  async #fetchBuildProp(product: string, target: number | null): Promise<string> {
-    const builds = await this.#cli.fetchFlashstationBuilds(product)
+  async #fetchBuildProp(product: string, target: number | null, live = false): Promise<string> {
+    // The shipped lists are the default; only an explicit Update goes to the
+    // network, so merely opening this dialog never waits on Google.
+    const builds = live
+      ? await this.#cli.fetchFlashstationBuilds(product)
+      : (activeTemplate()[product]?.builds ?? []).map(([releaseCandidateName, buildId]) => ({
+          product,
+          releaseCandidateName,
+          buildId,
+          target: `${product}-user`,
+        }))
     const picked = pickBuild(builds, target)
     if (!picked) return ''
     const major = buildMajor(picked)
@@ -407,6 +427,9 @@ export class IntegrityDialog {
       sync_device_ids: this.#getSwitch('integrity-sync-ids'),
       unify_product_props: this.#getSwitch('integrity-unify-props'),
       soter_beta: soter,
+      // No row for this here, so reuse whatever is already configured rather
+      // than silently resetting it to the default.
+      auto_fetch_fingerprint: this.#autoFetchFingerprint,
     }
 
     try {
@@ -425,6 +448,7 @@ export class IntegrityDialog {
         `sync_device_ids = ${state.sync_device_ids}`,
         `unify_product_props = ${state.unify_product_props}`,
         `soter_beta = ${state.soter_beta}`,
+        `auto_fetch_fingerprint = ${state.auto_fetch_fingerprint}`,
       ].join('\n')
       await File.write(TOML_PATH, toml)
       await File.write(TOML_PATH_DATA, toml)

@@ -70,6 +70,7 @@ extract "$ZIPFILE" 'daemon'          "$MODPATH"
 extract "$ZIPFILE" 'daemon-injector' "$MODPATH"
 extract "$ZIPFILE" 'injector.toml'   "$MODPATH"
 extract "$ZIPFILE" 'keybox.xml'      "$MODPATH"
+extract "$ZIPFILE" 'fingerprint-template.json' "$MODPATH"
 rm -rf "$MODPATH/webroot"
 unzip -o "$ZIPFILE" 'webroot/*' -d "$MODPATH" >&2
 [ -f "$MODPATH/webroot/index.html" ] || abort "! Missing webroot/index.html"

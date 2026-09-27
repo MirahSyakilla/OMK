@@ -258,3 +258,16 @@
     max-height: min(46vh, 320px);
   }
 }
+
+// Fetch Latest, in the picker's action row. It is the only control in the WebUI
+// that reaches the network, so it is styled to read as a deliberate action
+// rather than part of the normal Apply/Cancel flow.
+.fp-fetch-latest {
+  margin-right: auto;
+  --md-text-button-icon-color: var(--md-sys-color-primary);
+}
+
+.fp-fetch-spinner {
+  --md-circular-progress-size: 18px;
+  --md-circular-progress-active-indicator-width: 2px;
+}

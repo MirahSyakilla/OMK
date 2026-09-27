@@ -847,6 +847,7 @@ sync_trust_patch = true
 sync_device_ids = true
 unify_product_props = false
 soter_beta = false
+auto_fetch_fingerprint = false
 ```
 
 `unify_product_props` is beta. It is applied once when Integrity settings are
@@ -863,6 +864,10 @@ required to enable; without it the zygisk companion disables itself and no
 process is spoofed. `DEVICE_INITIAL_SDK_INT` is the first API level of that
 profile. Pixel 8 is `34`. A missing value is not spoofed.
 
+`auto_fetch_fingerprint` is off by default and is the only one of these that
+affects a daemon rather than the zygisk companion. See
+[Fingerprint build template](#fingerprint-build-template).
+
 Select Fingerprint opens a picker over Google's Android Flash Tool build list.
 Choose an Android version, then a device, then a build. Every Android release
 that has a published Pixel build is offered, not only the release the ROM
@@ -875,29 +880,52 @@ keymint and the injector, then kills `com.google.android.gms.unstable` and
 force-stops `com.android.vending`. A new zygisk `.so` takes effect after a
 reboot.
 
-### WebUI caches
+### Fingerprint build template
 
-The WebUI keeps two caches outside the module directory so they survive a module
-update, and both are removed by `uninstall.sh`:
+The Select Fingerprint picker is populated from a template listing every Pixel
+build it may offer. The template exists so opening a picker never waits on the
+network, which is what used to make the whole WebUI feel slow.
 
-| Path | Contents |
-|---|---|
-| `/data/misc/keystore/omk/data/webui/icon-cache.json` | App icons already resolved, with the `versionCode` each was captured at |
-| `/data/misc/keystore/omk/data/webui/flashstation-cache.json` | Flash Station build lists backing the fingerprint picker |
+There are two copies, in the same format:
 
-`icon-cache.json` is a cache of icons that have already been looked at, not a
-prefill; a device that has never opened the app list has no entry for anything. An
-entry is only reused while the package's `versionCode` still matches, so an app
-update invalidates it, and packages that are no longer installed are pruned on
-the next save. The whole file is discarded after seven days, which is the
-backstop for an icon that changes without a version bump, such as a theme pack
-or a runtime-swapped adaptive icon. Writes are debounced and only happen when an
-entry actually changed, and the file is not written at all if it would exceed
-12 MB.
+| Path | Owner | Purpose |
+|---|---|---|
+| `fingerprint-template.json` in the module | The build | Seed, refreshed by `scripts/fetch_fingerprint_template.py` on every build |
+| `/data/misc/keystore/omk/data/fingerprint-template.json` | The device | Live copy the picker actually reads |
 
-Neither cache is required for correctness. If the file is missing, unreadable,
-stale, or the manager does not expose the bulk icon API, the WebUI falls back to
-the per-icon `ksu://icon/` path and then to the placeholder.
+The picker uses the device copy when it is present and structurally sound, and
+falls back to the module's copy otherwise. A copy that is missing, truncated, or
+missing a device is ignored rather than used, because a slightly stale list of
+builds is useful and an empty picker is not.
 
-Nothing here is affected by Restart All or Restart Daemon; those restart the
-KeyMint and injector services, which do not read either file.
+`Fetch Latest` in the picker fetches the current lists and replaces the device
+copy. It is the only action in the WebUI that touches the network for this data.
+The write is atomic: the new data goes to a temp file, is parsed back and
+validated, and only then renamed into place, with the previous copy kept at
+`fingerprint-template.json.bak` first. A failed fetch or a failed write leaves
+the existing template in place.
+
+`auto_fetch_fingerprint` runs the same refresh from the daemon in the
+background. It is off by default, polled every 10 minutes, and fetches at most
+once every 24 hours. Polling is far more frequent than fetching so that enabling
+the switch takes effect within minutes instead of a day. If the fetched data
+matches what is already on disk, nothing is written at all. Any failure is
+logged and retried on the next poll, and is otherwise harmless: this maintains a
+convenience list and nothing depends on it being current.
+
+It requires `curl` or `wget` on the device, the same requirement as the manual
+`Fetch Latest` button. Without either, the refresh logs a warning and the
+bundled template keeps serving the picker.
+
+Upstream sometimes stops advertising a build that a previous fetch recorded.
+Both the daemon and the button carry those rows over rather than dropping them,
+so a build does not silently disappear from the picker.
+
+Regenerate the committed template by hand with:
+
+```
+scripts/fetch_fingerprint_template.py --output webui/src/fingerprint-template.json
+```
+
+The script refuses to write unless every product in `PIXEL_DEVICES` returned
+usable data, and it never removes a build the previous template knew about.

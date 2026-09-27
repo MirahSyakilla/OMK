@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import zipfile
 
 try:
@@ -53,11 +54,14 @@ REQUIRED_TEMPLATE_FILES = (
     "customize.sh",
     "daemon",
     "daemon-injector",
+    # The seed the daemon starts from before its first successful fetch. It is
+    # required because a missing seed means the daily refresh has nothing valid
+    # to compare against and can never bootstrap itself.
+    "fingerprint-template.json",
     "injector.toml",
     "module.prop",
     "post-fs-data.sh",
     "service.sh",
-    "uninstall.sh",
     "verify.sh",
 )
 
@@ -67,13 +71,13 @@ MODULE_TEXT_FILES = (
     "customize.sh",
     "daemon",
     "daemon-injector",
+    "fingerprint-template.json",
     "injector.toml",
     "keybox.xml",
     "module.prop",
     "post-fs-data.sh",
     "sepolicy.rule",
     "service.sh",
-    "uninstall.sh",
     "verify.sh",
     "META-INF/com/google/android/update-binary",
     "META-INF/com/google/android/updater-script",
@@ -173,10 +177,59 @@ def webui_env() -> dict[str, str]:
     return env
 
 
-def build_webui() -> None:
+def refresh_fingerprint_template(*, required: bool) -> None:
+    """Refresh the fingerprint build lists that ship inside the WebUI bundle.
+
+    The picker renders from this template, so a zip that carries a current one
+    never needs the network to open. A failure here is not fatal to the build:
+    the previously generated template stays in place and is perfectly usable, so
+    the default is to warn and carry on with whatever is already committed.
+
+    Pass required=True in release jobs where a stale template is not acceptable.
+    """
+    script = REPO_ROOT / "scripts" / "fetch_fingerprint_template.py"
+    output = REPO_ROOT / "webui" / "src" / "fingerprint-template.json"
+    seed = REPO_ROOT / "template" / "fingerprint-template.json"
+    if not script.exists():
+        print("Fingerprint template: generator missing, using committed template")
+        publish_fingerprint_seed(output, seed)
+        return
+    try:
+        run([sys.executable, str(script), "--output", str(output), "--quiet"])
+    except (subprocess.CalledProcessError, FileNotFoundError) as error:
+        if required:
+            raise
+        kept = "present" if output.exists() else "MISSING"
+        print(
+            f"Fingerprint template refresh failed ({error}); "
+            f"using committed template ({kept})"
+        )
+    publish_fingerprint_seed(output, seed)
+
+
+def publish_fingerprint_seed(output: Path, seed: Path) -> None:
+    """Copy the template into the module so the daemon can read it as a seed.
+
+    The bundle carries the same data for the WebUI. The module copy exists for
+    the Rust side, which has no access to the WebView bundle and needs a valid
+    starting template before the first successful device-side fetch.
+    """
+    if not output.exists():
+        return
+    try:
+        seed.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(output, seed)
+    except OSError as error:
+        print(f"Fingerprint seed copy failed: {error}")
+
+
+def build_webui(*, refresh_template: bool = True) -> None:
     webui_dir = REPO_ROOT / "webui"
     if not webui_dir.exists():
         raise FileNotFoundError(f"WebUI directory not found at {webui_dir}")
+
+    if refresh_template:
+        refresh_fingerprint_template(required=False)
 
     npm = resolve_npm()
     env = webui_env()

@@ -24,6 +24,7 @@ use crate::{
 pub mod att_mgr;
 pub mod config;
 pub mod consts;
+pub mod fingerprint_template;
 pub mod global;
 pub mod keybox;
 pub mod keymaster;
@@ -308,6 +309,10 @@ fn run() -> Result<()> {
         }
     });
     repair_omk_data_files();
+
+    // Off unless integrity.toml asks for it, and purely a background nicety, so
+    // it is started after the data directory is known to be sound.
+    crate::fingerprint_template::spawn_background_refresh();
 
     keybox::initialize().context("failed to initialize keybox runtime")?;
 

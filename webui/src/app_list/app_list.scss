@@ -29,24 +29,7 @@
     }
   }
 
-  // Isolation for WebViews without content-visibility. They render every card,
-  // which is slower but correct, so the property is feature-detected rather than
-  // assumed.
-  @supports not (content-visibility: auto) {
-    .card {
-      contain: layout style paint;
-    }
-  }
-
   .card {
-    // Skips layout and paint for cards that are off screen. The app list can
-    // hold several hundred cards and painting them all is the main-thread work
-    // that stalls the animated header. `auto none auto 72px` keeps a real
-    // placeholder height so the scrollbar does not jump while a card resolves
-    // its true size, and `auto` makes the browser remember each card's height
-    // after the first paint instead of re-measuring it on every scroll pass.
-    content-visibility: auto;
-    contain-intrinsic-size: auto none auto 72px;
     border-radius: 4px;
     width: 100%;
     padding: 14px 16px;

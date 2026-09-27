@@ -1,11 +1,14 @@
 import { exec } from 'kernelsu-alt'
-import type { MdSwitch } from '@material/web/all'
+import '@material/web/progress/circular-progress.js'
+import type { MdSwitch, MdTextButton } from '@material/web/all'
 import { Cli, type FlashBuild } from '../cli'
 import { Config } from '../config'
 import { PIXEL_DEVICES } from '../constant'
 import { File } from '../file'
 import { escapeHtml } from '../html'
 import { buildProp } from '../integrity_prop'
+import type { TemplateRow } from '../fingerprint_template'
+import { activeTemplate, isValidTemplate, loadTemplate, saveTemplate, templatesEquivalent, type Template } from '../fingerprint_template'
 import { Snackbar } from '../snackbar/snackbar'
 import './integrity_screen.scss'
 
@@ -26,6 +29,7 @@ interface IntegrityState {
   sync_device_ids: boolean
   unify_product_props: boolean
   soter_beta: boolean
+  auto_fetch_fingerprint: boolean
 }
 
 const DEFAULTS: IntegrityState = {
@@ -37,6 +41,7 @@ const DEFAULTS: IntegrityState = {
   sync_device_ids: true,
   unify_product_props: false,
   soter_beta: false,
+  auto_fetch_fingerprint: false,
 }
 
 const DEPENDENT_ROW_IDS = [
@@ -82,9 +87,18 @@ const BUILD_LETTER_MAJOR: Record<string, number> = {
   C: 17,
 }
 
+/// Leading integer run of a version string.
+///
+/// "16" and "16.0" both give 16. A trailing-digit match would read the "0" in
+/// "16.0" as the entire version and map the build to Android 0.
+function leadingNumber(value: string): number | null {
+  const match = value.trim().match(/^\d+/)
+  return match ? Number.parseInt(match[0], 10) : null
+}
+
 function buildMajor(build: FlashBuild): number | null {
-  const named = build.versionName?.match(/(\d+)\s*$/)
-  if (named) return Number.parseInt(named[1], 10)
+  const named = build.versionName ? leadingNumber(build.versionName) : null
+  if (named !== null) return named
   const track = build.previewMetadata?.releaseTrackName ?? ''
   const fromTrack = track.match(/^Android (\d+)/)
   if (fromTrack) return Number.parseInt(fromTrack[1], 10)
@@ -200,6 +214,21 @@ export class IntegrityScreen {
                 <md-icon class="integrity-picker-icon">chevron_right</md-icon>
               </div>
 
+              <!--
+                Sits directly under Select Fingerprint because it is a setting
+                about that picker. The daemon re-reads this flag on its own
+                schedule, so turning it on does not restart the WebUI or wait for
+                a reboot to take effect.
+              -->
+              <div class="switch-row" id="row-auto-fetch-fp" role="button" tabindex="0">
+                <md-ripple></md-ripple>
+                <div class="switch-row-content">
+                  <div class="switch-row-title">Auto Fetch Fingerprint</div>
+                  <div class="switch-row-sub">Check Google daily and update the build list in the background</div>
+                </div>
+                <md-switch icons="true" id="pif-auto-fetch-fp" aria-label="Auto Fetch Fingerprint"></md-switch>
+              </div>
+
               <div class="switch-row" id="row-spoof-build" role="button" tabindex="0">
                 <md-ripple></md-ripple>
                 <div class="switch-row-content">
@@ -279,11 +308,6 @@ export class IntegrityScreen {
 
     this.#bindEvents()
     void this.load()
-    // Warm the build list in the background. Without this the first tap on the
-    // picker is the one that pays for every fetch, which is the tap the user
-    // notices; a warm cache makes it instant. Failures are ignored because the
-    // picker reports them itself when it is actually opened.
-    void this.#collectChoices()
   }
 
   async load(): Promise<void> {
@@ -315,6 +339,7 @@ export class IntegrityScreen {
     this.#setSwitch('pif-sync-patch', state.sync_trust_patch)
     this.#setSwitch('pif-sync-ids', state.sync_device_ids)
     this.#setSwitch('pif-unify-props', state.unify_product_props)
+    this.#setSwitch('pif-auto-fetch-fp', state.auto_fetch_fingerprint)
     this.#setSwitch('pif-soter', state.soter_beta)
 
     const enabledSwitch = this.#container?.querySelector<MdSwitch>('#pif-enabled')
@@ -394,6 +419,7 @@ export class IntegrityScreen {
     bindRow('row-sync-patch', 'pif-sync-patch')
     bindRow('row-sync-ids', 'pif-sync-ids')
     bindRow('row-unify-props', 'pif-unify-props')
+    bindRow('row-auto-fetch-fp', 'pif-auto-fetch-fp')
     bindRow('row-soter', 'pif-soter')
   }
   #renderZygiskStatus(status: { provider: string | null; conflict: string | null }): void {
@@ -481,6 +507,7 @@ export class IntegrityScreen {
       sync_device_ids: this.#getSwitch('pif-sync-ids'),
       unify_product_props: this.#getSwitch('pif-unify-props'),
       soter_beta: this.#getSwitch('pif-soter'),
+      auto_fetch_fingerprint: this.#getSwitch('pif-auto-fetch-fp'),
     }
 
     try {
@@ -493,6 +520,7 @@ export class IntegrityScreen {
         `sync_device_ids = ${state.sync_device_ids}`,
         `unify_product_props = ${state.unify_product_props}`,
         `soter_beta = ${state.soter_beta}`,
+        `auto_fetch_fingerprint = ${state.auto_fetch_fingerprint}`,
       ].join('\n')
 
       await exec(
@@ -559,6 +587,7 @@ export class IntegrityScreen {
         sync_device_ids: parseBool(map.sync_device_ids, true),
         unify_product_props: parseBool(map.unify_product_props, false),
         soter_beta: parseBool(map.soter_beta, false),
+        auto_fetch_fingerprint: parseBool(map.auto_fetch_fingerprint, false),
       }
     } catch {
       return { ...DEFAULTS }
@@ -566,52 +595,123 @@ export class IntegrityScreen {
   }
 
 
-  async #collectChoices(): Promise<FingerprintChoice[]> {
-    // Concurrency is capped because each miss in the build cache is a network
-    // request, and firing all of them at once saturates the WebView. The key is
-    // memoized and the per-product lists are cached, so a warm picker does no
-    // requests at all and this loop never runs.
-    const results = await mapWithConcurrency(PIXEL_DEVICES, FETCH_CONCURRENCY, async (device) => {
-      const builds = await this.#cli.fetchFlashstationBuilds(device.product)
-      return builds
-        .filter((build) => build.target === `${build.product}-user`)
-        .map((build): FingerprintChoice | null => {
-          const major = buildMajor(build)
-          if (major === null) return null
-          return {
-            build,
-            product: device.product,
-            model: device.model,
-            major,
-            initialSdk: device.min + 20,
-            prop: buildProp(build, device.product, device.model, major, device.min + 20),
-          }
-        })
-        .filter((choice): choice is FingerprintChoice => choice !== null)
-    })
+  /**
+   * Build the picker choices from data shipped in the bundle.
+   *
+   * Nothing here touches the network, which is the point: the picker used to
+   * fetch every device's build list on each open, so the screen could not settle
+   * until all of them had returned. #refreshChoices is the only networked path
+   * and it runs only when the user asks for it.
+   */
+  #collectChoices(): FingerprintChoice[] {
     const choices: FingerprintChoice[] = []
-    for (const result of results) {
-      // A rejected entry is one product that could not be fetched; the rest of
-      // the list is still usable, so it is skipped rather than propagated.
-      if (result.status === 'fulfilled') choices.push(...result.value)
+    const template = activeTemplate()
+    for (const device of PIXEL_DEVICES) {
+      const builds = template[device.product]?.builds ?? []
+      for (const [releaseCandidateName, buildId, major] of builds) {
+        // The embedded shape is exactly what buildProp consumes, so the payload
+        // is computed the same way whether a build came from the bundle or from a
+        // refresh.
+        const build = {
+          product: device.product,
+          releaseCandidateName,
+          buildId,
+          target: `${device.product}-user`,
+        } as FlashBuild
+        choices.push({
+          build,
+          product: device.product,
+          model: device.model,
+          major,
+          initialSdk: device.min + 20,
+          prop: buildProp(build, device.product, device.model, major, device.min + 20),
+        })
+      }
     }
     return choices
   }
 
-  async #selectFingerprint(): Promise<void> {
-    let choices: FingerprintChoice[]
-    try {
-      choices = await this.#collectChoices()
-    } catch {
-      this.#snackbar.show('Failed to fetch fingerprint list', false)
-      return
+  /**
+   * Fetch the current build lists and fold them into the embedded set.
+   *
+   * Only reachable from the picker's Fetch Latest button. A product that fails is
+   * left as it was rather than emptied, so a partial network failure cannot make
+   * the picker worse than it already is.
+   */
+  async #refreshChoices(): Promise<{ changed: boolean; added: number; failed: string[] }> {
+    const results = await mapWithConcurrency(PIXEL_DEVICES, FETCH_CONCURRENCY, async (device) => {
+      const builds = await this.#cli.fetchFlashstationBuilds(device.product)
+      return { device, builds }
+    })
+    const previous = activeTemplate()
+    const next: Template = {}
+    let added = 0
+    const failed: string[] = []
+    for (const result of results) {
+      if (result.status !== 'fulfilled') {
+        failed.push('?')
+        continue
+      }
+      const { device, builds } = result.value
+      const rows: TemplateRow[] = []
+      for (const build of builds) {
+        if (build.target !== `${build.product}-user`) continue
+        const major = buildMajor(build)
+        if (major === null || major < device.min || major > device.max) continue
+        rows.push([build.releaseCandidateName, String(build.buildId), major])
+      }
+      if (rows.length === 0) {
+        failed.push(device.product)
+        continue
+      }
+      // Upstream can retire builds, so anything the previous template knew about
+      // is carried over. A dropped build should not silently vanish from the UI.
+      const seen = new Set(rows.map((row) => `${row[0]}|${row[1]}`))
+      const carried = (previous[device.product]?.builds ?? []).filter(
+        (row) => !seen.has(`${row[0]}|${row[1]}`),
+      )
+      added += carried.length
+      next[device.product] = {
+        model: device.model,
+        min: device.min,
+        max: device.max,
+        builds: [...rows, ...carried].sort((a, b) => (b[2] - a[2]) || a[0].localeCompare(b[0])),
+      }
     }
+    // A device that failed keeps its old entry, so a flaky network degrades to
+    // "stale" rather than "device missing from the picker".
+    for (const device of PIXEL_DEVICES) {
+      if (next[device.product]) continue
+      const old = previous[device.product]
+      if (old) {
+        next[device.product] = old
+      } else {
+        failed.push(device.product)
+      }
+    }
+    if (!isValidTemplate(next)) {
+      throw new Error('refusing to replace the template with an incomplete fetch')
+    }
+    if (templatesEquivalent(previous, next)) {
+      return { changed: false, added: 0, failed }
+    }
+    // saveTemplate verifies the temp file before it renames over the good copy,
+    // so a failure here leaves the existing template in place.
+    await saveTemplate(next)
+    return { changed: true, added, failed }
+  }
+
+  async #selectFingerprint(): Promise<void> {
+    // No network here. The bundle ships a full list, and the device copy is
+    // newer when a fetch or the daily refresh has replaced it since.
+    await loadTemplate()
+    let choices = this.#collectChoices()
     if (choices.length === 0) {
       this.#snackbar.show('No Google builds available', false)
       return
     }
 
-    const majors = [...new Set(choices.map((choice) => choice.major))].sort((a, b) => b - a)
+    let majors = [...new Set(choices.map((choice) => choice.major))].sort((a, b) => b - a)
     const romMajor = Number.parseInt(androidMajor(await this.#cli.getBuildRelease()) ?? '', 10)
     let major = majors.includes(romMajor) ? romMajor : (majors[0] as number)
 
@@ -725,6 +825,10 @@ export class IntegrityScreen {
       <div slot="headline">Select Device Fingerprint</div>
       <form slot="content" id="fp-body" method="dialog"></form>
       <div slot="actions">
+        <md-text-button id="fp-fetch-latest" class="fp-fetch-latest">
+          <md-icon slot="icon">refresh</md-icon>
+          Fetch Latest
+        </md-text-button>
         <md-text-button id="fp-cancel">Cancel</md-text-button>
         <md-filled-button id="fp-apply">Apply</md-filled-button>
       </div>
@@ -749,6 +853,46 @@ export class IntegrityScreen {
         bodyProduct = current().product
         syncPreview()
       }
+    })
+
+    const fetchBtn = dialog.querySelector<MdTextButton>('#fp-fetch-latest')
+    const setFetching = (busy: boolean): void => {
+      if (!fetchBtn) return
+      fetchBtn.disabled = busy
+      // Swap the label for a spinner so the wait is visible rather than looking
+      // like a dead button.
+      fetchBtn.innerHTML = busy
+        ? `<md-circular-progress indeterminate slot="icon" class="fp-fetch-spinner"></md-circular-progress>Fetching`
+        : `<md-icon slot="icon">refresh</md-icon>Fetch Latest`
+    }
+    fetchBtn?.addEventListener('click', () => {
+      if (fetchBtn.disabled) return
+      setFetching(true)
+      void this.#refreshChoices()
+        .then(({ changed, added, failed }) => {
+          if (!changed) {
+            // Nothing new upstream. The saved template was left untouched, so
+            // there is no reason to rewrite it.
+            this.#snackbar.show('Already up to date', true)
+          } else if (failed.length > 0) {
+            this.#snackbar.show(
+              `Template updated, ${failed.length} device(s) kept previous data`,
+              true,
+            )
+          } else {
+            this.#snackbar.show(
+              added > 0 ? `Template updated with ${added} build(s)` : 'Template updated',
+              true,
+            )
+          }
+          // Rebuild the choice list from the merged data and re-render, keeping
+          // the current selection where it is still valid.
+          choices = this.#collectChoices()
+          majors = [...new Set(choices.map((c) => c.major))].sort((a, b) => b - a)
+          render()
+        })
+        .catch(() => this.#snackbar.show('Failed to fetch latest builds', false))
+        .finally(() => setFetching(false))
     })
 
     dialog.querySelector('#fp-cancel')?.addEventListener('click', () => {

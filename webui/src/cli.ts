@@ -4,20 +4,6 @@ import { GITHUB_REPO, KEYBOX_ALWAYSSTRONG_URL, MOD_ID } from './constant'
 
 const FLASH_REFERER = 'https://flash.android.com'
 const FLASHSTATION_KEY_FALLBACK = 'AIzaSyD-bwHpMvFCN3PfRN4Txsw_ECg_iptNfMQ'
-/// How long a fetched build list stays usable.
-///
-/// Flash Station publishes a new build occasionally rather than continuously,
-/// so a long TTL keeps the picker instant on every open while still picking up
-/// a new build within a day.
-const FLASHSTATION_BUILD_TTL_MS = 6 * 60 * 60 * 1000
-/// Where the baseline build lists are cached between sessions.
-///
-/// Under the WebUI-owned cache directory, so uninstall.sh can remove it along
-/// with the icon cache. It is outside the module directory on purpose: that
-/// directory is replaced on every module update, which would silently throw the
-/// cache away.
-const WEBUI_CACHE_DIR = '/data/misc/keystore/omk/data/webui'
-const FLASHSTATION_CACHE_PATH = `${WEBUI_CACHE_DIR}/flashstation-cache.json`
 
 export interface FlashBuild {
   product: string
@@ -46,49 +32,6 @@ export class Cli {
   /// per device, which is a network round trip and a possible shell exec each
   /// time, on a WebView.
   static #flashstationKeyPromise: Promise<string> | null = null
-  /// Build lists per product, so switching between picker openings or products
-  /// does not refetch. Entries are dropped once older than the TTL below.
-  static #buildCache = new Map<string, { at: number; builds: FlashBuild[] }>()
-  /// In-flight fetches per product, so a tap that races the background warm-up
-  /// joins the request already running instead of starting a second one.
-  static #buildInFlight = new Map<string, Promise<FlashBuild[]>>()
-  /// Baseline build lists persisted to disk, so the picker can populate
-  /// immediately and still work with no network at all. The cache file lives
-  /// beside the module's other state, is written once per successful fetch, and
-  /// is only ever read back as a fallback.
-  static async #loadBuildBaseline(): Promise<Record<string, { at: number; builds: FlashBuild[] }>> {
-    try {
-      const raw = await File.read(FLASHSTATION_CACHE_PATH)
-      const parsed = JSON.parse(raw) as Record<string, { at: number; builds: unknown }>
-      const entries: Record<string, { at: number; builds: FlashBuild[] }> = {}
-      for (const [product, entry] of Object.entries(parsed)) {
-        if (!entry || !Array.isArray(entry.builds)) continue
-        entries[product] = {
-          at: typeof entry.at === 'number' ? entry.at : 0,
-          builds: entry.builds.filter(
-            (build): build is FlashBuild =>
-              !!build &&
-              typeof (build as FlashBuild).releaseCandidateName === 'string' &&
-              typeof (build as FlashBuild).buildId === 'string',
-          ),
-        }
-      }
-      return entries
-    } catch {
-      return {}
-    }
-  }
-
-  static async #saveBuildBaseline(): Promise<void> {
-    try {
-      const payload: Record<string, { at: number; builds: FlashBuild[] }> = {}
-      for (const [product, entry] of Cli.#buildCache) payload[product] = entry
-      await File.createDirectory(WEBUI_CACHE_DIR)
-      await File.write(FLASHSTATION_CACHE_PATH, JSON.stringify(payload))
-    } catch {
-      // A cache that cannot be written only costs a network fetch next time.
-    }
-  }
 
   constructor() {
     if (!Cli.#basePathPromise) {
@@ -234,52 +177,21 @@ export class Cli {
     return Cli.#flashstationKeyPromise
   }
 
+  /// Fetch a product's build list. Only called when the user asks for the latest
+  /// builds; the picker otherwise works entirely from data shipped in the bundle.
   async fetchFlashstationBuilds(product: string): Promise<FlashBuild[]> {
-    const cached = Cli.#buildCache.get(product)
-    if (cached && Date.now() - cached.at < FLASHSTATION_BUILD_TTL_MS) {
-      return cached.builds
-    }
-    const inFlight = Cli.#buildInFlight.get(product)
-    if (inFlight) return inFlight
-    const request = this.#fetchFlashstationBuilds(product).finally(() => {
-      Cli.#buildInFlight.delete(product)
-    })
-    Cli.#buildInFlight.set(product, request)
-    return request
-  }
-
-  async #fetchFlashstationBuilds(product: string): Promise<FlashBuild[]> {
     const key = await this.fetchFlashstationKey()
     const url =
       `https://content-flashstation-pa.googleapis.com/v1/builds` +
       `?product=${encodeURIComponent(product)}&key=${encodeURIComponent(key)}`
-    try {
-      const raw = await this.#fetchFirst([url], { Referer: FLASH_REFERER })
-      const parsed = JSON.parse(raw) as { flashstationBuild?: FlashBuild[] }
-      const builds = parsed.flashstationBuild
-      if (!Array.isArray(builds)) throw new Error('invalid build list')
-      const filtered = builds.filter(
-        (build): build is FlashBuild =>
-          !!build &&
-          !!build.releaseCandidateName &&
-          !!build.buildId &&
-          typeof build.target === 'string',
-      )
-      Cli.#buildCache.set(product, { at: Date.now(), builds: filtered })
-      void Cli.#saveBuildBaseline()
-      return filtered
-    } catch (error) {
-      // Fall back to the persisted baseline so a picker opened without network
-      // still lists builds. The stale entry is still preferred over nothing,
-      // because an out-of-date list is usable and an empty picker is not.
-      const baseline = await Cli.#loadBuildBaseline()
-      const entry = baseline[product]
-      if (entry && entry.builds.length > 0) {
-        Cli.#buildCache.set(product, entry)
-        return entry.builds
-      }
-      throw error
-    }
+    const raw = await this.#fetchFirst([url], { Referer: FLASH_REFERER })
+    const parsed = JSON.parse(raw) as { flashstationBuild?: FlashBuild[] }
+    const builds = parsed.flashstationBuild
+    if (!Array.isArray(builds)) throw new Error('invalid build list')
+    return builds.filter(
+      (build): build is FlashBuild =>
+        !!build && !!build.releaseCandidateName && !!build.buildId && typeof build.target === 'string',
+    )
   }
 
   async getBuildRelease(): Promise<string> {
@@ -388,93 +300,5 @@ printf '%s %s\\n' "$provider" "$conflict"
     }
 
     return candidates[0]
-  }
-}
-
-/// Icon size requested from the bulk bridge, in pixels.
-///
-/// Small on purpose. A list row is 48dp, and the `ksu://icon/` handler in some
-/// manager builds decodes and compresses at a hardcoded 512px, which is wasted
-/// work and wasted heap for every one of the several hundred rows.
-const ICON_SIZE_PX = 96
-
-interface BulkIcon {
-  packageName?: string
-  icon?: string
-}
-
-export interface IconBatch {
-  packageName: string
-  /** A `data:` URL, or an empty string when the bridge had no icon. */
-  dataUrl: string
-}
-
-/**
- * Bulk icon access, when the manager exposes it.
- *
- * The per-icon `ksu://icon/<pkg>` path is served by `shouldInterceptRequest`,
- * which Chromium dispatches sequentially on a single thread, and a device with
- * several hundred packages therefore queues several hundred serialized native
- * decodes. KernelSU-Next's manager exposes `getPackagesIcons` plus
- * `cacheAllPackageIcons` for exactly this reason: one bridge call, a bounded
- * icon size, and a native cache.
- *
- * `kernelsu-alt` does not wrap those methods, so they are called on the global
- * bridge directly and their presence is detected at runtime. A manager without
- * them reports no support and callers fall back to the lazy per-icon path.
- */
-export class BulkIcons {
-  /// How many packages per bridge call. Binder transactions have a ~1MB budget
-  /// and base64 adds a third, so a page is kept small rather than requesting all
-  /// packages at once.
-  static readonly PAGE = 24
-
-  static supported(): boolean {
-    const bridge = (globalThis as { ksu?: Record<string, unknown> }).ksu
-    return typeof bridge?.getPackagesIcons === 'function'
-  }
-
-  /// Whether the manager can pre-decode every icon in one call.
-  ///
-  /// Deliberately not used. `cacheAllPackageIcons` walks every installed app
-  /// and decodes and PNG-compresses each one inside a single synchronous
-  /// JavascriptInterface call, so invoking it would trade the per-row decode
-  /// storm for one long bridge stall. getPackagesIcons populates the same
-  /// packageIconCache on demand, so fetching per page is lazy and still warm
-  /// for later scrolls.
-  static get canWarm(): boolean {
-    const bridge = (globalThis as { ksu?: Record<string, unknown> }).ksu
-    return typeof bridge?.cacheAllPackageIcons === 'function'
-  }
-
-  /// Fetch one page. Callers batch the packages that are actually on screen into
-  /// a single call, because a call per package costs a bridge round trip each
-  /// and gains nothing over the interception path it replaces.
-  static async fetch(packages: string[], sizePx: number = ICON_SIZE_PX): Promise<Map<string, string>> {
-    const out = new Map<string, string>()
-    if (!BulkIcons.supported() || packages.length === 0) return out
-    const bridge = (globalThis as { ksu?: Record<string, unknown> }).ksu
-    for (let index = 0; index < packages.length; index += BulkIcons.PAGE) {
-      const page = packages.slice(index, index + BulkIcons.PAGE)
-      try {
-        const raw = (bridge!.getPackagesIcons as (json: string, size: number) => string)(
-          JSON.stringify(page),
-          sizePx,
-        )
-        const parsed = JSON.parse(raw) as BulkIcon[]
-        if (!Array.isArray(parsed)) continue
-        for (const entry of parsed) {
-          // The manager already returns a complete data URL, not bare base64:
-          // WebViewInterface builds "data:image/png;base64," + base64 itself.
-          // Prefixing it again produced a URL that could never load, so the
-          // value is used as-is.
-          const icon = entry?.icon
-          if (entry?.packageName && icon) out.set(entry.packageName, icon)
-        }
-      } catch {
-        // A failed page falls back to the per-icon path for those packages.
-      }
-    }
-    return out
   }
 }

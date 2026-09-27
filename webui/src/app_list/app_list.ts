@@ -1,6 +1,4 @@
-import { listPackages, getPackagesInfo } from 'kernelsu-alt'
-import { BulkIcons } from '../cli'
-import { iconCache } from '../icon_cache'
+import { exec, listPackages, getPackagesInfo } from 'kernelsu-alt'
 import type { PackagesInfo } from 'kernelsu-alt'
 import type { MdDialog, MdFilledButton } from '@material/web/all'
 import { Config } from '../config'
@@ -27,14 +25,12 @@ export interface AppEntry {
   packageName: string
   appName: string
   isSystem: boolean
-  /** Used to invalidate a cached icon when the package is updated. */
-  versionCode?: number
 }
+
+type PackageListType = 'user' | 'system' | 'all'
 
 export class AppList {
   #entries: AppEntry[] = []
-  /** packageName -> versionCode, so icon invalidation is a map lookup. */
-  #versionByPackage = new Map<string, number | undefined>()
   #config: Config
   #iconObserver: IntersectionObserver | null = null
   #systemAppIconObserver: IntersectionObserver | null = null
@@ -45,12 +41,6 @@ export class AppList {
   #pifEnabled = false
   #pifDialog: MdDialog | null = null
   #pifResolve: ((proceed: boolean) => void) | null = null
-  /**
-   * Bumped on every render. A progressive render that is still appending cards
-   * is abandoned when a newer render starts, so a filter change or a tab switch
-   * cannot leave stale cards appearing in the new list.
-   */
-  #renderGeneration = 0
   menuOpen = false
 
   constructor(config: Config) {
@@ -71,13 +61,11 @@ export class AppList {
       return
     }
 
-    // One native call, not two shell spawns. listPackages() goes through the
-    // ksu bridge; the previous code preferred `pm list packages` via a spawned
-    // shell and only fell back to the native path, so it parsed a large command
-    // output for no benefit. A second `pm list packages -s` was also fetched
-    // purely to build a system set, even though getPackagesInfo() below already
-    // reports isSystem for every package.
-    const pkgs = await listPackages('all').catch(() => [])
+    const [pkgs, systemPkgs] = await Promise.all([
+      this.#listPackagesFresh('all').catch(() => listPackages('all').catch(() => [])),
+      this.#listPackagesFresh('system').catch(() => listPackages('system').catch(() => [])),
+    ])
+    const systemSet = new Set(systemPkgs)
 
     let infos: PackagesInfo[]
     try {
@@ -86,21 +74,14 @@ export class AppList {
       infos = []
     }
 
-    // Icons already resolved in a previous session are served from disk, and
-    // anything no longer installed is dropped from the file.
-    await iconCache.load()
-    iconCache.retain(new Set(pkgs))
-
     const infoMap = new Map(infos.map((info) => [info.packageName, info]))
-    this.#versionByPackage.clear()
-    for (const info of infos) this.#versionByPackage.set(info.packageName, info.versionCode)
     this.#entries = pkgs.map((pkg: string) => {
       const info = infoMap.get(pkg)
+      const isSystem = systemSet.size > 0 ? systemSet.has(pkg) : (info?.isSystem ?? false)
       return {
         packageName: pkg,
         appName: info?.appLabel || pkg,
-        isSystem: info?.isSystem ?? false,
-        versionCode: typeof info?.versionCode === 'number' ? info.versionCode : undefined,
+        isSystem,
       }
     })
   }
@@ -198,73 +179,15 @@ export class AppList {
       return (a.appName || '').localeCompare(b.appName || '')
     })
 
+    const fragment = document.createDocumentFragment()
+    for (const entry of displayed) {
+      fragment.appendChild(this.#createCard(entry, target.includes(entry.packageName)))
+    }
+    container.appendChild(fragment)
+
     this.#iconObserver?.disconnect()
     this.#iconObserver = this.#setupIconObserver(container)
     this.#setupCardListeners(container)
-    this.#appendChunked(container, displayed, (entry) => target.includes(entry.packageName))
-  }
-
-  /**
-   * Append cards in small batches, one per animation frame.
-   *
-   * A device can have several hundred packages, and each card contains an
-   * md-ripple, an md-checkbox and an inline SVG. Building every card and
-   * appending them in one pass parses and upgrades thousands of nodes without
-   * yielding, which blocks the main thread long enough to stall the animated
-   * header border and make the list feel frozen. Batching keeps each slice of
-   * work short, so the frame loop stays responsive and the list fills in
-   * progressively. Icons are observed per chunk so they start arriving while the
-   * rest of the list is still being built.
-   */
-  /**
-   * Arm icon loading for a freshly appended chunk.
-   *
-   * Both triggers are registered, and the observer is not made conditional.
-   * contentvisibilityautostatechange only fires when an element's skipped state
-   * *changes*, so a card that is already on screen when it is appended never
-   * raises it and would sit at the loading placeholder forever. The observer is
-   * what reliably reports the initially visible rows, and it reports a card once
-   * the browser has made it relevant for a scrolled-to one. Registering only the
-   * visibility event broke every icon; registering only the observer is correct
-   * on its own. Either way #ensureIcon's guard means a card loads at most once.
-   */
-  #watchChunk(fragment: DocumentFragment): void {
-    const holders = fragment.querySelectorAll('.app-icon-container')
-    holders.forEach((holder) => {
-      this.#iconObserver?.observe(holder)
-      if (!AppList.#supportsContentVisibility) return
-      holder.addEventListener(
-        'contentvisibilityautostatechange',
-        (event) => {
-          if (!(event as Event & { skipped?: boolean }).skipped) this.#ensureIcon(holder)
-        },
-        { passive: true },
-      )
-    })
-  }
-
-  #appendChunked(
-    container: HTMLElement,
-    entries: AppEntry[],
-    isSelected: (entry: AppEntry) => boolean,
-  ): void {
-    const generation = ++this.#renderGeneration
-    const CHUNK = 20
-    let index = 0
-    const step = (): void => {
-      if (generation !== this.#renderGeneration) return
-      const fragment = document.createDocumentFragment()
-      const end = Math.min(index + CHUNK, entries.length)
-      for (; index < end; index++) {
-        fragment.appendChild(this.#createCard(entries[index] as AppEntry, isSelected(entries[index] as AppEntry)))
-      }
-      container.appendChild(fragment)
-      this.#watchChunk(fragment)
-      if (index < entries.length) {
-        requestAnimationFrame(step)
-      }
-    }
-    requestAnimationFrame(step)
   }
 
   renderSystemAppList(container: HTMLElement): void {
@@ -280,10 +203,16 @@ export class AppList {
       return (a.appName || '').localeCompare(b.appName || '')
     })
 
+    const fragment = document.createDocumentFragment()
+    for (const entry of systemEntries) {
+      const cardBox = this.#createCard(entry, additionalApps.includes(entry.packageName))
+      fragment.appendChild(cardBox)
+    }
+    container.appendChild(fragment)
+
     this.#systemAppIconObserver?.disconnect()
     this.#systemAppIconObserver = this.#setupIconObserver(container)
     this.#setupSystemAppListeners(container)
-    this.#appendChunked(container, systemEntries, (entry) => additionalApps.includes(entry.packageName))
   }
 
   getAdditionalApps(): string[] {
@@ -506,112 +435,21 @@ export class AppList {
     })
   }
 
-  /**
-   * Icon sources already resolved in this session, keyed by package.
-   *
-   * The per-icon `ksu://` path is re-invoked by Chromium for the same URL when
-   * an element is recreated, so anything already resolved is served from here
-   * instead of being decoded again. Only holds bulk-bridge results; the lazy
-   * path is left to the element's own cache.
-   */
-  #iconCache = new Map<string, string>()
-  /** Packages whose icon a bulk request is currently in flight for. */
-  #iconPending = new Set<string>()
-  /**
-   * Rows waiting to be resolved by the bulk bridge.
-   *
-   * Batched rather than fetched per row: the bridge is synchronous on a single
-   * thread, so a call per package would be one round trip per icon and would
-   * gain nothing over the interception path it is meant to replace.
-   */
-  #iconQueue: Array<{
-    packageName: string
-    img: HTMLImageElement
-    loader: HTMLElement | null
-    root: ParentNode
-  }> = []
-  #iconFlushScheduled = false
-
-  /**
-   * Whether this WebView supports content-visibility.
-   *
-   * It matters for icon loading: per css-contain-2, the skipped contents of an
-   * element are never reported as intersecting, so once cards use
-   * `content-visibility: auto` an IntersectionObserver on the icon holder stops
-   * firing for off-screen cards. The browser's own visibility state is used as
-   * the trigger instead, and the observer is kept only as a fallback.
-   */
-  static get #supportsContentVisibility(): boolean {
-    return typeof CSS !== 'undefined' && 'contentVisibility' in document.documentElement.style
-  }
-
-  /** Load the icon for a card exactly once, whichever trigger fired. */
-  #ensureIcon(scopeEl: Element): void {
-    const holder = scopeEl.matches('.app-icon-container')
-      ? scopeEl
-      : scopeEl.querySelector('.app-icon-container')
-    if (!holder || holder.getAttribute('data-icon-requested') === '1') return
-    holder.setAttribute('data-icon-requested', '1')
-    this.#iconObserver?.unobserve(holder as Element)
-    const pkg = holder.querySelector('.app-icon')?.getAttribute('data-package')
-    if (pkg) this.#loadIcon(pkg, holder as HTMLElement)
-  }
-
   #setupIconObserver(container: HTMLElement): IntersectionObserver {
     const observer = new IntersectionObserver((entries) => {
       entries.forEach((entry) => {
         if (!entry.isIntersecting) return
-        this.#ensureIcon(entry.target as Element)
+        const el = entry.target as HTMLElement
+        const pkg = el.querySelector('.app-icon')?.getAttribute('data-package')
+        if (pkg) {
+          this.#loadIcon(pkg, el)
+          observer.unobserve(el)
+        }
       })
-    }, { rootMargin: '300px', threshold: 0.01 })
+    }, { rootMargin: '100px', threshold: 0.1 })
 
     container.querySelectorAll('.app-icon-container').forEach((el) => observer.observe(el))
     return observer
-  }
-
-
-  /**
-   * Send everything queued so far as one bridge call.
-   *
-   * The observer fires for a whole screenful at once, so the queue normally
-   * holds one or two pages' worth and a single call covers them. A page cap
-   * keeps each call's base64 payload bounded, because the manager returns the
-   * icons inline in one JSON string and Binder transactions have a ~1MB budget.
-   */
-  #flushIconQueue(): void {
-    if (this.#iconFlushScheduled) return
-    this.#iconFlushScheduled = true
-    const send = (): void => {
-      this.#iconFlushScheduled = false
-      const batch = this.#iconQueue.splice(0, BulkIcons.PAGE)
-      if (batch.length === 0) return
-      void BulkIcons.fetch(batch.map((item) => item.packageName))
-        .then((icons) => {
-          for (const item of batch) {
-            const url = icons.get(item.packageName)
-            if (url) {
-              this.#iconCache.set(item.packageName, url)
-              const versionCode = this.#versionByPackage.get(item.packageName)
-              iconCache.put(item.packageName, versionCode, url)
-              this.#showIcon(item.img, item.loader, url)
-            } else {
-              // The manager had nothing for this package, so the per-icon path
-              // still gets a chance rather than the row showing its placeholder.
-              this.#showIcon(item.img, item.loader, `ksu://icon/${item.packageName}`, item.packageName, item.root)
-            }
-          }
-        })
-        .finally(() => {
-          for (const item of batch) this.#iconPending.delete(item.packageName)
-          if (this.#iconQueue.length > 0) this.#flushIconQueue()
-        })
-    }
-    // A timer rather than an animation frame. Frames are not delivered while the
-    // WebView is hidden, so an rAF flush would strand the queue and leave the
-    // affected rows at the loading placeholder if the list rendered in the
-    // background. The work is a single bridge call, so it does not need to be
-    // aligned to a frame.
-    setTimeout(send, 0)
   }
 
   #loadIcon(packageName: string, scopeEl?: HTMLElement): void {
@@ -619,58 +457,40 @@ export class AppList {
     const img = root.querySelector<HTMLImageElement>(`.app-icon[data-package="${packageName}"]`)
     const loader = root.querySelector<HTMLElement>(`.loader[data-package="${packageName}"]`)
     if (!img) return
-
-    // Already decoded in this session: reuse rather than re-request.
-    const cached = this.#iconCache.get(packageName)
-    if (cached) {
-      this.#showIcon(img, loader, cached)
-      return
-    }
-    // Then the on-disk cache, but only while the package's version code still
-    // matches what was stored, so an update invalidates the entry.
-    const versionCode = this.#versionByPackage.get(packageName)
-    const persisted = iconCache.get(packageName, versionCode)
-    if (persisted) {
-      this.#iconCache.set(packageName, persisted)
-      this.#showIcon(img, loader, persisted)
-      return
-    }
-    // A manager with the bulk bridge decodes a page of packages in one call and
-    // caches them natively, instead of one intercepted native decode per row.
-    // The package is queued rather than fetched immediately so that everything
-    // the observer reported in the same frame goes out as one call.
-    if (BulkIcons.supported() && !this.#iconPending.has(packageName)) {
-      this.#iconPending.add(packageName)
-      this.#iconQueue.push({ packageName, img, loader, root })
-      this.#flushIconQueue()
-      return
-    }
-    this.#showIcon(img, loader, `ksu://icon/${packageName}`, packageName, root)
-  }
-
-  #showIcon(
-    img: HTMLImageElement,
-    loader: HTMLElement | null,
-    src: string,
-    packageName?: string,
-    root?: ParentNode,
-  ): void {
     img.onload = () => {
       if (loader) loader.style.display = 'none'
       img.style.opacity = '1'
     }
     img.onerror = () => {
       img.style.display = 'none'
-      const scope = root ?? document
-      const fallback = packageName
-        ? scope.querySelector<HTMLElement>(`.app-icon-fallback[data-package="${packageName}"]`)
-        : null
+      const fallback = root.querySelector<HTMLElement>(`.app-icon-fallback[data-package="${packageName}"]`)
       if (fallback) fallback.classList.add('visible')
       if (loader) loader.style.display = 'none'
     }
-    img.src = src
+    img.src = `ksu://icon/${packageName}`
   }
 
+  async #listPackagesFresh(type: PackageListType): Promise<string[]> {
+    const suffix = {
+      all: '',
+      user: '-3',
+      system: '-s',
+    }[type]
+    const command = ['pm', 'list', 'packages', suffix].filter(Boolean).join(' ')
+    const result = await exec(command)
+    if (result.errno !== 0) {
+      throw new Error(result.stderr.trim() || `pm exited with code ${result.errno}`)
+    }
+
+    const packages = result.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('package:'))
+      .map((line) => line.replace(/^package:/, ''))
+      .filter(Boolean)
+
+    return [...new Set(packages)]
+  }
 
   #initDevMode(): void {
     if (!this.#config.get('target')) {
