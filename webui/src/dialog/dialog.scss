@@ -16,6 +16,15 @@
     }
 
     md-outlined-select {
+      --md-outlined-select-text-field-container-shape: 28px !important;
+      --md-outlined-select-container-shape: 28px !important;
+      --md-outlined-field-container-shape: 28px !important;
+      width: 100%;
+    }
+
+    md-outlined-text-field {
+      --md-outlined-text-field-container-shape: 28px !important;
+      --md-outlined-field-container-shape: 28px !important;
       width: 100%;
     }
   }
@@ -692,6 +701,23 @@
     min-width: 280px;
     max-width: min(340px, 88vw);
 
+    [slot="headline"] {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: var(--md-sys-color-on-surface);
+    }
+
+    [slot="content"] {
+      font-size: 0.875rem;
+      color: var(--md-sys-color-on-surface-variant);
+      line-height: 1.4;
+    }
+
+    [slot="actions"] {
+      padding: 8px 16px 16px;
+      gap: 8px;
+    }
+  }
 
   // Standard Modal Dialogs (Matching OMK M3 Design System)
   md-dialog:not(.dialog--fullscreen) {
@@ -727,17 +753,17 @@
       }
     }
 
-    md-outlined-text-field:not([type="textarea"]) {
-      --md-outlined-text-field-container-shape: 28px;
-      --md-outlined-field-container-shape: 28px;
+    md-outlined-text-field {
+      --md-outlined-text-field-container-shape: 28px !important;
+      --md-outlined-field-container-shape: 28px !important;
       width: 100%;
       overflow: visible;
     }
 
     md-outlined-text-field[type="textarea"],
     md-outlined-text-field.mono-field {
-      --md-outlined-text-field-container-shape: 16px;
-      --md-outlined-field-container-shape: 16px;
+      --md-outlined-text-field-container-shape: 28px !important;
+      --md-outlined-field-container-shape: 28px !important;
       --md-outlined-text-field-input-text-font: monospace;
       font-family: monospace;
       font-size: 0.8125rem;
@@ -748,27 +774,12 @@
     }
 
     md-outlined-select {
+      --md-outlined-select-text-field-container-shape: 28px !important;
+      --md-outlined-select-container-shape: 28px !important;
+      --md-outlined-field-container-shape: 28px !important;
       width: 100%;
     }
   }
-    [slot="headline"] {
-      font-size: 1.25rem;
-      font-weight: 500;
-      color: var(--md-sys-color-on-surface);
-    }
-
-    [slot="content"] {
-      font-size: 0.875rem;
-      color: var(--md-sys-color-on-surface-variant);
-      line-height: 1.4;
-    }
-
-    [slot="actions"] {
-      padding: 8px 16px 16px;
-      gap: 8px;
-    }
-  }
-
 }
 @keyframes shimmer {
   0% { background-position: -200% 0; }

@@ -1,6 +1,6 @@
 import type { MdDialog, MdFilledButton, MdOutlinedButton, MdIconButton, MdSwitch } from '@material/web/all'
 import { PolicyEditor } from '../app_list/policy'
-import { Config, type SectionKey, type PolicyFieldMeta, type TextFieldMeta, snakeToLabel } from '../config'
+import { Config, type SectionKey, type PolicyFieldMeta, type TextFieldMeta, snakeToLabel, INTERCEPT_KEYS } from '../config'
 import { i18n } from '../i18n'
 import { Snackbar } from '../snackbar/snackbar'
 import { History } from '../history'
@@ -10,6 +10,7 @@ export interface SectionDialogOptions {
   fullscreen?: boolean
   snackbar?: Snackbar
   history?: History
+  onSaved?: () => void
 }
 
 const FIELD_DESCRIPTIONS: Record<string, string> = {
@@ -41,6 +42,7 @@ export class SectionDialog {
   #initialSnapshot = ''
   #isDirty = false
   #saveBtn: HTMLElement | null = null
+  #onSaved: (() => void) | null = null
 
   constructor(
     config: Config,
@@ -54,6 +56,7 @@ export class SectionDialog {
     this.#fullscreen = options?.fullscreen ?? false
     this.#snackbar = options?.snackbar ?? null
     this.#history = options?.history ?? null
+    this.#onSaved = options?.onSaved ?? null
   }
 
   getElement(): DocumentFragment {
@@ -180,6 +183,7 @@ export class SectionDialog {
         const current = this.#policyEditor?.getPolicy(false) ?? {}
         this.#isDirty = JSON.stringify(current) !== this.#initialSnapshot
         this.#updateSaveBtnState()
+        this.#updateInterceptSubtitle()
       }
       fieldsContainer.addEventListener('input', checkDirty)
       fieldsContainer.addEventListener('change', checkDirty)
@@ -204,9 +208,9 @@ export class SectionDialog {
     this.#initialSnapshot = JSON.stringify(this.#policyEditor?.getPolicy(false) ?? {})
     this.#isDirty = false
     this.#updateSaveBtnState()
+    this.#updateInterceptSubtitle()
     this.#dialog?.show()
   }
-
   close(): void {
     this.#dialog?.close()
   }
@@ -234,10 +238,11 @@ export class SectionDialog {
     this.#initialSnapshot = JSON.stringify(this.#policyEditor.getPolicy(false) ?? {})
     this.#isDirty = false
     this.#updateSaveBtnState()
+    this.#updateInterceptSubtitle()
+    this.#onSaved?.()
     this.#snackbar?.show(i18n.t('prompt_saved_target'))
     this.close()
   }
-
   #getSubtitle(): string {
     if (this.#section === 'device') {
       return 'Spoof brand, model, serial, and telephony IDs'
@@ -249,9 +254,28 @@ export class SectionDialog {
       return 'Attestation values, boot hashes, and lock states'
     }
     if (this.#section === 'intercept') {
-      return 'Per-method KeyMint and Keystore2 interception hooks'
+      return this.#getInterceptSubtitle()
     }
     return ''
+  }
+  #getInterceptSubtitle(): string {
+    const policy =
+      this.#policyEditor?.getPolicy(false) ??
+      (this.#config.get('intercept') as Record<string, unknown> | undefined) ??
+      {}
+    let count = 0
+    for (const key of INTERCEPT_KEYS) {
+      if (policy[key] !== false && policy[key] !== 'false') count++
+    }
+    return `${count}/${INTERCEPT_KEYS.length} features enabled`
+  }
+
+  #updateInterceptSubtitle(): void {
+    if (this.#section !== 'intercept' || !this.#dialog) return
+    const subtitleEl = this.#dialog.querySelector<HTMLElement>('.fs-subtitle')
+    if (subtitleEl) {
+      subtitleEl.textContent = this.#getInterceptSubtitle()
+    }
   }
 
   #renderFields(): string {

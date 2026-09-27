@@ -177,6 +177,9 @@ keyboxScreen.render(keyboxPage)
 const settingsPage = document.querySelector<HTMLElement>('#settings-page')!
 const settingsScreen = new SettingsScreen(dialogController, config, snackbar)
 settingsScreen.render(settingsPage)
+dialogController.onSaved = () => {
+  settingsScreen.updateSummaries()
+}
 
 // Shell Navigation
 const track = document.querySelector<HTMLElement>('#pages')!
@@ -214,6 +217,8 @@ navigation.onTabChanged((index) => {
     window.setTimeout(() => void keyboxScreen.refresh(), 360)
   } else if (index === 2) {
     window.setTimeout(() => void integrityScreen.load(), 360)
+  } else if (index === 3) {
+    settingsScreen.updateSummaries()
   }
 })
 

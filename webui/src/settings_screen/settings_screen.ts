@@ -1,21 +1,9 @@
 import type { DialogController } from '../dialog/dialog'
-import type { Config, Policy } from '../config'
+import { Config, type Policy, INTERCEPT_KEYS } from '../config'
 import type { Snackbar } from '../snackbar/snackbar'
 import type { MdSwitch } from '@material/web/switch/switch'
 import { escapeHtml } from '../html'
 import './settings_screen.scss'
-const INTERCEPT_KEYS = [
-  'get_security_level',
-  'get_key_entry',
-  'update_subcomponent',
-  'list_entries',
-  'delete_key',
-  'grant',
-  'ungrant',
-  'get_number_of_entries',
-  'list_entries_batched',
-  'get_supplementary_attestation_info',
-]
 
 export class SettingsScreen {
   readonly #dialogController: DialogController
@@ -286,7 +274,7 @@ export class SettingsScreen {
     for (const key of INTERCEPT_KEYS) {
       if (!intercept || intercept[key] !== false) count++
     }
-    return `${count}/${INTERCEPT_KEYS.length} routed`
+    return `${count}/${INTERCEPT_KEYS.length} features enabled`
   }
 
   #getDeviceSummary(): string {
