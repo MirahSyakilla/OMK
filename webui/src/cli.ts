@@ -427,16 +427,17 @@ export class BulkIcons {
     return typeof bridge?.getPackagesIcons === 'function'
   }
 
-  /// Ask the manager to pre-decode and cache every icon at the given size.
-  /// Best effort: a manager that lacks the method, or a failure, is not an error.
-  static async warm(sizePx: number = ICON_SIZE_PX): Promise<void> {
+  /// Whether the manager can pre-decode every icon in one call.
+  ///
+  /// Deliberately not used. `cacheAllPackageIcons` walks every installed app
+  /// and decodes and PNG-compresses each one inside a single synchronous
+  /// JavascriptInterface call, so invoking it would trade the per-row decode
+  /// storm for one long bridge stall. getPackagesIcons populates the same
+  /// packageIconCache on demand, so fetching per page is lazy and still warm
+  /// for later scrolls.
+  static get canWarm(): boolean {
     const bridge = (globalThis as { ksu?: Record<string, unknown> }).ksu
-    if (typeof bridge?.cacheAllPackageIcons !== 'function') return
-    try {
-      ;(bridge.cacheAllPackageIcons as (size: number) => void)(sizePx)
-    } catch {
-      // Cache warming is an optimisation, never a requirement.
-    }
+    return typeof bridge?.cacheAllPackageIcons === 'function'
   }
 
   static async fetch(packages: string[], sizePx: number = ICON_SIZE_PX): Promise<Map<string, string>> {
@@ -453,9 +454,12 @@ export class BulkIcons {
         const parsed = JSON.parse(raw) as BulkIcon[]
         if (!Array.isArray(parsed)) continue
         for (const entry of parsed) {
-          if (entry?.packageName && entry.icon) {
-            out.set(entry.packageName, `data:image/png;base64,${entry.icon}`)
-          }
+          // The manager already returns a complete data URL, not bare base64:
+          // WebViewInterface builds "data:image/png;base64," + base64 itself.
+          // Prefixing it again produced a URL that could never load, so the
+          // value is used as-is.
+          const icon = entry?.icon
+          if (entry?.packageName && icon) out.set(entry.packageName, icon)
         }
       } catch {
         // A failed page falls back to the per-icon path for those packages.

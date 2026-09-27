@@ -81,11 +81,6 @@ export class AppList {
       infos = []
     }
 
-    // When the manager exposes a bulk icon cache, ask it to pre-decode at list
-    // size while the list is being built, so scrolling finds icons already warm
-    // instead of queueing a native decode per row.
-    if (BulkIcons.supported()) void BulkIcons.warm()
-
     const infoMap = new Map(infos.map((info) => [info.packageName, info]))
     this.#entries = pkgs.map((pkg: string) => {
       const info = infoMap.get(pkg)
@@ -557,8 +552,8 @@ export class AppList {
       this.#showIcon(img, loader, cached)
       return
     }
-    // A manager with the bulk bridge decodes once per page of packages and
-    // caches natively, instead of one intercepted native decode per row.
+    // A manager with the bulk bridge decodes a page of packages in one call and
+    // caches them natively, instead of one intercepted native decode per row.
     if (BulkIcons.supported() && !this.#iconPending.has(packageName)) {
       this.#iconPending.add(packageName)
       void BulkIcons.fetch([packageName])
@@ -568,7 +563,9 @@ export class AppList {
             this.#iconCache.set(packageName, url)
             this.#showIcon(img, loader, url)
           } else {
-            img.src = `ksu://icon/${packageName}`
+            // The manager had nothing for this package, so the per-icon path
+            // still gets a chance rather than the row showing the fallback.
+            this.#showIcon(img, loader, `ksu://icon/${packageName}`, packageName, root)
           }
         })
         .finally(() => this.#iconPending.delete(packageName))
