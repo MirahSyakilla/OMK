@@ -190,7 +190,7 @@ export class IntegrityScreen {
                   <div class="switch-row-title">Play Integrity</div>
                   <div class="switch-row-sub">Master switch for property overrides & spoofing</div>
                 </div>
-                <md-switch icons="true" id="pif-enabled"></md-switch>
+                <md-switch icons="true" id="pif-enabled" aria-label="Play Integrity"></md-switch>
               </div>
 
               <div class="switch-row" id="row-spoof-build" role="button" tabindex="0">
@@ -199,7 +199,7 @@ export class IntegrityScreen {
                   <div class="switch-row-title">Spoof Build</div>
                   <div class="switch-row-sub">Override android.os.Build fields</div>
                 </div>
-                <md-switch icons="true" id="pif-spoof-build" selected></md-switch>
+                <md-switch icons="true" id="pif-spoof-build" aria-label="Spoof Build" selected></md-switch>
               </div>
 
               <div class="switch-row" id="row-spoof-props" role="button" tabindex="0">
@@ -208,7 +208,7 @@ export class IntegrityScreen {
                   <div class="switch-row-title">Spoof Props</div>
                   <div class="switch-row-sub">Override system ro.* properties</div>
                 </div>
-                <md-switch icons="true" id="pif-spoof-props" selected></md-switch>
+                <md-switch icons="true" id="pif-spoof-props" aria-label="Spoof Props" selected></md-switch>
               </div>
 
               <div class="switch-row" id="row-spoof-vending" role="button" tabindex="0">
@@ -220,7 +220,7 @@ export class IntegrityScreen {
                   </div>
                   <div class="switch-row-sub">Provide fingerprint to com.android.vending</div>
                 </div>
-                <md-switch icons="true" id="pif-spoof-vending" selected></md-switch>
+                <md-switch icons="true" id="pif-spoof-vending" aria-label="Spoof Vending Fingerprint" selected></md-switch>
               </div>
 
               <div class="switch-row" id="row-sync-patch" role="button" tabindex="0">
@@ -229,7 +229,7 @@ export class IntegrityScreen {
                   <div class="switch-row-title">Sync Trust Patch</div>
                   <div class="switch-row-sub">Synchronize security patch date with KeyMint trust</div>
                 </div>
-                <md-switch icons="true" id="pif-sync-patch" selected></md-switch>
+                <md-switch icons="true" id="pif-sync-patch" aria-label="Sync Trust Patch" selected></md-switch>
               </div>
 
               <div class="switch-row" id="row-sync-ids" role="button" tabindex="0">
@@ -238,7 +238,7 @@ export class IntegrityScreen {
                   <div class="switch-row-title">Sync Device IDs</div>
                   <div class="switch-row-sub">Apply brand, model, product to config.toml</div>
                 </div>
-                <md-switch icons="true" id="pif-sync-ids" selected></md-switch>
+                <md-switch icons="true" id="pif-sync-ids" aria-label="Sync Device IDs" selected></md-switch>
               </div>
 
               <div class="switch-row" id="row-unify-props" role="button" tabindex="0">
@@ -250,7 +250,7 @@ export class IntegrityScreen {
                   </div>
                   <div class="switch-row-sub">Apply resetprop -n across ro.product.*</div>
                 </div>
-                <md-switch icons="true" id="pif-unify-props"></md-switch>
+                <md-switch icons="true" id="pif-unify-props" aria-label="Unify Product Props"></md-switch>
               </div>
 
               <div class="switch-row" id="row-soter" role="button" tabindex="0">
@@ -262,7 +262,7 @@ export class IntegrityScreen {
                   </div>
                   <div class="switch-row-sub">Enable WeChat/Tencent biometric key attestation spoof</div>
                 </div>
-                <md-switch icons="true" id="pif-soter"></md-switch>
+                <md-switch icons="true" id="pif-soter" aria-label="Tencent Soter"></md-switch>
               </div>
           </div>
 
@@ -344,12 +344,22 @@ export class IntegrityScreen {
       const row = this.#container?.querySelector<HTMLElement>(`#${rowId}`)
       const sw = this.#container?.querySelector<MdSwitch>(`#${switchId}`)
       if (row && sw) {
-        row.addEventListener('click', (e) => {
-          // Let native md-switch interaction handle direct clicks on the switch
-          if (e.composedPath().some((n) => n instanceof Element && n.localName === 'md-switch')) return
+        const toggle = (): void => {
           if (sw.disabled || row.classList.contains('switch-row--muted')) return
           sw.selected = !sw.selected
           this.#handleToggle(switchId, sw.selected)
+        }
+        row.addEventListener('click', (e) => {
+          // Let native md-switch interaction handle direct clicks on the switch
+          if (e.composedPath().some((n) => n instanceof Element && n.localName === 'md-switch')) return
+          toggle()
+        })
+        // The row is role="button" and focusable, so Enter and Space have to work
+        // or the role is a lie and the row is unreachable by keyboard.
+        row.addEventListener('keydown', (e) => {
+          if (e.key !== 'Enter' && e.key !== ' ') return
+          e.preventDefault()
+          toggle()
         })
         sw.addEventListener('change', () => {
           if (row.classList.contains('switch-row--muted')) return

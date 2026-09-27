@@ -1,14 +1,8 @@
 import type { MdDialog, MdIconButton } from '@material/web/all'
 import { applyDialogAnimation } from './animation'
-import type { History } from '../history'
 
 export class HelpDialog {
   #dialog: MdDialog | null = null
-  #history: History | null = null
-
-  constructor(history?: History) {
-    this.#history = history ?? null
-  }
 
   getElement(): DocumentFragment {
     const template = document.createElement('template')
@@ -123,11 +117,14 @@ export class HelpDialog {
     fragment.querySelector<MdIconButton>('#help-dialog-back')!.onclick = () => this.close()
 
     if (this.#dialog) {
+      // main.ts already binds push-on-open and consume-on-closed for every
+      // md-dialog it appends, keyed on the dialog id. Registering a second entry
+      // here pushed twice on open and consumed twice on close, and each consume
+      // calls window.history.back(), so the stack drifted and a later back press
+      // re-opened the dialog instead of leaving. requestClose is still assigned
+      // because main.ts prefers it over a bare dialog.close().
       Object.assign(this.#dialog, {
         requestClose: () => this.close(),
-      })
-      this.#dialog.addEventListener('closed', () => {
-        this.#history?.consume('help')
       })
     }
 
@@ -139,7 +136,6 @@ export class HelpDialog {
   }
 
   show(): void {
-    this.#history?.push('help', () => this.close())
     this.#dialog?.show()
   }
 

@@ -1,6 +1,7 @@
 import type { MdDialog, MdFilledButton, MdOutlinedButton, MdIconButton, MdSwitch } from '@material/web/all'
 import { PolicyEditor } from '../app_list/policy'
 import { Config, type SectionKey, type PolicyFieldMeta, type TextFieldMeta, snakeToLabel, INTERCEPT_KEYS } from '../config'
+import { escapeHtml } from '../html'
 import { i18n } from '../i18n'
 import { Snackbar } from '../snackbar/snackbar'
 import { History } from '../history'
@@ -176,13 +177,25 @@ export class SectionDialog {
 
       // Click-to-toggle for switch rows with ripple feedback
       fieldsContainer.querySelectorAll<HTMLElement>('.switch-row').forEach((row) => {
-        row.addEventListener('click', (e) => {
-          if (e.composedPath().some((n) => n instanceof Element && n.localName === 'md-switch')) return
+        const toggle = (): void => {
           const sw = row.querySelector<MdSwitch>('md-switch')
-          if (sw) {
-            sw.selected = !sw.selected
-            sw.dispatchEvent(new Event('change', { bubbles: true }))
-          }
+          if (!sw) return
+          sw.selected = !sw.selected
+          sw.dispatchEvent(new Event('change', { bubbles: true }))
+        }
+        row.addEventListener('click', (e) => {
+          // A click that came from the switch itself already toggled it.
+          if (e.composedPath().some((n) => n instanceof Element && n.localName === 'md-switch')) return
+          toggle()
+        })
+        // The row advertises role="button" and tabindex="0", so it must honour the
+        // keys that role implies. Before the fullscreen layout it was a
+        // <label for>, which supplied both the accessible name and native
+        // activation, and neither survived the change of element.
+        row.addEventListener('keydown', (e) => {
+          if (e.key !== 'Enter' && e.key !== ' ') return
+          e.preventDefault()
+          toggle()
         })
       })
 
@@ -420,7 +433,7 @@ export class SectionDialog {
               <div class="switch-row-title">${meta.label}</div>
               ${desc ? `<div class="switch-row-sub">${desc}</div>` : ''}
             </div>
-            <md-switch icons="true" id="policy-${key}" class="policy-${key}"${meta.defaultValue ? ' selected' : ''}></md-switch>
+            <md-switch icons="true" id="policy-${key}" class="policy-${key}" aria-label="${escapeHtml(meta.label)}"${meta.defaultValue ? ' selected' : ''}></md-switch>
             <md-ripple></md-ripple>
           </div>
         `
@@ -457,7 +470,7 @@ export class SectionDialog {
             <div class="switch-row-title">${meta.label}</div>
             ${desc ? `<div class="switch-row-sub">${desc}</div>` : ''}
           </div>
-          <md-switch icons="true" id="policy-${key}" class="policy-${key}"${meta.defaultValue ? ' selected' : ''}></md-switch>
+          <md-switch icons="true" id="policy-${key}" class="policy-${key}" aria-label="${escapeHtml(meta.label)}"${meta.defaultValue ? ' selected' : ''}></md-switch>
           <md-ripple></md-ripple>
         </div>
       `

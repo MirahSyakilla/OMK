@@ -28,7 +28,7 @@ export class DialogController {
 
   constructor(cli: Cli, config: Config, appList: AppList, snackbar: Snackbar, history?: History) {
     this.about = new AboutDialog(cli)
-    this.help = new HelpDialog(history)
+    this.help = new HelpDialog()
     this.systemApp = new SystemAppDialog(appList)
     this.integrity = new IntegrityDialog(cli, config, snackbar, () => {
       void appList.refresh(false)
