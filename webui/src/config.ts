@@ -237,6 +237,11 @@ export const TRUST_SCHEMA = new PolicySchema({
     label: 'Device Locked',
     defaultValue: true,
   },
+  attempt_prop_fix: {
+    type: 'boolean',
+    label: 'Attempt Prop Fix',
+    defaultValue: false,
+  },
 })
 
 export const OMK_MAIN_SCHEMA = new PolicySchema({
@@ -482,6 +487,7 @@ export class Config {
           vb_hash: 'auto',
           verified_boot_state: true,
           device_locked: true,
+          attempt_prop_fix: false,
         },
         injector_main: {
           enabled: true,
@@ -618,6 +624,7 @@ export class Config {
       vb_hash: stringValue(trust.vb_hash, 'auto'),
       verified_boot_state: boolValue(trust.verified_boot_state, true),
       device_locked: boolValue(trust.device_locked, true),
+      attempt_prop_fix: boolValue(trust.attempt_prop_fix, false),
     }
     data.device = {
       brand: stringValue(device.brand, 'Google'),
@@ -720,6 +727,7 @@ export class Config {
       vb_hash: stringValue(data.trust?.vb_hash, 'auto'),
       verified_boot_state: data.trust?.verified_boot_state === true,
       device_locked: data.trust?.device_locked === true,
+      attempt_prop_fix: data.trust?.attempt_prop_fix === true,
     }
     omkConfig.device = {
       ...recordValue(omkConfig.device),

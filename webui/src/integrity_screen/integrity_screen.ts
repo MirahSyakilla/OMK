@@ -5,6 +5,7 @@ import { Config } from '../config'
 import { PIXEL_DEVICES } from '../constant'
 import { File } from '../file'
 import { escapeHtml } from '../html'
+import { buildProp } from '../integrity_prop'
 import { Snackbar } from '../snackbar/snackbar'
 import './integrity_screen.scss'
 
@@ -99,40 +100,6 @@ function latestFirst(left: FingerprintChoice, right: FingerprintChoice): number 
   const l = Number.parseInt(left.build.buildId, 10) || 0
   const r = Number.parseInt(right.build.buildId, 10) || 0
   return r - l
-}
-
-function securityPatch(buildId: string): string {
-  const match = buildId.match(/^[A-Z0-9]+\.(\d{2})(\d{2})(\d{2})\./)
-  if (!match) return ''
-  return `20${match[1]}-${match[2]}-${match[3]}`
-}
-
-function buildProp(
-  build: FlashBuild,
-  product: string,
-  model: string,
-  major: number,
-  initialSdk: number,
-): string {
-  const id = build.releaseCandidateName || build.buildId
-  const patch = securityPatch(build.buildId)
-  const fingerprint = `google/${product}/${product}:${major}/${id}/${build.buildId}:user/release-keys`
-  const lines = [
-    `FINGERPRINT=${fingerprint}`,
-    `MANUFACTURER=Google`,
-    `BRAND=google`,
-    `PRODUCT=${product}`,
-    `DEVICE=${product}`,
-    `MODEL=${model}`,
-    `RELEASE=${major}`,
-    `ID=${id}`,
-    `INCREMENTAL=${build.buildId}`,
-    `TYPE=user`,
-    `TAGS=release-keys`,
-    `DEVICE_INITIAL_SDK_INT=${initialSdk}`,
-  ]
-  if (patch) lines.push(`SECURITY_PATCH=${patch}`)
-  return lines.join('\n')
 }
 
 interface FingerprintChoice {
@@ -247,7 +214,10 @@ export class IntegrityScreen {
               <div class="switch-row" id="row-unify-props" role="button" tabindex="0">
                 <md-ripple></md-ripple>
                 <div class="switch-row-content">
-                  <div class="switch-row-title">Unify Product Props</div>
+                  <div class="switch-row-title">
+                    Unify Product Props
+                    <span class="inline-badge badge-tertiary">Beta</span>
+                  </div>
                   <div class="switch-row-sub">Apply resetprop -n across ro.product.*</div>
                 </div>
                 <md-switch icons="true" id="pif-unify-props"></md-switch>

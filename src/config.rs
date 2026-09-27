@@ -540,6 +540,7 @@ fn trust_changed_beyond_patchlevels(old: &RawTrustConfig, new: &RawTrustConfig) 
         || old.vb_key != new.vb_key
         || old.vb_hash != new.vb_hash
         || old.verified_boot_state != new.verified_boot_state
+        || old.attempt_prop_fix != new.attempt_prop_fix
         || old.device_locked != new.device_locked
 }
 
@@ -764,6 +765,7 @@ pub struct ResolvedTrust {
     pub vb_hash_source: TrustValueSource,
     pub verified_boot_state: bool,
     pub device_locked: bool,
+    pub attempt_prop_fix: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -782,6 +784,13 @@ pub struct RawTrustConfig {
     pub vb_hash: TrustValueSpec,
     pub verified_boot_state: bool,
     pub device_locked: bool,
+    /// Rewrite property-area values that root-hiding tooling commonly leaves
+    /// behind, and align `*.build.version.incremental` with the patch level.
+    ///
+    /// Off by default: unlike every other property write, this edits
+    /// `/dev/__properties__` in place rather than going through `resetprop`.
+    #[serde(default)]
+    pub attempt_prop_fix: bool,
 }
 
 impl Default for RawTrustConfig {
@@ -796,6 +805,7 @@ impl Default for RawTrustConfig {
             vb_hash: TrustValueSpec::Auto,
             verified_boot_state: true,
             device_locked: true,
+            attempt_prop_fix: false,
         }
     }
 }

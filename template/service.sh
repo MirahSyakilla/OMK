@@ -57,3 +57,57 @@ start_daemon() {
 
 start_daemon "$MODDIR/daemon" "$STATE_DIR/keymint-daemon.pid"
 start_daemon "$MODDIR/daemon-injector" "$STATE_DIR/injector-daemon.pid"
+
+# Reflect the three runtime services in the manager's module card.
+#
+# The manager reads module.prop once when it lists modules, so the description
+# is rewritten in place rather than shipped static. Integrity reports the
+# configured state, not just a process: the zygisk companion is loaded into the
+# GMS processes by ReZygisk and has no pid of its own to poll.
+INTEGRITY_TOML=""
+for candidate in /data/adb/omk/integrity.toml /data/misc/keystore/omk/data/integrity.toml; do
+  if [ -f "$candidate" ]; then
+    INTEGRITY_TOML="$candidate"
+    break
+  fi
+done
+
+INTEGRITY_ENABLED="false"
+if [ -n "$INTEGRITY_TOML" ]; then
+  # Toybox sed has no branch alternation, so `enabled = true` is matched on its
+  # own and anything else, including a missing key, stays off.
+  if sed -n 's/^enabled[[:space:]]*=[[:space:]]*true.*/true/p' "$INTEGRITY_TOML" | head -n 1 | grep -q true; then
+    INTEGRITY_ENABLED="true"
+  fi
+else
+  # No integrity.toml at all. That is the pre-feature state, and reporting
+  # Integrity as live would claim a service that has never been configured.
+  INTEGRITY_ENABLED="unconfigured"
+fi
+
+if daemon_alive "$MODDIR/daemon"; then DAEMON_STATE="✅"; else DAEMON_STATE="❌"; fi
+if daemon_alive "$MODDIR/daemon-injector"; then INJECTOR_STATE="✅"; else INJECTOR_STATE="❌"; fi
+case "$INTEGRITY_ENABLED" in
+  true) INTEGRITY_STATE="✅" ;;
+  unconfigured) INTEGRITY_STATE="🚫" ;;
+  *) INTEGRITY_STATE="❌" ;;
+esac
+
+# The status line goes on its own line, and the sed replacement is written with
+# a literal newline. Toybox sed has no `\n` escape in the replacement text and
+# would write it out as the two characters, and the `|` in the status is the
+# alternation delimiter, so it has to be escaped. A temp file also keeps the
+# write atomic, which matters because the manager may read module.prop at any
+# moment.
+STATUS="Daemon: ${DAEMON_STATE} | Injector: ${INJECTOR_STATE} | Integrity: ${INTEGRITY_STATE}"
+STATUS_PROP="$MODDIR/.module.prop.status.$$"
+if printf 'description=%s\nForked OhMyKeymint with customizations\n' "$STATUS" > "$STATUS_PROP" 2>/dev/null; then
+  # Keep every key except description, then append the new one, so updateJson
+  # and the version fields survive a rewrite.
+  if grep -v '^description=' "$MODDIR/module.prop" > "$STATUS_PROP.keys" 2>/dev/null; then
+    if cat "$STATUS_PROP.keys" "$STATUS_PROP" > "$MODDIR/module.prop.new" 2>/dev/null; then
+      mv "$MODDIR/module.prop.new" "$MODDIR/module.prop" 2>/dev/null
+    fi
+  fi
+fi
+rm -f "$STATUS_PROP" "$STATUS_PROP.keys" "$MODDIR/module.prop.new" 2>/dev/null

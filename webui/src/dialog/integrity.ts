@@ -4,6 +4,7 @@ import type { FlashBuild } from '../cli'
 import { Config } from '../config'
 import { PIXEL_DEVICES } from '../constant'
 import { File } from '../file'
+import { buildProp } from '../integrity_prop'
 import { Snackbar } from '../snackbar/snackbar'
 import { applyDialogAnimation } from './animation'
 
@@ -105,33 +106,6 @@ function buildTotal(build: FlashBuild): number {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
-/// Pixel build IDs carry the patch date as `YYMMDD`.
-export function securityPatch(buildId: string): string {
-  const match = buildId.match(/^[A-Z0-9]+\.(\d{2})(\d{2})(\d{2})\./)
-  if (!match) return ''
-  return `20${match[1]}-${match[2]}-${match[3]}`
-}
-
-export function buildProp(build: FlashBuild, product: string, model: string, major: number): string {
-  const id = build.releaseCandidateName
-  const patch = securityPatch(id)
-  const lines = [
-    `FINGERPRINT=google/${product}/${product}:${major}/${id}/${build.buildId}:user/release-keys`,
-    'MANUFACTURER=Google',
-    `MODEL=${model}`,
-    `PRODUCT=${product}`,
-    `DEVICE=${product}`,
-    'BRAND=google',
-    `RELEASE=${major}`,
-    `ID=${id}`,
-    `INCREMENTAL=${build.buildId}`,
-    'TYPE=user',
-    'TAGS=release-keys',
-  ]
-  if (patch) lines.push(`SECURITY_PATCH=${patch}`)
-  return lines.join('\n')
-}
-
 function parseKv(content: string): Record<string, string> {
   const map: Record<string, string> = {}
   for (const raw of content.split('\n')) {
@@ -202,7 +176,7 @@ export class IntegrityDialog {
             </label>
             <label class="switch-item outlined" for="integrity-unify-props">
               <md-ripple></md-ripple>
-              <span>Unify Product Props</span>
+              <span>Unify Product Props <span class="inline-badge badge-tertiary">Beta</span></span>
               <md-switch icons="true" id="integrity-unify-props"></md-switch>
             </label>
             <label class="switch-item outlined" for="integrity-soter">

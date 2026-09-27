@@ -111,6 +111,8 @@ vb_hash = "auto"
 # Report verified boot and a locked bootloader when true.
 verified_boot_state = true
 device_locked = true
+# Beta. Clean up property values that betray a rooted or test-signed build.
+attempt_prop_fix = false
 
 [device]
 # Device identity strings reported when an app requests attestation IDs.
@@ -347,6 +349,37 @@ requires a keymint restart.
 `true` reports that the device boot state is locked; `false` reports it as
 unlocked. This does not actually lock or unlock the bootloader. Changing it
 requires a keymint restart.
+
+#### `attempt_prop_fix`
+
+Beta. Off by default.
+
+`true` rewrites the property *values* that give away a rooted, `eng`, or
+test-signed build, and only for properties that already exist. It corrects
+`ro.debuggable`, `ro.secure`, `ro.build.tags`, `ro.build.type`,
+`service.adb.root`, `ro.kernel.qemu`, `ro.boot.flash.locked`,
+`ro.boot.verifiedbootstate`, `vendor.boot.verifiedbootstate`,
+`ro.boot.vbmeta.device_state`, `vendor.boot.vbmeta.device_state`, and
+`ro.boot.veritymode`. It also replaces an epoch-shaped
+`ro.build.version.incremental` such as `1790487905` with a date-shaped id
+derived from the same patch level that produces the build dates, so the
+incremental and `ro.*.build.date` agree.
+
+A property already holding the clean value is left alone, so a correct device
+does no work.
+
+Two properties are never added or removed. `resetprop --delete` frees a
+property's node in the `/dev/__properties__` trie and the run is never
+reclaimed, so creating or deleting nodes is what makes an area look tampered
+with. This rewrites existing values only. For the same reason it defers to
+BRENE: when BRENE's `config_build_identity_spoof` or `spoof_date_properties`
+is enabled, BRENE already rewrites the fingerprints, the build description, and
+the date and incremental group, and this module stays out of those properties
+entirely rather than racing it at boot.
+
+Failures are logged and skipped rather than propagated, so a property that
+cannot be read or written never fails boot. A restart is enough to apply a
+change.
 
 #### `sys.oem_unlock_allowed`
 
@@ -815,6 +848,15 @@ sync_device_ids = true
 unify_product_props = false
 soter_beta = false
 ```
+
+`unify_product_props` is beta. It is applied once when Integrity settings are
+saved, by writing the five primary `ro.product.*` fields with `resetprop -n` so
+they agree with the selected fingerprint. It is not applied at boot, and it is
+not read by any daemon: the switch records the action, and setting it in this
+file by hand has no effect. A reboot therefore returns those five fields to
+their original values until Integrity settings are saved again. The partition
+scoped forms, which the zygisk companion rewrites inside the GMS processes, are
+unaffected either way.
 
 `integrity.prop` uses Play Integrity Fix key=value fields. `FINGERPRINT` is
 required to enable; without it the zygisk companion disables itself and no

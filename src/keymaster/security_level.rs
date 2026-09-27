@@ -1623,6 +1623,7 @@ mod tests {
                     vb_hash_source: TrustValueSource::ExplicitHex,
                     verified_boot_state: true,
                     device_locked: true,
+                    attempt_prop_fix: false,
                 },
             )
             .unwrap();

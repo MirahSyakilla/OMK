@@ -3,5 +3,5 @@ name=Oh My Keymint
 version=${versionName}
 versionCode=${versionCode}
 author=James Clef, MirahSyakilla
-description=Custom keystore implementation for Android Keystore Spoofer
+description=Forked OhMyKeymint with customizations
 updateJson=https://raw.githubusercontent.com/qwq233/OhMyKeymint/changelog/update.json

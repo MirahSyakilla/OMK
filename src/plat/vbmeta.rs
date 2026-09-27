@@ -165,6 +165,9 @@ pub fn bootstrap_vbmeta(config_file: &ConfigFile) -> Result<ResolvedTrust> {
             .unwrap_or(patches.security_patch.as_str())
     };
     sync_build_date_props(effective_patch)?;
+    if config_file.trust.attempt_prop_fix {
+        apply_attempt_prop_fix(effective_patch);
+    }
 
     let vb_key_hex = hex::encode(vb_key.value);
     let vb_hash_hex = hex::encode(vb_hash.value);
@@ -188,6 +191,7 @@ pub fn bootstrap_vbmeta(config_file: &ConfigFile) -> Result<ResolvedTrust> {
         vb_hash_source: vb_hash.source,
         verified_boot_state: config_file.trust.verified_boot_state,
         device_locked: config_file.trust.device_locked,
+        attempt_prop_fix: config_file.trust.attempt_prop_fix,
     })
 }
 
@@ -233,6 +237,48 @@ fn brene_owns_os_security_patch() -> bool {
     ["/data/adb/modules/brene", "/data/adb/modules/BRENE"]
         .into_iter()
         .any(|dir| brene_module_owns_os_security_patch(Path::new(dir)))
+}
+
+/// Whether BRENE already rewrites the build identity properties this module
+/// would otherwise clean up under `trust.attempt_prop_fix`.
+///
+/// BRENE's `config_build_identity_spoof` rewrites the fingerprints, the build
+/// description, and the date/incremental group. When it is on, this module stays
+/// out of those properties entirely: two writers would race at boot and the
+/// surviving value would depend on ordering.
+fn brene_owns_build_identity() -> bool {
+    const BRENE_FLAGS: &[&str] = &["config_build_identity_spoof", "spoof_date_properties"];
+    ["/data/adb/modules/brene", "/data/adb/modules/BRENE"]
+        .into_iter()
+        .any(|dir| {
+            let dir = Path::new(dir);
+            if dir.join("disable").exists() || dir.join("remove").exists() {
+                return false;
+            }
+            let Ok(text) = std::fs::read_to_string(dir.join("config.sh")) else {
+                return false;
+            };
+            brene_config_enables_any(&text, BRENE_FLAGS)
+        })
+}
+
+/// Whether `text` sets any of `keys` to `1`, ignoring comments and quoting.
+fn brene_config_enables_any(text: &str, keys: &[&str]) -> bool {
+    text.lines().any(|line| {
+        let line = match line.split_once('#') {
+            Some((before, _)) => before.trim(),
+            None => line.trim(),
+        };
+        if line.is_empty() {
+            return false;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            return false;
+        };
+        let key = key.trim();
+        keys.iter()
+            .any(|candidate| *candidate == key && value.trim().trim_matches(['"', '\'']).eq("1"))
+    })
 }
 
 fn resolve_vb_key(spec: &TrustValueSpec, device_locked: bool, slot_suffix: &str) -> ResolvedField {
@@ -599,6 +645,9 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
 struct BuildDate {
     epoch_seconds: i64,
     formatted: String,
+    year: i64,
+    month: i64,
+    day: i64,
 }
 
 /// Derive a coherent build date from a `YYYY-MM-DD` patch level.
@@ -620,6 +669,9 @@ fn build_date_from_patch(patch: &str) -> Option<BuildDate> {
     let weekday = (days + 4).rem_euclid(7) as usize;
     Some(BuildDate {
         epoch_seconds: days * 86_400,
+        year,
+        month,
+        day,
         formatted: format!(
             "{} {} {:2} 00:00:00 UTC {}",
             DAY_NAMES[weekday],
@@ -631,6 +683,66 @@ fn build_date_from_patch(patch: &str) -> Option<BuildDate> {
 }
 
 /// Align the partition build dates with the patch level actually in effect.
+/// Rewrite property *values* that betray a rooted, test-signed, or eng build.
+///
+/// This is the opt-in half of [`sync_build_date_props`], gated by
+/// `trust.attempt_prop_fix` and off by default.
+///
+/// Two rules keep it safe. It only ever rewrites a node that already exists:
+/// `resetprop --delete` frees a property's slot and the run is never reclaimed,
+/// so adding or removing nodes is what makes a property area look tampered
+/// with. And it never rewrites a property BRENE already owns, because two
+/// writers disagreeing would leave the surviving value dependent on boot order.
+///
+/// The rewrite is value-scoped: a property already holding the clean value is
+/// left untouched, so a correct device does no work.
+const PROP_FIX_VALUES: &[(&str, &[&str])] = &[
+    ("ro.debuggable", &["0"]),
+    ("ro.secure", &["1"]),
+    ("ro.build.tags", &["release-keys"]),
+    ("ro.build.type", &["user"]),
+    ("service.adb.root", &["0"]),
+    ("ro.kernel.qemu", &["0"]),
+    ("ro.boot.flash.locked", &["1"]),
+    ("ro.boot.verifiedbootstate", &["green"]),
+    ("vendor.boot.verifiedbootstate", &["green"]),
+    ("ro.boot.vbmeta.device_state", &["locked"]),
+    ("vendor.boot.vbmeta.device_state", &["locked"]),
+    ("ro.boot.veritymode", &["enforcing"]),
+];
+
+/// The `ro.build.version.incremental` node, which is aligned to the patch date
+/// when it still carries an epoch-shaped id.
+const INCREMENTAL_PROP: &str = "ro.build.version.incremental";
+
+/// Whether `text` is an epoch-shaped incremental id, such as the `1790487905`
+/// a stock build emits.
+///
+/// A date-shaped id like `16091614` is already the shape a release build uses,
+/// so it is left alone. The check is digit count rather than magnitude because
+/// a 10-digit id is unambiguously a Unix time and any real incremental that
+/// long is one.
+fn is_epoch_shaped_incremental(value: &str) -> bool {
+    value.len() >= 10 && value.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+/// A date-shaped incremental derived from the same build date as the other
+/// `ro.*.build.date` properties, so the id and the dates agree.
+///
+/// A release incremental is `YYMMDD` followed by a small ordinal, so the patch
+/// date supplies the six leading digits and the day of the month supplies a
+/// three-digit ordinal. Keeping the ordinal a function of the date, rather than
+/// a constant, means the same patch level always yields the same id.
+fn incremental_from_build_date(build_date: &BuildDate) -> String {
+    format!(
+        "{:02}{:02}{:02}{:03}",
+        build_date.year % 100,
+        build_date.month,
+        build_date.day,
+        build_date.day * 7 + 11
+    )
+}
+
 fn sync_build_date_props(security_patch: &str) -> Result<()> {
     let Some(build_date) = build_date_from_patch(security_patch) else {
         log::warn!(
@@ -646,6 +758,65 @@ fn sync_build_date_props(security_patch: &str) -> Result<()> {
         sync_string_sysprop(property, &epoch_seconds)?;
     }
     Ok(())
+}
+
+/// Apply the opt-in property-value cleanup described by [`PROP_FIX_VALUES`],
+/// and align an epoch-shaped incremental with the build date.
+///
+/// Called only when `trust.attempt_prop_fix` is set. A failure on any single
+/// property is logged and skipped rather than propagated, because the goal is
+/// to remove tells, and a property that cannot be read or written is not a
+/// reason to fail boot or to abandon the remaining cleanups.
+fn apply_attempt_prop_fix(security_patch: &str) {
+    if brene_owns_build_identity() {
+        log::info!("skipping property fix because BRENE owns the build identity properties");
+        return;
+    }
+
+    let mut repaired = 0usize;
+    for (property, clean_values) in PROP_FIX_VALUES {
+        let Some(current) = resetprop::read_string_property(property) else {
+            continue;
+        };
+        let Some(clean) = clean_values.first() else {
+            continue;
+        };
+        if current == *clean {
+            continue;
+        }
+        match resetprop::direct_write_and_verify_property(property, clean) {
+            Ok(()) => {
+                repaired += 1;
+                log::info!("attempt_prop_fix: {property} {current} -> {clean}");
+            }
+            Err(error) => {
+                log::warn!("attempt_prop_fix: leaving {property}={current}: {error:#}");
+            }
+        }
+    }
+
+    if let Some(build_date) = build_date_from_patch(security_patch) {
+        if let Some(current) = resetprop::read_string_property(INCREMENTAL_PROP) {
+            if is_epoch_shaped_incremental(&current) {
+                let replacement = incremental_from_build_date(&build_date);
+                match resetprop::direct_write_and_verify_property(INCREMENTAL_PROP, &replacement) {
+                    Ok(()) => {
+                        repaired += 1;
+                        log::info!(
+                            "attempt_prop_fix: {INCREMENTAL_PROP} {current} -> {replacement}"
+                        );
+                    }
+                    Err(error) => {
+                        log::warn!(
+                            "attempt_prop_fix: leaving {INCREMENTAL_PROP}={current}: {error:#}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    log::info!("attempt_prop_fix: repaired {repaired} propert(ies)");
 }
 
 fn is_nonzero_digest(value: &[u8; 32]) -> bool {
@@ -1218,6 +1389,96 @@ mod tests {
                 "expected {patch:?} to be rejected"
             );
         }
+    }
+
+    #[test]
+    fn only_epoch_shaped_incrementals_are_rewritten() {
+        // A stock build publishes a Unix time here; that is the tell.
+        assert!(is_epoch_shaped_incremental("1790487905"));
+        assert!(is_epoch_shaped_incremental("1609161400"));
+        // A release incremental is already date-shaped, so it must be left alone.
+        for value in ["16091614", "10987274", "260905001", "1234567"] {
+            assert!(
+                !is_epoch_shaped_incremental(value),
+                "expected {value:?} to be left unchanged"
+            );
+        }
+        for value in ["", "test-keys", "1790487905a", "-1790487905"] {
+            assert!(
+                !is_epoch_shaped_incremental(value),
+                "expected {value:?} to be left unchanged"
+            );
+        }
+    }
+
+    #[test]
+    fn replacement_incremental_is_date_shaped_and_agrees_with_the_build_date() {
+        for patch in ["2026-09-05", "2024-02-29", "2021-06-09", "2026-12-31"] {
+            let build_date = build_date_from_patch(patch).unwrap();
+            let incremental = incremental_from_build_date(&build_date);
+            assert!(
+                incremental.bytes().all(|byte| byte.is_ascii_digit()),
+                "{incremental} must stay all-digits for {patch}"
+            );
+            assert_eq!(
+                incremental.len(),
+                9,
+                "expected YYMMDD plus ordinal for {patch}"
+            );
+            let short_year: i64 = incremental[0..2].parse().unwrap();
+            let month: i64 = incremental[2..4].parse().unwrap();
+            let day: i64 = incremental[4..6].parse().unwrap();
+            let mut fields = patch.split('-');
+            let expected_year: i64 = fields.next().unwrap().parse().unwrap();
+            let expected_month: i64 = fields.next().unwrap().parse().unwrap();
+            let expected_day: i64 = fields.next().unwrap().parse().unwrap();
+            assert_eq!(
+                (short_year, month, day),
+                (expected_year % 100, expected_month, expected_day),
+                "incremental {incremental} must lead with the {patch} date"
+            );
+        }
+    }
+
+    #[test]
+    fn every_property_fix_target_has_a_clean_value() {
+        for (property, clean_values) in PROP_FIX_VALUES {
+            assert!(
+                !clean_values.is_empty(),
+                "{property} needs a clean value to rewrite to"
+            );
+            assert!(!property.is_empty());
+        }
+        // A property may not appear twice, or the second entry is dead.
+        let mut seen = std::collections::BTreeSet::new();
+        for (property, _) in PROP_FIX_VALUES {
+            assert!(seen.insert(*property), "{property} listed twice");
+        }
+    }
+
+    #[test]
+    fn brene_build_identity_flags_are_detected_without_false_positives() {
+        for key in ["config_build_identity_spoof", "spoof_date_properties"] {
+            assert!(brene_config_enables_any(&format!("{key}=1\n"), &[key]));
+            assert!(brene_config_enables_any(
+                &format!("  {key} = \"1\"  # spoof\n"),
+                &[key]
+            ));
+            assert!(!brene_config_enables_any(&format!("{key}=0\n"), &[key]));
+            assert!(!brene_config_enables_any(&format!("#{key}=1\n"), &[key]));
+            assert!(!brene_config_enables_any(
+                &format!("other_{key}=1\n"),
+                &[key]
+            ));
+        }
+        assert!(!brene_config_enables_any(
+            "",
+            &["config_build_identity_spoof"]
+        ));
+        assert!(!brene_config_enables_any(
+            "no_equals_sign\n",
+            &["spoof_date_properties"]
+        ));
     }
 
     #[test]
