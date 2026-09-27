@@ -4,6 +4,14 @@ import { GITHUB_REPO, KEYBOX_ALWAYSSTRONG_URL, MOD_ID } from './constant'
 
 const FLASH_REFERER = 'https://flash.android.com'
 const FLASHSTATION_KEY_FALLBACK = 'AIzaSyD-bwHpMvFCN3PfRN4Txsw_ECg_iptNfMQ'
+/// How long a fetched build list stays usable.
+///
+/// Flash Station publishes a new build occasionally rather than continuously,
+/// so a long TTL keeps the picker instant on every open while still picking up
+/// a new build within a day.
+const FLASHSTATION_BUILD_TTL_MS = 6 * 60 * 60 * 1000
+/// Where the baseline build lists are cached between sessions.
+const FLASHSTATION_CACHE_PATH = '/data/adb/omk/flashstation-cache.json'
 
 export interface FlashBuild {
   product: string
@@ -27,6 +35,50 @@ const RESTART_MARKERS: Record<OmKRestartTarget, string> = {
 
 export class Cli {
   static #basePathPromise: Promise<string> | null = null
+  /// The Flash Station API key is the same for every request, so it is resolved
+  /// once. Without this, opening the fingerprint picker refetched the key once
+  /// per device, which is a network round trip and a possible shell exec each
+  /// time, on a WebView.
+  static #flashstationKeyPromise: Promise<string> | null = null
+  /// Build lists per product, so switching between picker openings or products
+  /// does not refetch. Entries are dropped once older than the TTL below.
+  static #buildCache = new Map<string, { at: number; builds: FlashBuild[] }>()
+  /// Baseline build lists persisted to disk, so the picker can populate
+  /// immediately and still work with no network at all. The cache file lives
+  /// beside the module's other state, is written once per successful fetch, and
+  /// is only ever read back as a fallback.
+  static async #loadBuildBaseline(): Promise<Record<string, { at: number; builds: FlashBuild[] }>> {
+    try {
+      const raw = await File.read(FLASHSTATION_CACHE_PATH)
+      const parsed = JSON.parse(raw) as Record<string, { at: number; builds: unknown }>
+      const entries: Record<string, { at: number; builds: FlashBuild[] }> = {}
+      for (const [product, entry] of Object.entries(parsed)) {
+        if (!entry || !Array.isArray(entry.builds)) continue
+        entries[product] = {
+          at: typeof entry.at === 'number' ? entry.at : 0,
+          builds: entry.builds.filter(
+            (build): build is FlashBuild =>
+              !!build &&
+              typeof (build as FlashBuild).releaseCandidateName === 'string' &&
+              typeof (build as FlashBuild).buildId === 'string',
+          ),
+        }
+      }
+      return entries
+    } catch {
+      return {}
+    }
+  }
+
+  static async #saveBuildBaseline(): Promise<void> {
+    try {
+      const payload: Record<string, { at: number; builds: FlashBuild[] }> = {}
+      for (const [product, entry] of Cli.#buildCache) payload[product] = entry
+      await File.write(FLASHSTATION_CACHE_PATH, JSON.stringify(payload))
+    } catch {
+      // A cache that cannot be written only costs a network fetch next time.
+    }
+  }
 
   constructor() {
     if (!Cli.#basePathPromise) {
@@ -161,29 +213,53 @@ export class Cli {
 
   async fetchFlashstationKey(): Promise<string> {
     if (import.meta.env.DEV) return FLASHSTATION_KEY_FALLBACK
-    try {
-      const html = await this.#fetchFirst([`${FLASH_REFERER}/`])
-      const match = html.match(/AIzaSy[A-Za-z0-9_-]{33}/)
-      if (match) return match[0]
-    } catch {
-      // fall back to the bundled key
+    if (!Cli.#flashstationKeyPromise) {
+      Cli.#flashstationKeyPromise = this.#fetchFirst([`${FLASH_REFERER}/`])
+        .then((html) => html.match(/AIzaSy[A-Za-z0-9_-]{33}/)?.[0] ?? FLASHSTATION_KEY_FALLBACK)
+        // A failed key lookup falls back to the bundled key, so the rejection is
+        // absorbed here and the promise stays cached rather than being retried
+        // once per device on the next picker open.
+        .catch(() => FLASHSTATION_KEY_FALLBACK)
     }
-    return FLASHSTATION_KEY_FALLBACK
+    return Cli.#flashstationKeyPromise
   }
 
   async fetchFlashstationBuilds(product: string): Promise<FlashBuild[]> {
+    const cached = Cli.#buildCache.get(product)
+    if (cached && Date.now() - cached.at < FLASHSTATION_BUILD_TTL_MS) {
+      return cached.builds
+    }
     const key = await this.fetchFlashstationKey()
     const url =
       `https://content-flashstation-pa.googleapis.com/v1/builds` +
       `?product=${encodeURIComponent(product)}&key=${encodeURIComponent(key)}`
-    const raw = await this.#fetchFirst([url], { Referer: FLASH_REFERER })
-    const parsed = JSON.parse(raw) as { flashstationBuild?: FlashBuild[] }
-    const builds = parsed.flashstationBuild
-    if (!Array.isArray(builds)) throw new Error('invalid build list')
-    return builds.filter(
-      (build): build is FlashBuild =>
-        !!(build && build.releaseCandidateName && build.buildId && typeof build.target === 'string'),
-    )
+    try {
+      const raw = await this.#fetchFirst([url], { Referer: FLASH_REFERER })
+      const parsed = JSON.parse(raw) as { flashstationBuild?: FlashBuild[] }
+      const builds = parsed.flashstationBuild
+      if (!Array.isArray(builds)) throw new Error('invalid build list')
+      const filtered = builds.filter(
+        (build): build is FlashBuild =>
+          !!build &&
+          !!build.releaseCandidateName &&
+          !!build.buildId &&
+          typeof build.target === 'string',
+      )
+      Cli.#buildCache.set(product, { at: Date.now(), builds: filtered })
+      void Cli.#saveBuildBaseline()
+      return filtered
+    } catch (error) {
+      // Fall back to the persisted baseline so a picker opened without network
+      // still lists builds. The stale entry is still preferred over nothing,
+      // because an out-of-date list is usable and an empty picker is not.
+      const baseline = await Cli.#loadBuildBaseline()
+      const entry = baseline[product]
+      if (entry && entry.builds.length > 0) {
+        Cli.#buildCache.set(product, entry)
+        return entry.builds
+      }
+      throw error
+    }
   }
 
   async getBuildRelease(): Promise<string> {

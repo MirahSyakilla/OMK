@@ -234,7 +234,18 @@ export class SectionDialog {
     const policy = this.#policyEditor.getPolicy(true)
     if (!policy) return
     this.#config.set(this.#section, policy)
-    await this.#config.write()
+    try {
+      await this.#config.write()
+    } catch (error) {
+      // The section has already been replaced in memory, so the dialog stays
+      // open with the edit intact and the user is told, rather than seeing Save
+      // do nothing and believing it worked.
+      this.#snackbar?.show(
+        `Failed to save: ${error instanceof Error ? error.message : String(error)}`,
+        false,
+      )
+      return
+    }
     this.#initialSnapshot = JSON.stringify(this.#policyEditor.getPolicy(false) ?? {})
     this.#isDirty = false
     this.#updateSaveBtnState()
@@ -259,10 +270,11 @@ export class SectionDialog {
     return ''
   }
   #getInterceptSubtitle(): string {
-    const policy =
-      this.#policyEditor?.getPolicy(false) ??
-      (this.#config.get('intercept') as Record<string, unknown> | undefined) ??
-      {}
+    // allowEmpty=true, because a policy where every switch is off is a real
+    // state, not an absent one. With false, an all-off editor returns null and
+    // the count falls back to the unsaved config, showing the pre-edit value
+    // exactly when the user has just turned everything off.
+    const policy = this.#policyEditor?.getPolicy(true) ?? {}
     let count = 0
     for (const key of INTERCEPT_KEYS) {
       if (policy[key] !== false && policy[key] !== 'false') count++
@@ -322,9 +334,17 @@ export class SectionDialog {
           'vb_key',
           'vb_hash',
         ]),
+        // Every boolean in TRUST_SCHEMA must be listed here. A key that is
+        // missing is not rendered, and because a save replaces the whole trust
+        // section from the editor's policy, an unrendered key is written back as
+        // its schema default. Omitting one therefore discards the user's
+        // setting without any indication.
         this.#renderSwitchGroup('Boot State Flags', 'Hardware boot lock & verification state', 'lock', [
           'verified_boot_state',
           'device_locked',
+        ]),
+        this.#renderSwitchGroup('Property Cleanup', 'Rewrite properties that betray a rooted build', 'cleaning_services', [
+          'attempt_prop_fix',
         ]),
       ].join('\n')
     }

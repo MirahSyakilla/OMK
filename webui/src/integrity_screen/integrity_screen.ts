@@ -93,6 +93,36 @@ function buildMajor(build: FlashBuild): number | null {
   return BUILD_LETTER_MAJOR[letter] ?? null
 }
 
+/// How many build lists may be fetched at once.
+const FETCH_CONCURRENCY = 4
+
+/// Map `items` through an async worker, keeping at most `limit` in flight.
+///
+/// A rejection is captured as a rejection rather than aborting the run, so one
+/// product that cannot be fetched does not lose the builds for every other
+/// product.
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T) => Promise<R>,
+): Promise<PromiseSettledResult<R>[]> {
+  const results = new Array<PromiseSettledResult<R>>(items.length)
+  let next = 0
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const index = next++
+      if (index >= items.length) return
+      try {
+        results[index] = { status: 'fulfilled', value: await worker(items[index] as T) }
+      } catch (reason) {
+        results[index] = { status: 'rejected', reason }
+      }
+    }
+  })
+  await Promise.all(runners)
+  return results
+}
+
 function latestFirst(left: FingerprintChoice, right: FingerprintChoice): number {
   const leftLatest = left.build.releaseBuildMetadata?.latest ? 1 : 0
   const rightLatest = right.build.releaseBuildMetadata?.latest ? 1 : 0
@@ -495,28 +525,32 @@ export class IntegrityScreen {
 
 
   async #collectChoices(): Promise<FingerprintChoice[]> {
-    const results = await Promise.allSettled(
-      PIXEL_DEVICES.map(async (device) => {
-        const builds = await this.#cli.fetchFlashstationBuilds(device.product)
-        return builds
-          .filter((build) => build.target === `${build.product}-user`)
-          .map((build): FingerprintChoice | null => {
-            const major = buildMajor(build)
-            if (major === null) return null
-            return {
-              build,
-              product: device.product,
-              model: device.model,
-              major,
-              initialSdk: device.min + 20,
-              prop: buildProp(build, device.product, device.model, major, device.min + 20),
-            }
-          })
-          .filter((choice): choice is FingerprintChoice => choice !== null)
-      }),
-    )
+    // Concurrency is capped because each miss in the build cache is a network
+    // request, and firing all of them at once saturates the WebView. The key is
+    // memoized and the per-product lists are cached, so a warm picker does no
+    // requests at all and this loop never runs.
+    const results = await mapWithConcurrency(PIXEL_DEVICES, FETCH_CONCURRENCY, async (device) => {
+      const builds = await this.#cli.fetchFlashstationBuilds(device.product)
+      return builds
+        .filter((build) => build.target === `${build.product}-user`)
+        .map((build): FingerprintChoice | null => {
+          const major = buildMajor(build)
+          if (major === null) return null
+          return {
+            build,
+            product: device.product,
+            model: device.model,
+            major,
+            initialSdk: device.min + 20,
+            prop: buildProp(build, device.product, device.model, major, device.min + 20),
+          }
+        })
+        .filter((choice): choice is FingerprintChoice => choice !== null)
+    })
     const choices: FingerprintChoice[] = []
     for (const result of results) {
+      // A rejected entry is one product that could not be fetched; the rest of
+      // the list is still usable, so it is skipped rather than propagated.
       if (result.status === 'fulfilled') choices.push(...result.value)
     }
     return choices
@@ -540,13 +574,28 @@ export class IntegrityScreen {
     let major = majors.includes(romMajor) ? romMajor : (majors[0] as number)
 
     const dialog = document.createElement('md-dialog')
+    // Scrim clicks and Escape close the dialog, and neither path runs the
+    // Cancel or Apply handler, so removal is bound to the closed event instead
+    // of being done by hand in each button.
+    dialog.addEventListener('closed', () => dialog.remove())
+    // Remembered across renders so the Device and Build selections survive a
+    // re-render, but are re-validated against the current Android version.
+    let bodyMajor = major
+    let bodyProduct = ''
     const render = (): void => {
       const products = [...new Set(choices.filter((c) => c.major === major).map((c) => c.product))]
+      // The device the user had selected is honoured only while it still exists
+      // in the newly chosen Android version. Changing the version rebuilds the
+      // build list, so a product from the previous version must not survive and
+      // then disagree with the builds shown next to it.
+      const previousProduct = bodyProduct
+      const activeProduct =
+        previousProduct && products.includes(previousProduct) ? previousProduct : (products[0] as string)
       const deviceOptions = products
         .map((product) => {
           const choice = choices.find((c) => c.major === major && c.product === product)
           return `<md-select-option value="${escapeHtml(product)}" ${
-            product === products[0] ? 'selected' : ''
+            product === activeProduct ? 'selected' : ''
           }><div slot="headline">${escapeHtml(choice?.model ?? product)} (${escapeHtml(product)})</div></md-select-option>`
         })
         .join('')
@@ -560,7 +609,6 @@ export class IntegrityScreen {
         list.push(choice)
         byProduct.set(choice.product, list)
       }
-      const activeProduct = products[0] as string
       const activeBuilds = byProduct.get(activeProduct) ?? []
       const buildOptions = activeBuilds
         .map((choice, index) => {
@@ -575,9 +623,13 @@ export class IntegrityScreen {
       const preview = activeBuilds[0]
       const body = dialog.querySelector('#fp-body')
       if (!body) return
-      const keepProduct = body.querySelector('md-outlined-select[data-role="device"]')
+      const renderedProduct = body.querySelector('md-outlined-select[data-role="device"]')
         ?.getAttribute('value') ?? ''
-      const keepBuild = body.querySelector('md-outlined-select[data-role="build"]')?.getAttribute('value') ?? ''
+      // The build index is only meaningful within one Android version, so it is
+      // not carried across a version change.
+      const keepBuild = bodyMajor === major
+        ? (body.querySelector('md-outlined-select[data-role="build"]')?.getAttribute('value') ?? '')
+        : ''
       body.innerHTML = /* html */ `
         <div style="display: flex; flex-direction: column; gap: 12px; min-width: 320px;">
           <md-outlined-select data-role="version" label="Android version" menu-positioning="popover" value="${major}">
@@ -588,7 +640,7 @@ export class IntegrityScreen {
               )
               .join('')}
           </md-outlined-select>
-          <md-outlined-select data-role="device" label="Device" menu-positioning="popover" value="${escapeHtml(keepProduct || activeProduct)}">
+          <md-outlined-select data-role="device" label="Device" menu-positioning="popover" value="${escapeHtml(renderedProduct || activeProduct)}">
             ${deviceOptions}
           </md-outlined-select>
           <md-outlined-select data-role="build" label="Build" menu-positioning="popover" value="${escapeHtml(keepBuild || '0')}">
@@ -599,6 +651,8 @@ export class IntegrityScreen {
           </md-outlined-text-field>
         </div>
       `
+      bodyMajor = major
+      bodyProduct = activeProduct
       syncPreview()
     }
 
@@ -637,17 +691,22 @@ export class IntegrityScreen {
       const role = (event.target as HTMLElement)?.getAttribute?.('data-role')
       if (role === 'version') {
         major = Number.parseInt((event.target as HTMLElement).getAttribute('value') ?? '', 10) || major
+        // A new Android version invalidates both the device choice and the
+        // build index, so the next render re-derives them.
+        bodyMajor = major
+        bodyProduct = ''
         render()
       } else if (role === 'device') {
+        bodyProduct = current().product
         render()
       } else {
+        bodyProduct = current().product
         syncPreview()
       }
     })
 
     dialog.querySelector('#fp-cancel')?.addEventListener('click', () => {
       dialog.close()
-      dialog.remove()
     })
 
     dialog.querySelector('#fp-apply')?.addEventListener('click', async () => {
@@ -655,7 +714,6 @@ export class IntegrityScreen {
       const list = choices.filter((c) => c.major === major && c.product === product).sort(latestFirst)
       const chosen = list[build] ?? list[0]
       dialog.close()
-      dialog.remove()
       if (!chosen) return
       await File.createDirectory(DATA_DIR)
       await File.createDirectory(ADB_DIR)
