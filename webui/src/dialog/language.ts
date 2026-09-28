@@ -39,8 +39,8 @@ export const showLanguagePicker = (): void => {
       </md-outlined-select>
     </form>
     <div slot="actions">
-      <md-text-button id="lang-cancel">${escapeHtml(i18n.t('cancel'))}</md-text-button>
-      <md-filled-button id="lang-apply">${escapeHtml(i18n.t('apply'))}</md-filled-button>
+      <md-text-button id="lang-cancel">${escapeHtml(i18n.t('functional_button_cancel'))}</md-text-button>
+      <md-filled-button id="lang-apply">${escapeHtml(i18n.t('functional_button_apply'))}</md-filled-button>
     </div>
   `
 
