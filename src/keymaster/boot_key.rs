@@ -96,24 +96,60 @@ fn lookup_level_zero_km_and_strategy() -> Result<Option<(SecurityLevel, DenyLate
     Ok(Some((level, strategy)))
 }
 
+/// Whether the device has finished booting far enough that an `EarlyBootOnly`
+/// key can no longer be used.
+fn early_boot_over() -> bool {
+    match rsproperties::get::<String>("sys.boot_completed") {
+        Ok(value) => early_boot_over_for_test(value.trim() == "1"),
+        Err(error) => {
+            info!("sys.boot_completed unavailable ({error}), assuming early boot is over");
+            true
+        }
+    }
+}
+
+/// `boot_completed` already true means early boot is over.
+fn early_boot_over_for_test(boot_completed: bool) -> bool {
+    boot_completed
+}
+
+/// Pick the strategy for a level zero key.
+///
+/// `strongbox_supported` says the chosen KeyMaster can express EarlyBootOnly at
+/// all; `early_boot` says whether early boot is still running. EarlyBootOnly is
+/// only valid while it is, so a warm start must take the per-boot strategy even
+/// on hardware that would otherwise support it.
+fn strategy_for(strongbox_supported: bool, early_boot: bool) -> DenyLaterStrategy {
+    if strongbox_supported && early_boot {
+        DenyLaterStrategy::EarlyBootOnly
+    } else {
+        DenyLaterStrategy::MaxUsesPerBoot
+    }
+}
+
 fn get_level_zero_key_km_and_strategy() -> Result<(KeyMintDevice, DenyLaterStrategy)> {
     let &(level, strategy) = LEVEL_ZERO_SELECTION.get_or_try_init(|| -> Result<_> {
         if let Some((level, strategy)) = lookup_level_zero_km_and_strategy()? {
             return Ok((level, strategy));
         }
+        // EarlyBootOnly is only honoured while early boot is still running. Once
+        // the boot has completed, a key carrying it can never be used again, so
+        // asking for one is what made a hot restart fatal: the stored level zero
+        // key is unusable, the regeneration path cannot satisfy the
+        // requirement, and startup aborted with a key-not-found. A warm start has
+        // to ask for the strategy that is still valid at that point.
+        let early_boot = !early_boot_over();
         let tee = KeyMintDevice::get(SecurityLevel::TRUSTED_ENVIRONMENT)
             .context(err!("Get TEE instance failed."))?;
+        let strategy = |strongbox_supported: bool| strategy_for(strongbox_supported, early_boot);
         if tee.version() >= KeyMintDevice::KEY_MASTER_V4_1 {
-            Ok((
-                SecurityLevel::TRUSTED_ENVIRONMENT,
-                DenyLaterStrategy::EarlyBootOnly,
-            ))
+            Ok((SecurityLevel::TRUSTED_ENVIRONMENT, strategy(true)))
         } else {
             match KeyMintDevice::get_or_none(SecurityLevel::STRONGBOX)
                 .context(err!("Get Strongbox instance failed."))?
             {
                 Some(strongbox) if strongbox.version() >= KeyMintDevice::KEY_MASTER_V4_1 => {
-                    Ok((SecurityLevel::STRONGBOX, DenyLaterStrategy::EarlyBootOnly))
+                    Ok((SecurityLevel::STRONGBOX, strategy(true)))
                 }
                 _ => Ok((
                     SecurityLevel::TRUSTED_ENVIRONMENT,
@@ -435,6 +471,38 @@ impl LegacyBootLevelKeyCache {
 #[cfg(test)]
 mod omk_test {
     use super::*;
+
+    #[test]
+    fn warm_start_must_not_ask_for_an_early_boot_only_key() {
+        // The bug this guards: with no strategy property set, the level zero key
+        // was always requested as EarlyBootOnly. That is only honoured while
+        // early boot is running, so a hot restart could never satisfy the
+        // requirement and startup aborted with key-not-found. The decision has
+        // to depend on whether the boot has completed.
+        assert!(
+            early_boot_over_for_test(true),
+            "a completed boot must not be treated as early boot"
+        );
+        assert!(!early_boot_over_for_test(false));
+    }
+
+    #[test]
+    fn strategy_falls_back_when_early_boot_is_over() {
+        // Whatever the hardware supports, a warm start has to get a strategy that
+        // is still valid once early boot has ended.
+        for supported in [true, false] {
+            let strategy = strategy_for(supported, /* early_boot */ false);
+            assert_eq!(
+                strategy,
+                DenyLaterStrategy::MaxUsesPerBoot,
+                "expected a per-boot strategy for a warm start"
+            );
+        }
+        assert_eq!(
+            strategy_for(true, /* early_boot */ true),
+            DenyLaterStrategy::EarlyBootOnly
+        );
+    }
 
     #[test]
     fn legacy_cache_is_independent() -> Result<()> {
