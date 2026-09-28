@@ -87,6 +87,29 @@ const BUILD_LETTER_MAJOR: &[(char, u8)] = &[
 /// One device's builds, as `[releaseCandidateName, incremental, major]`.
 type Row = [String; 3];
 
+/// Characters a genuine Flash Station build field may contain.
+///
+/// A build name ends up inside a `key=value` property file, joined with newlines,
+/// so a name carrying a newline would let a response inject an arbitrary
+/// property line such as `ro.debuggable=1`. Only the characters Google's own
+/// build IDs use are accepted, a strict subset of anything plausible.
+///
+/// The busybox fallback cannot verify TLS certificates, so this is the only thing
+/// standing between a hostile response and an injected property.
+fn is_safe_build_field(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
+/// Whether a stored build name and incremental are both free of anything that
+/// could escape into the property file.
+fn row_is_safe(row: &Row) -> bool {
+    is_safe_build_field(&row[0]) && is_safe_build_field(&row[1])
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct DeviceEntry {
     model: String,
@@ -139,8 +162,7 @@ impl Template {
                 }
                 !entry.builds.is_empty()
                     && entry.builds.iter().all(|row| {
-                        !row[0].is_empty()
-                            && !row[1].is_empty()
+                        row_is_safe(row)
                             && row[2]
                                 .parse::<u8>()
                                 .is_ok_and(|major| major >= entry.min && major <= entry.max)
@@ -286,6 +308,7 @@ fn refresh_once() -> Result<bool> {
                     .builds
                     .iter()
                     .filter(|row| !seen.contains(&row_key(row)))
+                    .filter(|row| row_is_safe(row))
                     .cloned()
                     .collect();
                 rows.extend(carried);
@@ -426,6 +449,7 @@ fn fetch_product(product: &str, key: &str) -> Result<Vec<Row>> {
                 .to_row()
                 .map(|([name, id], major)| [name, id, major.to_string()])
         })
+        .filter(|row| row_is_safe(row))
         .collect();
 
     if rows.is_empty() {
@@ -755,6 +779,66 @@ mod tests {
         assert_eq!(leading_android_number("Android 13"), Some(13));
         assert_eq!(leading_android_number("Android 14 QPR2"), Some(14));
         assert_eq!(leading_android_number("13"), None);
+    }
+
+    #[test]
+    fn a_newline_in_a_build_field_is_rejected() {
+        // A name carrying a newline would inject a line into integrity.prop, so
+        // the validator has to refuse it outright rather than sanitise it.
+        let injected = Template(
+            [(
+                "shiba".to_string(),
+                DeviceEntry {
+                    model: "Pixel 8".into(),
+                    min: 14,
+                    max: 17,
+                    builds: vec![["CP3A.1\nro.debuggable=1".into(), "123".into(), "16".into()]],
+                },
+            )]
+            .into_iter()
+            .collect(),
+        );
+        assert!(!injected.is_valid());
+        assert!(!row_is_safe(&[
+            "CP3A.1\nSECURITY_PATCH=1970-01-01".to_string(),
+            "123".to_string(),
+            "16".to_string()
+        ]));
+    }
+
+    #[test]
+    fn genuine_build_fields_are_accepted() {
+        for name in [
+            "CP3A.260905.009",
+            "UP1A.231105.001.A1",
+            "TPBB.220414.015",
+            "BP1A.250505.005",
+        ] {
+            assert!(is_safe_build_field(name), "rejected a real build: {name}");
+        }
+        for incremental in ["16091614", "8548023", "1234567"] {
+            assert!(is_safe_build_field(incremental), "rejected {incremental}");
+        }
+    }
+
+    #[test]
+    fn shell_and_path_characters_are_rejected() {
+        for bad in [
+            "CP3A.1/../../etc",
+            "CP3A.1;rm -rf /",
+            "CP3A.1`id`",
+            "CP3A.1$(id)",
+            "CP3A.1|id",
+            "CP3A.1 with space",
+            "",
+        ] {
+            assert!(
+                !is_safe_build_field(bad),
+                "accepted a hostile field: {bad:?}"
+            );
+        }
+        // Long enough to be an overflow attempt rather than a build ID.
+        assert!(!is_safe_build_field(&"A".repeat(65)));
     }
 
     #[test]

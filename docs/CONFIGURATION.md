@@ -930,6 +930,15 @@ equivalent rather than a degraded path that would only work for the API key
 lookup. If none of the three is usable, the refresh logs a warning and the
 bundled template keeps serving the picker.
 
+Note that busybox wget does not verify TLS certificates, so a response obtained
+through it is encrypted but not authenticated. Build names and incrementals are
+therefore restricted to `[A-Za-z0-9._-]` and rejected outright otherwise, rather
+than sanitised: both fields are written into `integrity.prop`, and a value
+carrying a newline would otherwise inject an extra property line such as
+`ro.debuggable=1`. The same check is applied in the daemon, the WebUI, and the
+build-time generator. curl and GNU wget are preferred for this reason, and
+busybox is only reached when neither is installed.
+
 Upstream sometimes stops advertising a build that a previous fetch recorded.
 Both the daemon and the button carry those rows over rather than dropping them,
 so a build does not silently disappear from the picker.

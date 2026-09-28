@@ -97,6 +97,18 @@ def fetch_api_key() -> str:
     return match.group(0)
 
 
+# Characters a genuine Flash Station build field may contain. A build name ends
+# up inside a key=value property file joined with newlines, so a name carrying a
+# newline would let a response inject an arbitrary property line. Kept in sync
+# with `is_safe_build_field` in src/fingerprint_template.rs and
+# `isSafeBuildField` in webui/src/fingerprint_template.ts.
+SAFE_BUILD_FIELD = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+
+def is_safe_build_field(value: str) -> bool:
+    return bool(SAFE_BUILD_FIELD.match(value))
+
+
 def build_major(build: dict) -> int | None:
     """Resolve the Android major, mirroring the WebUI's buildMajor()."""
     version_name = build.get("versionName")
@@ -127,12 +139,17 @@ def extract_rows(device: dict, builds: list[dict]) -> list[list]:
             continue
         name = build.get("releaseCandidateName")
         incremental = build.get("buildId")
-        if not name or not incremental:
+        if not isinstance(name, str) or not isinstance(incremental, (str, int)):
+            continue
+        incremental = str(incremental)
+        # Refuse anything that could escape into the property file rather than
+        # sanitising it, so a hostile response cannot be written at all.
+        if not is_safe_build_field(name) or not is_safe_build_field(incremental):
             continue
         major = build_major(build)
         if major is None or not device["min"] <= major <= device["max"]:
             continue
-        rows.append([name, str(incremental), major])
+        rows.append([name, incremental, major])
     # Newest major first, then newest build within the major, so the picker's
     # default selection lands on the latest build.
     rows.sort(key=lambda row: (row[2], row[0]), reverse=True)

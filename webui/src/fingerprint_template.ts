@@ -33,6 +33,25 @@ export const TEMPLATE_BACKUP = `${TEMPLATE_PATH}.bak`
 
 const BUNDLED_TEMPLATE = BUNDLED as unknown as Template
 
+/**
+ * Characters a genuine Flash Station build field may contain.
+ *
+ * A build name is written into a `key=value` property file, joined with
+ * newlines, so a name carrying a newline would inject an arbitrary property line
+ * such as `ro.debuggable=1`. Only the characters Google's own build IDs use are
+ * accepted, which is a strict subset of anything plausible.
+ *
+ * This matters because the fetch can fall back to busybox wget, which does not
+ * verify TLS certificates, so a hostile response is not ruled out by transport
+ * security alone.
+ */
+const SAFE_BUILD_FIELD = /^[A-Za-z0-9._-]{1,64}$/
+
+/** Whether a build field is free of anything that could escape into a prop file. */
+export function isSafeBuildField(value: string): boolean {
+  return SAFE_BUILD_FIELD.test(value)
+}
+
 /** How many devices a template must cover before it is trusted at all. */
 const MIN_DEVICES = 1
 
@@ -61,8 +80,8 @@ export function isValidTemplate(value: unknown): value is Template {
       if (!Array.isArray(row) || row.length !== 3) return false
       const [name, incremental, major] = row as TemplateRow
       return (
-        typeof name === 'string' && name.length > 0 &&
-        typeof incremental === 'string' && incremental.length > 0 &&
+        typeof name === 'string' && isSafeBuildField(name) &&
+        typeof incremental === 'string' && isSafeBuildField(incremental) &&
         typeof major === 'number' && major >= min && major <= max
       )
     })
