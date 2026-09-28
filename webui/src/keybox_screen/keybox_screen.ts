@@ -166,7 +166,7 @@ export class KeyboxScreen {
               <div class="kb-preset-pill-start">
                 <md-icon class="kb-preset-pill-icon">cloud_download</md-icon>
                 <div class="kb-preset-pill-text">
-                  <span class="kb-preset-pill-title">AlwaysStrong Key</span>
+                  <span class="kb-preset-pill-title">AlwaysStrong ${i18n.t('keybox_source_key')}</span>
                   <span class="kb-preset-pill-sub">${i18n.t('keybox_online_repo_desc')}</span>
                 </div>
               </div>
@@ -352,7 +352,7 @@ export class KeyboxScreen {
     if (!listEl) return
 
     if (this.#slots.length === 0) {
-      listEl.innerHTML = '<div class="kb-empty">No keybox slots found.</div>'
+      listEl.innerHTML = `<div class="kb-empty">${i18n.t('keybox_no_slots')}</div>`
       return
     }
 
@@ -367,7 +367,7 @@ export class KeyboxScreen {
               <div class="ksc-title">
                 ${escapeHtml(s.label)}
                 ${s.algos.map((a) => `<span class="inline-badge badge-primary">${escapeHtml(a)}</span>`).join('')}
-                ${s.isExpired ? '<span class="inline-badge badge-error">Expired</span>' : ''}
+                ${s.isExpired ? '<span class="inline-badge badge-error">' + i18n.t('keybox_expired_badge') + '</span>' : ''}
               </div>
               <div class="ksc-sub">${s.assignedAppsCount === 1 ? '1 app' : `${s.assignedAppsCount} apps`} • ${escapeHtml(s.fileName)}</div>
             </div>
@@ -426,7 +426,7 @@ export class KeyboxScreen {
       certsRendered.add(slot)
       const certs = certsFromXml(xml)
       if (certs.length === 0) {
-        certsContainer.innerHTML = '<span class="keybox-cert-pill">No certificates found</span>'
+        certsContainer.innerHTML = `<span class="keybox-cert-pill">${i18n.t('keybox_no_certs')}</span>`
         return
       }
       certsContainer.innerHTML = ''
