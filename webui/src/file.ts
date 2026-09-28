@@ -45,6 +45,14 @@ export class File {
     if (result.errno !== 0) throw new Error(`File.write failed (${result.errno}): ${result.stderr}`)
   }
 
+  /** Restrict a file to the KeyMint service account, like the daemon's own files. */
+  static async restrict(path: string): Promise<void> {
+    const result = await exec(`chmod 0600 "${path}"`)
+    if (result.errno !== 0) {
+      throw new Error(`File.restrict failed (${result.errno}): ${result.stderr}`)
+    }
+  }
+
   /** Restrict a sensitive file to the KeyMint service account. */
   static async secure(path: string): Promise<void> {
     const result = await exec(`chmod 0600 "${path}" && chown 1017:1017 "${path}"`)

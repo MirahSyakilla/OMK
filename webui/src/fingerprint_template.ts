@@ -151,6 +151,10 @@ export async function saveTemplate(template: Template): Promise<void> {
   }
 
   await File.write(TEMPLATE_TEMP, payload)
+  // Match the permissions of every other file OMK keeps here. The default umask
+  // would leave this world-readable, which is both an inconsistency in the
+  // directory and a hint that something lives here.
+  await File.restrict(TEMPLATE_TEMP)
   // Reject a temp file that did not land intact before it replaces the good one.
   const written = await readTemplateFile(TEMPLATE_TEMP)
   if (!written || !isValidTemplate(written)) {

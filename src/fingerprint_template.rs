@@ -24,6 +24,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::thread;
@@ -406,6 +407,11 @@ fn write_template(template: &Template) -> Result<()> {
 
     let payload = serde_json::to_vec(template).context("serialising template")?;
     fs::write(temp, &payload).with_context(|| format!("writing {}", temp.display()))?;
+
+    // Match the mode of the other files in this directory. The default umask
+    // would leave the template world-readable, unlike its neighbours.
+    fs::set_permissions(temp, fs::Permissions::from_mode(0o600))
+        .with_context(|| format!("restricting {}", temp.display()))?;
 
     // Verify what actually landed on disk before it can replace the good copy.
     read_template(temp).context("verifying the freshly written template")?;
