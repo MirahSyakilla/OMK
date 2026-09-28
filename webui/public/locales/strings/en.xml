@@ -199,4 +199,38 @@
     <string name="mode_leaf_hack">Leaf Hack</string>
     <string name="mode_set_custom_policy">Set Custom Policy</string>
     <string name="mode_use_default_policy">Use Default Policy</string>
+      <!-- Language picker and the Settings entry that opens it -->
+      <string name="settings_languages">Languages</string>
+      <string name="settings_language">Language</string>
+      <string name="language_picker_title">Select Language</string>
+      <string name="language_picker_label">Language</string>
+      <string name="language_applied">Language changed to %s</string>
+      <string name="action_cancel">Cancel</string>
+      <string name="action_apply">Apply</string>
+
+      <!-- Settings: section titles -->
+      <string name="settings_section_keymint">KeyMint</string>
+      <string name="settings_section_trust">Trust</string>
+      <string name="settings_section_injector">Injector</string>
+      <string name="settings_section_filtering">Filtering</string>
+      <string name="settings_section_device_identity">Device Identity</string>
+      <string name="settings_section_cryptography">Cryptography</string>
+
+      <!-- Settings: rows -->
+      <string name="settings_skip_hat_title">Skip Biometric HAT Verification</string>
+      <string name="settings_skip_hat_sub">Bypass system biometric hardware authentication token checks</string>
+      <string name="settings_trust_title">Trust Settings</string>
+      <string name="settings_runtime_title">Trust Record (read-only)</string>
+      <string name="settings_runtime_sub">View recorded boot parameters</string>
+      <string name="settings_injector_title">Injector Settings</string>
+      <string name="settings_filter_title">Package Filter</string>
+      <string name="settings_intercept_title">Intercept Matrix</string>
+      <string name="settings_device_title">Device Properties</string>
+      <string name="settings_crypto_title">Crypto Seeds</string>
+      <string name="settings_crypto_sub">Root KEK, KAK &amp; HMAC seeds</string>
+      <string name="settings_hat_enabled">Biometric HAT verification bypass enabled</string>
+      <string name="settings_hat_disabled">Biometric HAT verification bypass disabled</string>
+      <string name="settings_save_failed">Failed to save setting</string>
+      <string name="settings_intercept_enabled">%1$d/%2$d features enabled</string>
 </resources>
+
