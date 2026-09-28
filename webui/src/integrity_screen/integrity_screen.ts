@@ -5,6 +5,7 @@ import { Config } from '../config'
 import { PIXEL_DEVICES } from '../constant'
 import { File } from '../file'
 import { escapeHtml } from '../html'
+import { i18n } from '../i18n'
 import { buildProp } from '../integrity_prop'
 import type { TemplateRow } from '../fingerprint_template'
 import {
@@ -194,7 +195,7 @@ export class IntegrityScreen {
         <!-- Zygisk status & warning banner -->
         <div id="pif-zygisk-status" class="integrity-status-banner">
           <md-icon class="integrity-status-icon">check_circle</md-icon>
-          <span class="integrity-status-text">Detecting Zygisk...</span>
+          <span class="integrity-status-text">${i18n.t('integrity_detecting_zygisk')}</span>
         </div>
           <!-- Controls Pane -->
           <div class="integrity-controls-pane">
@@ -202,10 +203,10 @@ export class IntegrityScreen {
               <div class="switch-row" id="row-enabled" role="button" tabindex="0">
                 <md-ripple></md-ripple>
                 <div class="switch-row-content">
-                  <div class="switch-row-title">Play Integrity</div>
-                  <div class="switch-row-sub">Master switch for property overrides & spoofing</div>
+                  <div class="switch-row-title">${i18n.t('integrity_screen_title')}</div>
+                  <div class="switch-row-sub">${i18n.t('integrity_master_switch')}</div>
                 </div>
-                <md-switch icons="true" id="pif-enabled" aria-label="Play Integrity"></md-switch>
+                <md-switch icons="true" id="pif-enabled" aria-label="${i18n.t('integrity_screen_title')}"></md-switch>
               </div>
 
               <!--
@@ -214,11 +215,11 @@ export class IntegrityScreen {
                 would misrepresent it, and the empty right-hand space is what
                 keeps the stack reading as one list.
               -->
-              <div class="switch-row integrity-picker-row" id="row-select-fp" role="button" tabindex="0" aria-label="Select Fingerprint">
+              <div class="switch-row integrity-picker-row" id="row-select-fp" role="button" tabindex="0" aria-label="${i18n.t('integrity_fp_select')}">
                 <md-ripple></md-ripple>
                 <div class="switch-row-content">
-                  <div class="switch-row-title">Select Fingerprint</div>
-                  <div class="switch-row-sub">Click to select your integrity fingerprint</div>
+                  <div class="switch-row-title">${i18n.t('integrity_fp_select')}</div>
+                  <div class="switch-row-sub">${i18n.t('integrity_fp_current')}</div>
                 </div>
                 <md-icon class="integrity-picker-icon">chevron_right</md-icon>
               </div>
@@ -232,70 +233,70 @@ export class IntegrityScreen {
               <div class="switch-row" id="row-auto-fetch-fp" role="button" tabindex="0">
                 <md-ripple></md-ripple>
                 <div class="switch-row-content">
-                  <div class="switch-row-title">Auto Fetch Fingerprint</div>
-                  <div class="switch-row-sub">Check Google daily and update the build list in the background</div>
+                  <div class="switch-row-title">${i18n.t('integrity_auto_fetch')}</div>
+                  <div class="switch-row-sub">${i18n.t('integrity_auto_fetch_desc')}</div>
                 </div>
-                <md-switch icons="true" id="pif-auto-fetch-fp" aria-label="Auto Fetch Fingerprint"></md-switch>
+                <md-switch icons="true" id="pif-auto-fetch-fp" aria-label="${i18n.t('integrity_auto_fetch')}"></md-switch>
               </div>
 
               <div class="switch-row" id="row-spoof-build" role="button" tabindex="0">
                 <md-ripple></md-ripple>
                 <div class="switch-row-content">
-                  <div class="switch-row-title">Spoof Build</div>
-                  <div class="switch-row-sub">Override android.os.Build fields</div>
+                  <div class="switch-row-title">${i18n.t('integrity_spoof_build')}</div>
+                  <div class="switch-row-sub">${i18n.t('integrity_spoof_props_field')}</div>
                 </div>
-                <md-switch icons="true" id="pif-spoof-build" aria-label="Spoof Build" selected></md-switch>
+                <md-switch icons="true" id="pif-spoof-build" aria-label="${i18n.t('integrity_spoof_build')}" selected></md-switch>
               </div>
 
               <div class="switch-row" id="row-spoof-props" role="button" tabindex="0">
                 <md-ripple></md-ripple>
                 <div class="switch-row-content">
-                  <div class="switch-row-title">Spoof Props</div>
-                  <div class="switch-row-sub">Override system ro.* properties</div>
+                  <div class="switch-row-title">${i18n.t('integrity_spoof_props')}</div>
+                  <div class="switch-row-sub">${i18n.t('integrity_spoof_props_desc')}</div>
                 </div>
-                <md-switch icons="true" id="pif-spoof-props" aria-label="Spoof Props" selected></md-switch>
+                <md-switch icons="true" id="pif-spoof-props" aria-label="${i18n.t('integrity_spoof_props')}" selected></md-switch>
               </div>
 
               <div class="switch-row" id="row-spoof-vending" role="button" tabindex="0">
                 <md-ripple></md-ripple>
                 <div class="switch-row-content">
                   <div class="switch-row-title">
-                    Spoof Vending Fingerprint
+                    ${i18n.t('integrity_spoof_vending')}
                     <span class="inline-badge badge-primary">Play Store</span>
                   </div>
-                  <div class="switch-row-sub">Provide fingerprint to com.android.vending</div>
+                  <div class="switch-row-sub">${i18n.t('integrity_spoof_vending_desc')}</div>
                 </div>
-                <md-switch icons="true" id="pif-spoof-vending" aria-label="Spoof Vending Fingerprint" selected></md-switch>
+                <md-switch icons="true" id="pif-spoof-vending" aria-label="${i18n.t('integrity_spoof_vending')}" selected></md-switch>
               </div>
 
               <div class="switch-row" id="row-sync-patch" role="button" tabindex="0">
                 <md-ripple></md-ripple>
                 <div class="switch-row-content">
-                  <div class="switch-row-title">Sync Trust Patch</div>
-                  <div class="switch-row-sub">Synchronize security patch date with KeyMint trust</div>
+                  <div class="switch-row-title">${i18n.t('integrity_sync_trust_patch')}</div>
+                  <div class="switch-row-sub">${i18n.t('integrity_sync_patch_desc')}</div>
                 </div>
-                <md-switch icons="true" id="pif-sync-patch" aria-label="Sync Trust Patch" selected></md-switch>
+                <md-switch icons="true" id="pif-sync-patch" aria-label="${i18n.t('integrity_sync_trust_patch')}" selected></md-switch>
               </div>
 
               <div class="switch-row" id="row-sync-ids" role="button" tabindex="0">
                 <md-ripple></md-ripple>
                 <div class="switch-row-content">
-                  <div class="switch-row-title">Sync Device IDs</div>
-                  <div class="switch-row-sub">Apply brand, model, product to config.toml</div>
+                  <div class="switch-row-title">${i18n.t('integrity_sync_device_ids')}</div>
+                  <div class="switch-row-sub">${i18n.t('integrity_apply_toml')}</div>
                 </div>
-                <md-switch icons="true" id="pif-sync-ids" aria-label="Sync Device IDs" selected></md-switch>
+                <md-switch icons="true" id="pif-sync-ids" aria-label="${i18n.t('integrity_sync_device_ids')}" selected></md-switch>
               </div>
 
               <div class="switch-row" id="row-unify-props" role="button" tabindex="0">
                 <md-ripple></md-ripple>
                 <div class="switch-row-content">
                   <div class="switch-row-title">
-                    Unify Product Props
+                      ${i18n.t('integrity_unify_props')}
                     <span class="inline-badge badge-tertiary">Beta</span>
                   </div>
-                  <div class="switch-row-sub">Apply resetprop -n across ro.product.*</div>
+                  <div class="switch-row-sub">${i18n.t('integrity_unify_props_desc')}</div>
                 </div>
-                <md-switch icons="true" id="pif-unify-props" aria-label="Unify Product Props"></md-switch>
+                <md-switch icons="true" id="pif-unify-props" aria-label="${i18n.t('integrity_unify_props')}"></md-switch>
               </div>
 
               <div class="switch-row" id="row-soter" role="button" tabindex="0">
@@ -305,7 +306,7 @@ export class IntegrityScreen {
                     Tencent Soter
                     <span class="inline-badge badge-tertiary">Beta</span>
                   </div>
-                  <div class="switch-row-sub">Enable WeChat/Tencent biometric key attestation spoof</div>
+                  <div class="switch-row-sub">${i18n.t('integrity_soter_desc')}</div>
                 </div>
                 <md-switch icons="true" id="pif-soter" aria-label="Tencent Soter"></md-switch>
               </div>
@@ -871,15 +872,15 @@ export class IntegrityScreen {
     }
 
     dialog.innerHTML = /* html */ `
-      <div slot="headline">Select Device Fingerprint</div>
+      <div slot="headline">${escapeHtml(i18n.t('fp_picker_title'))}</div>
       <form slot="content" id="fp-body" method="dialog"></form>
       <div slot="actions">
         <md-text-button id="fp-fetch-latest" class="fp-fetch-latest">
           <md-icon slot="icon">refresh</md-icon>
-          Fetch Latest
+          ${escapeHtml(i18n.t('fp_fetch_latest'))}
         </md-text-button>
-        <md-text-button id="fp-cancel">Cancel</md-text-button>
-        <md-filled-button id="fp-apply">Apply</md-filled-button>
+        <md-text-button id="fp-cancel">${escapeHtml(i18n.t('functional_button_cancel'))}</md-text-button>
+        <md-filled-button id="fp-apply">${escapeHtml(i18n.t('functional_button_apply'))}</md-filled-button>
       </div>
     `
     document.body.appendChild(dialog)

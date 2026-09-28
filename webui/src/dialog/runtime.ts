@@ -1,6 +1,7 @@
 import type { MdDialog, MdTextButton } from '@material/web/all'
 import { Config } from '../config'
 import { escapeHtml } from '../html'
+import { i18n } from '../i18n'
 import { applyDialogAnimation } from './animation'
 
 export class RuntimeDialog {
@@ -16,12 +17,12 @@ export class RuntimeDialog {
     const template = document.createElement('template')
     template.innerHTML = /* html */ `
       <md-dialog id="trust-record-dialog">
-        <div slot="headline">Trust Record</div>
+        <div slot="headline">${i18n.t('runtime_title')}</div>
         <div slot="content">
           <div id="trust-record-content"></div>
         </div>
         <div slot="actions">
-          <md-text-button id="trust-record-close">Close</md-text-button>
+          <md-text-button id="trust-record-close">${i18n.t('functional_button_close')}</md-text-button>
         </div>
       </md-dialog>
     `
@@ -41,16 +42,18 @@ export class RuntimeDialog {
     const record = (this.#config.get('trust_record') as Record<string, string | boolean>) ?? {}
     const rows = Object.entries(record)
       .filter(([, value]) => value !== undefined && value !== '')
-      .map(([key, value]) => /* html */ `
+      .map(
+        ([key, value]) => /* html */ `
         <div class="trust-record-row">
           <div class="trust-record-key">${escapeHtml(key)}</div>
           <div class="trust-record-value">${escapeHtml(String(value))}</div>
         </div>
-      `)
+      `,
+      )
       .join('')
 
     if (this.#content) {
-      this.#content.innerHTML = rows || '<p class="trust-record-empty">No runtime trust record has been written yet.</p>'
+      this.#content.innerHTML = rows || '<p class="trust-record-empty">' + i18n.t('runtime_empty') + '</p>'
     }
     this.#dialog?.show()
   }

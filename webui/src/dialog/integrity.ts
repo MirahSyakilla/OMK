@@ -1,5 +1,6 @@
 import type { MdDialog, MdFilledButton, MdOutlinedButton, MdSwitch } from '@material/web/all'
 import { Cli } from '../cli'
+import { i18n } from '../i18n'
 import type { FlashBuild } from '../cli'
 import { Config } from '../config'
 import { PIXEL_DEVICES } from '../constant'
@@ -109,8 +110,9 @@ export function buildMajor(build: FlashBuild): number | null {
 }
 
 export function buildCandidates(target: number): string[] {
-  return shuffle(PIXEL_DEVICES.filter((device) => device.min <= target && target <= device.max))
-    .map((device) => device.product)
+  return shuffle(PIXEL_DEVICES.filter((device) => device.min <= target && target <= device.max)).map(
+    (device) => device.product,
+  )
 }
 
 export function pickBuild(builds: FlashBuild[], target: number | null): FlashBuild | null {
@@ -161,43 +163,43 @@ export class IntegrityDialog {
     const template = document.createElement('template')
     template.innerHTML = /* html */ `
       <md-dialog id="integrity-settings-dialog">
-        <div slot="headline">Integrity Settings</div>
+        <div slot="headline">${i18n.t('integrity_settings_title')}</div>
         <div slot="content">
           <div id="integrity-status" class="integrity-status-pill"></div>
           <div class="policy-fields">
             <label class="switch-item outlined" for="integrity-enabled">
               <md-ripple></md-ripple>
-              <span>Enable</span>
+              <span>${i18n.t('integrity_enable')}</span>
               <md-switch icons="true" id="integrity-enabled"></md-switch>
             </label>
             <label class="switch-item outlined" for="integrity-spoof-build">
               <md-ripple></md-ripple>
-              <span>Spoof Build</span>
+              <span>${i18n.t('integrity_spoof_build')}</span>
               <md-switch icons="true" id="integrity-spoof-build" selected></md-switch>
             </label>
             <label class="switch-item outlined" for="integrity-spoof-props">
               <md-ripple></md-ripple>
-              <span>Spoof Props</span>
+              <span>${i18n.t('integrity_spoof_props')}</span>
               <md-switch icons="true" id="integrity-spoof-props" selected></md-switch>
             </label>
             <label class="switch-item outlined" for="integrity-spoof-vending">
               <md-ripple></md-ripple>
-              <span>Spoof Vending Fingerprint</span>
+              <span>${i18n.t('integrity_spoof_vending')}</span>
               <md-switch icons="true" id="integrity-spoof-vending" selected></md-switch>
             </label>
             <label class="switch-item outlined" for="integrity-sync-patch">
               <md-ripple></md-ripple>
-              <span>Sync Trust Patch</span>
+              <span>${i18n.t('integrity_sync_trust_patch')}</span>
               <md-switch icons="true" id="integrity-sync-patch" selected></md-switch>
             </label>
             <label class="switch-item outlined" for="integrity-sync-ids">
               <md-ripple></md-ripple>
-              <span>Sync Device IDs</span>
+              <span>${i18n.t('integrity_sync_device_ids')}</span>
               <md-switch icons="true" id="integrity-sync-ids" selected></md-switch>
             </label>
             <label class="switch-item outlined" for="integrity-unify-props">
               <md-ripple></md-ripple>
-              <span>Unify Product Props <span class="inline-badge badge-tertiary">Beta</span></span>
+              <span>${i18n.t('integrity_unify_props')} <span class="inline-badge badge-tertiary">Beta</span></span>
               <md-switch icons="true" id="integrity-unify-props"></md-switch>
             </label>
             <label class="switch-item outlined" for="integrity-soter">
@@ -206,15 +208,15 @@ export class IntegrityDialog {
               <md-switch icons="true" id="integrity-soter"></md-switch>
             </label>
           </div>
-          <p id="integrity-fingerprint" class="integrity-fingerprint">No fingerprint fetched</p>
+          <p id="integrity-fingerprint" class="integrity-fingerprint">${i18n.t('integrity_no_fingerprint')}</p>
           <div class="integrity-fp-actions">
-            <md-outlined-button id="integrity-fetch">Fetch</md-outlined-button>
-            <md-outlined-button id="integrity-update">Update</md-outlined-button>
+            <md-outlined-button id="integrity-fetch">${i18n.t('integrity_fetch')}</md-outlined-button>
+            <md-outlined-button id="integrity-update">${i18n.t('integrity_update')}</md-outlined-button>
           </div>
         </div>
         <div slot="actions">
-          <md-outlined-button id="integrity-close">Cancel</md-outlined-button>
-          <md-filled-button id="integrity-save">Save</md-filled-button>
+          <md-outlined-button id="integrity-close">${i18n.t('functional_button_cancel')}</md-outlined-button>
+          <md-filled-button id="integrity-save">${i18n.t('functional_button_save')}</md-filled-button>
         </div>
       </md-dialog>
     `
@@ -303,7 +305,7 @@ export class IntegrityDialog {
   #renderFingerprint(): void {
     const el = this.#dialog?.querySelector<HTMLElement>('#integrity-fingerprint')
     if (!el) return
-    el.textContent = this.#fingerprint || 'No fingerprint fetched'
+    el.textContent = this.#fingerprint || i18n.t('integrity_no_fingerprint')
   }
 
   async #readState(): Promise<IntegrityState> {
@@ -347,7 +349,7 @@ export class IntegrityDialog {
     try {
       let product = this.#product || this.#productFromFingerprint(this.#fingerprint)
       if (update && !product) {
-        this.#snackbar.show('Fetch a fingerprint first', false)
+        this.#snackbar.show(i18n.t('integrity_fetch_first'), false)
         return
       }
       const romMajor = androidMajor(await this.#cli.getBuildRelease())
@@ -385,7 +387,7 @@ export class IntegrityDialog {
       }
       const fingerprint = parseKv(this.#pendingProp).FINGERPRINT
       if (!fingerprint) {
-        this.#snackbar.show('Fetched prop needs FINGERPRINT=', false)
+        this.#snackbar.show(i18n.t('integrity_prop_needs_fingerprint'), false)
         return
       }
       this.#fingerprint = fingerprint
@@ -421,15 +423,15 @@ export class IntegrityDialog {
     const soter = this.#getSwitch('integrity-soter')
     const zygisk = await this.#cli.detectIntegrityZygisk()
     if (soter && zygisk.provider === null) {
-      this.#snackbar.show('Zygisk required for Tencent Soter', false)
+      this.#snackbar.show(i18n.t('integrity_zygisk_required_soter'), false)
       return
     }
     if (enabled && !this.#canEnable) {
-      this.#snackbar.show('Zygisk required to enable Integrity', false)
+      this.#snackbar.show(i18n.t('integrity_zygisk_required'), false)
       return
     }
     if (enabled && !this.#fingerprint) {
-      this.#snackbar.show('Fetch a fingerprint before enabling', false)
+      this.#snackbar.show(i18n.t('integrity_fetch_before_enable'), false)
       return
     }
 
@@ -484,11 +486,11 @@ export class IntegrityDialog {
       }
       await this.#cli.requestRestart('all')
       await this.#cli.killIntegrityTargets()
-      this.#snackbar.show('Integrity settings saved')
+      this.#snackbar.show(i18n.t('integrity_saved'))
       this.#onSaved?.()
       this.close()
     } catch {
-      this.#snackbar.show('Failed to save Integrity settings', false)
+      this.#snackbar.show(i18n.t('integrity_save_failed'), false)
     }
   }
 

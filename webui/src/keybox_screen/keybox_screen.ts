@@ -1,11 +1,5 @@
 import type { MdDialog } from '@material/web/all'
-import {
-  algorithmsFromXml,
-  allExpiriesPassed,
-  certsFromXml,
-  expiriesFromXml,
-  type Keybox,
-} from '../keybox/keybox'
+import { algorithmsFromXml, allExpiriesPassed, certsFromXml, expiriesFromXml, type Keybox } from '../keybox/keybox'
 import { formatDeviceDate } from '../datetime'
 import type { CustomKeyboxEntry } from '../keybox/custom'
 import type { KeyboxRepo } from '../keybox/repo/repo'
@@ -41,14 +35,7 @@ export class KeyboxScreen {
   #container: HTMLElement | null = null
   #slots: SlotDetail[] = []
 
-  constructor(
-    keybox: Keybox,
-    keyboxRepo: KeyboxRepo,
-    cli: Cli,
-    config: Config,
-    snackbar: Snackbar,
-    history?: History,
-  ) {
+  constructor(keybox: Keybox, keyboxRepo: KeyboxRepo, cli: Cli, config: Config, snackbar: Snackbar, history?: History) {
     this.#keybox = keybox
     this.#keyboxRepo = keyboxRepo
     this.#cli = cli
@@ -79,13 +66,13 @@ export class KeyboxScreen {
     container.innerHTML = /* html */ `
       <div class="keybox-screen">
         <!-- Install / Add Keybox Card -->
-        <div class="kb-section-title">Add Keybox</div>
+        <div class="kb-section-title"${i18n.t('keybox_add_keybox')}/div>
         <div class="kb-install-card">
           <div class="kic-header">
             <div class="kic-icon"><md-icon>vpn_key</md-icon></div>
             <div class="kic-text">
-              <div class="kic-title">Add Keybox</div>
-              <div class="kic-subtitle">Import from file, generate, or choose presets</div>
+              <div class="kic-title"${i18n.t('keybox_add_keybox')}/div>
+              <div class="kic-subtitle"${i18n.t('keybox_import_generate')}/div>
             </div>
           </div>
 
@@ -94,8 +81,8 @@ export class KeyboxScreen {
             <div class="kac-tile" id="kb-action-local" role="button" tabindex="0">
               <div class="kac-tile-icon"><md-icon>upload_file</md-icon></div>
               <div class="kac-tile-text">
-                <div class="kac-tile-title">Local File</div>
-                <div class="kac-tile-sub">From storage (.xml)</div>
+                <div class="kac-tile-title"${i18n.t('keybox_local_file')}/div>
+                <div class="kac-tile-sub"${i18n.t('keybox_local_file_desc')}/div>
               </div>
               <md-ripple></md-ripple>
             </div>
@@ -104,8 +91,8 @@ export class KeyboxScreen {
             <div class="kac-tile" id="kb-action-repo" role="button" tabindex="0">
               <div class="kac-tile-icon"><md-icon>public</md-icon></div>
               <div class="kac-tile-text">
-                <div class="kac-tile-title">Online Repo</div>
-                <div class="kac-tile-sub">Community tested</div>
+                <div class="kac-tile-title"${i18n.t('keybox_online_repo')}/div>
+                <div class="kac-tile-sub"${i18n.t('keybox_community_tested')}/div>
               </div>
               <md-ripple></md-ripple>
             </div>
@@ -114,8 +101,8 @@ export class KeyboxScreen {
             <div class="kac-tile" id="kb-action-generate" role="button" tabindex="0">
               <div class="kac-tile-icon"><md-icon>auto_fix_high</md-icon></div>
               <div class="kac-tile-text">
-                <div class="kac-tile-title">Self-Signed</div>
-                <div class="kac-tile-sub">Local generator</div>
+                <div class="kac-tile-title"${i18n.t('keybox_source_self_signed')}/div>
+                <div class="kac-tile-sub"${i18n.t('keybox_local_generator')}/div>
               </div>
               <md-ripple></md-ripple>
             </div>
@@ -124,8 +111,8 @@ export class KeyboxScreen {
             <div class="kac-tile" id="kb-action-presets" role="button" tabindex="0">
               <div class="kac-tile-icon"><md-icon>inventory_2</md-icon></div>
               <div class="kac-tile-text">
-                <div class="kac-tile-title">Presets</div>
-                <div class="kac-tile-sub">AOSP & Remote</div>
+                <div class="kac-tile-title"${i18n.t('keybox_presets')}/div>
+                <div class="kac-tile-sub"${i18n.t('keybox_source_aosp_remote')}/div>
               </div>
               <md-ripple></md-ripple>
             </div>
@@ -134,10 +121,10 @@ export class KeyboxScreen {
 
         <!-- Slots List -->
         <div class="kb-section-header">
-          <div class="kb-section-title">Configured Slots</div>
+          <div class="kb-section-title"${i18n.t('keybox_configured_slots')}/div>
         </div>
         <div class="kb-slots-stack" id="kb-slots-container">
-          <div class="kb-loading">Loading keybox slots...</div>
+          <div class="kb-loading"${i18n.t('keybox_loading_slots')}/div>
         </div>
       </div>
     `
@@ -148,14 +135,14 @@ export class KeyboxScreen {
       const template = document.createElement('template')
       template.innerHTML = /* html */ `
         <md-dialog id="kb-presets-dialog">
-          <div slot="headline">Choose Preset</div>
+          <div slot="headline"${i18n.t('keybox_choose_preset')}/div>
           <div slot="content" class="kb-presets-list">
             <button type="button" class="kb-preset-pill" id="kb-preset-aosp">
               <div class="kb-preset-pill-start">
                 <md-icon class="kb-preset-pill-icon">android</md-icon>
                 <div class="kb-preset-pill-text">
-                  <span class="kb-preset-pill-title">AOSP Test Key</span>
-                  <span class="kb-preset-pill-sub">Bundled open-source certificates</span>
+                  <span class="kb-preset-pill-title"${i18n.t('keybox_source_aosp_test')}/span>
+                  <span class="kb-preset-pill-sub"${i18n.t('keybox_bundled_certs')}/span>
                 </div>
               </div>
               <span class="inline-badge badge-primary">AOSP</span>
@@ -166,11 +153,11 @@ export class KeyboxScreen {
               <div class="kb-preset-pill-start">
                 <md-icon class="kb-preset-pill-icon">cloud_download</md-icon>
                 <div class="kb-preset-pill-text">
-                  <span class="kb-preset-pill-title">AlwaysStrong Key</span>
-                  <span class="kb-preset-pill-sub">Remote certificate download</span>
+                  <span class="kb-preset-pill-title">AlwaysStrong ${i18n.t('keybox_source_key')}</span>
+                  <span class="kb-preset-pill-sub"${i18n.t('keybox_online_repo_desc')}/span>
                 </div>
               </div>
-              <span class="inline-badge badge-ok">Remote</span>
+              <span class="inline-badge badge-ok"${i18n.t('keybox_source_remote')}/span>
               <md-ripple></md-ripple>
             </button>
             <div id="kb-presets-custom-container" class="kb-presets-custom-container"></div>
@@ -179,8 +166,8 @@ export class KeyboxScreen {
               <div class="kb-preset-pill-start">
                 <md-icon class="kb-preset-pill-icon">add_circle</md-icon>
                 <div class="kb-preset-pill-text">
-                  <span class="kb-preset-pill-title">Add Custom Source</span>
-                  <span class="kb-preset-pill-sub">Configure custom URL or script</span>
+                  <span class="kb-preset-pill-title"${i18n.t('keybox_add_custom_source')}/span>
+                  <span class="kb-preset-pill-sub"${i18n.t('keybox_custom_url_script')}/span>
                 </div>
               </div>
               <span class="inline-badge badge-tertiary">New</span>
@@ -322,10 +309,7 @@ export class KeyboxScreen {
     for (const slot of slotNumbers) {
       const path = this.#keybox.getKeyboxPath(slot)
       const fileName = slot > 0 ? `keybox-slot-${slot}.xml` : 'keybox.xml'
-      const [mtime, xml] = await Promise.all([
-        this.#cli.getFileMtime(path),
-        File.read(path).catch(() => ''),
-      ])
+      const [mtime, xml] = await Promise.all([this.#cli.getFileMtime(path), File.read(path).catch(() => '')])
       const algos = algorithmsFromXml(xml)
       const isExpired = allExpiriesPassed(expiriesFromXml(xml))
       const createdDateText = mtime
@@ -352,7 +336,7 @@ export class KeyboxScreen {
     if (!listEl) return
 
     if (this.#slots.length === 0) {
-      listEl.innerHTML = '<div class="kb-empty">No keybox slots found.</div>'
+      listEl.innerHTML = `<div class="kb-empty">${i18n.t('keybox_no_slots')}</div>`
       return
     }
 
@@ -367,7 +351,7 @@ export class KeyboxScreen {
               <div class="ksc-title">
                 ${escapeHtml(s.label)}
                 ${s.algos.map((a) => `<span class="inline-badge badge-primary">${escapeHtml(a)}</span>`).join('')}
-                ${s.isExpired ? '<span class="inline-badge badge-error">Expired</span>' : ''}
+                ${s.isExpired ? '<span class="inline-badge badge-error">' + i18n.t('keybox_expired_badge') + '</span>' : ''}
               </div>
               <div class="ksc-sub">${s.assignedAppsCount === 1 ? '1 app' : `${s.assignedAppsCount} apps`} • ${escapeHtml(s.fileName)}</div>
             </div>
@@ -426,7 +410,7 @@ export class KeyboxScreen {
       certsRendered.add(slot)
       const certs = certsFromXml(xml)
       if (certs.length === 0) {
-        certsContainer.innerHTML = '<span class="keybox-cert-pill">No certificates found</span>'
+        certsContainer.innerHTML = `<span class="keybox-cert-pill">${i18n.t('keybox_no_certs')}</span>`
         return
       }
       certsContainer.innerHTML = ''
@@ -505,7 +489,7 @@ export class KeyboxScreen {
             </div>
           </div>
           <div class="kb-preset-pill-end">
-            <span class="inline-badge badge-tertiary">Custom</span>
+            <span class="inline-badge badge-tertiary"${i18n.t('keybox_source_custom')}/span>
             <button type="button" class="icon-btn-compact" data-action="edit-custom" data-custom-index="${index}" aria-label="Edit Source">
               <md-icon>edit</md-icon>
             </button>

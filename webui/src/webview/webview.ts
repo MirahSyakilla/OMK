@@ -1,10 +1,14 @@
+import { i18n } from '../i18n'
 import './webview.scss'
 
 const MIN_ANDROID_WEBVIEW_VERSION = 120
 export const UPDATE_URL = 'https://play.google.com/store/apps/details?id=com.google.android.webview'
 
 interface NavigatorUAData {
-  readonly brands: ReadonlyArray<{ readonly brand: string; readonly version: string }>
+  readonly brands: ReadonlyArray<{
+    readonly brand: string
+    readonly version: string
+  }>
 }
 
 export function getWebviewVersion(): number | null {
@@ -34,8 +38,8 @@ export function renderBlockingPage(): string {
   return /* html */ `
     <div class="webview">
       <p>Current WebView version is too low for this WebUI to work properly</p>
-      <button id="update-webview" class="webview-button">UPDATE</button>
-      <p class="webview-note">Please update Android System WebView to proceed</p>
+      <button id="update-webview" class="webview-button">${i18n.t('webview_update_action')}</button>
+      <p class="webview-note">${i18n.t('webview_update_required')}</p>
     </div>
   `
 }

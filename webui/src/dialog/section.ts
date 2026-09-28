@@ -86,11 +86,11 @@ export class SectionDialog {
         </md-dialog>
 
         <md-dialog id="${this.#dialogId}-confirm" type="alert">
-          <div slot="headline">Save changes?</div>
-          <div slot="content">You have unsaved changes.</div>
+          <div slot="headline">${i18n.t('section_save_changes_title')}</div>
+          <div slot="content">${i18n.t('section_unsaved')}</div>
           <div slot="actions">
-            <md-text-button id="${this.#dialogId}-confirm-discard">Discard</md-text-button>
-            <md-filled-button id="${this.#dialogId}-confirm-save">Save</md-filled-button>
+            <md-text-button id="${this.#dialogId}-confirm-discard">${i18n.t('section_discard')}</md-text-button>
+            <md-filled-button id="${this.#dialogId}-confirm-save">${i18n.t('functional_button_save')}</md-filled-button>
           </div>
         </md-dialog>
       `
@@ -261,10 +261,7 @@ export class SectionDialog {
       // The section has already been replaced in memory, so the dialog stays
       // open with the edit intact and the user is told, rather than seeing Save
       // do nothing and believing it worked.
-      this.#snackbar?.show(
-        `Failed to save: ${error instanceof Error ? error.message : String(error)}`,
-        false,
-      )
+      this.#snackbar?.show(`Failed to save: ${error instanceof Error ? error.message : String(error)}`, false)
       return
     }
     this.#initialSnapshot = JSON.stringify(this.#policyEditor.getPolicy(false) ?? {})
@@ -351,10 +348,12 @@ export class SectionDialog {
           'os_version',
           'security_patch',
         ]),
-        this.#renderCard('Verified Boot Keys & Hashes', 'Cryptographic keys and digests for boot attestation', 'fingerprint', [
-          'vb_key',
-          'vb_hash',
-        ]),
+        this.#renderCard(
+          'Verified Boot Keys & Hashes',
+          'Cryptographic keys and digests for boot attestation',
+          'fingerprint',
+          ['vb_key', 'vb_hash'],
+        ),
         // Every boolean in TRUST_SCHEMA must be listed here. A key that is
         // missing is not rendered, and because a save replaces the whole trust
         // section from the editor's policy, an unrendered key is written back as
@@ -364,9 +363,12 @@ export class SectionDialog {
           'verified_boot_state',
           'device_locked',
         ]),
-        this.#renderSwitchGroup('Property Cleanup', 'Rewrite properties that betray a rooted build', 'cleaning_services', [
-          'attempt_prop_fix',
-        ]),
+        this.#renderSwitchGroup(
+          'Property Cleanup',
+          'Rewrite properties that betray a rooted build',
+          'cleaning_services',
+          ['attempt_prop_fix'],
+        ),
       ].join('\n')
     }
 
@@ -383,11 +385,12 @@ export class SectionDialog {
           'list_entries_batched',
           'update_subcomponent',
         ]),
-        this.#renderSwitchGroup('Key Management & Grants', 'Lifecycle deletion and caller authorization', 'admin_panel_settings', [
-          'delete_key',
-          'grant',
-          'ungrant',
-        ]),
+        this.#renderSwitchGroup(
+          'Key Management & Grants',
+          'Lifecycle deletion and caller authorization',
+          'admin_panel_settings',
+          ['delete_key', 'grant', 'ungrant'],
+        ),
       ].join('\n')
     }
 
@@ -477,9 +480,9 @@ export class SectionDialog {
     }
 
     if (meta.type === 'select') {
-      const options = meta.options.map((option) =>
-        `<md-select-option value="${option}"><div slot="headline">${option}</div></md-select-option>`
-      ).join('')
+      const options = meta.options
+        .map((option) => `<md-select-option value="${option}"><div slot="headline">${option}</div></md-select-option>`)
+        .join('')
       return `<md-outlined-select class="policy-${key}" label="${meta.label}" menu-positioning="popover">${options}</md-outlined-select>`
     }
 

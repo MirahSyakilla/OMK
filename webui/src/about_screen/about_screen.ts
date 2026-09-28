@@ -2,6 +2,7 @@ import type { MdFilledButton } from '@material/web/all'
 import { Cli } from '../cli'
 import { TELEGRAM_CHANNEL } from '../constant'
 import { escapeHtml } from '../html'
+import { i18n } from '../i18n'
 import { BugReport } from './bug_report'
 import { contributorCarouselHtml, initContributorCarousel } from './contributors'
 import type { Snackbar } from '../snackbar/snackbar'
@@ -42,8 +43,8 @@ export class AboutScreen {
             <div class="about-identity__name">OhMyKeymint</div>
             <div class="about-identity__tag">OMK</div>
           </div>
-          <div class="about-identity__sub">Built-in WebUI</div>
-          <div class="about-identity__version" id="about-version">Loading version...</div>
+          <div class="about-identity__sub">${i18n.t('about_builtin_webui')}</div>
+          <div class="about-identity__version" id="about-version">${i18n.t('about_version_loading')}</div>
         </div>
 
         <div class="about-card">
@@ -60,16 +61,16 @@ export class AboutScreen {
         </div>
 
         <div class="about-section">
-          <div class="about-section__title">Bug Report</div>
+          <div class="about-section__title">${i18n.t('about_bug_report')}</div>
           <div class="about-section__body">You had issue but no idea how to report? Just simply click the button below.</div>
           <md-filled-button id="about-bugreport">
-            <span>Send Bug Report</span>
+            <span>${i18n.t('about_send_bug_report')}</span>
             <md-icon slot="icon">bug_report</md-icon>
           </md-filled-button>
         </div>
 
         <div class="about-section">
-          <div class="about-section__title">Contributors</div>
+          <div class="about-section__title">${i18n.t('about_contributors')}</div>
           ${contributorCarouselHtml()}
         </div>
       </div>

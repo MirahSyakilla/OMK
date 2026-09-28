@@ -95,7 +95,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = /* html */ `
           <div class="update">
             <md-icon>policy</md-icon>
             <div class="update-text">
-              <span>Scoop list controls known packages</span>
+              <span>${i18n.t('main_scoop_desc')}</span>
               <em>Unchecked apps are removed from scoop. Unknown callers still follow allow_unknown_package.</em>
             </div>
             <md-ripple></md-ripple>
@@ -123,23 +123,23 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = /* html */ `
       <div class="nav-indicator"></div>
       <button class="nav-tab nav-tab--active" data-tab="0" role="tab" aria-label="Apps">
         <md-icon class="nav-icon">apps</md-icon>
-        <span class="nav-label">Apps</span>
+        <span class="nav-label">${i18n.t('nav_apps')}</span>
       </button>
       <button class="nav-tab" data-tab="1" role="tab" aria-label="Keybox">
         <md-icon class="nav-icon">vpn_key</md-icon>
-        <span class="nav-label">Keybox</span>
+        <span class="nav-label">${i18n.t('nav_keybox')}</span>
       </button>
       <button class="nav-tab" data-tab="2" role="tab" aria-label="Play Integrity">
         <md-icon class="nav-icon">verified_user</md-icon>
-        <span class="nav-label">Integrity</span>
+        <span class="nav-label">${i18n.t('nav_integrity')}</span>
       </button>
       <button class="nav-tab" data-tab="3" role="tab" aria-label="Settings">
         <md-icon class="nav-icon">settings</md-icon>
-        <span class="nav-label">Settings</span>
+        <span class="nav-label">${i18n.t('nav_settings')}</span>
       </button>
       <button class="nav-tab" data-tab="4" role="tab" aria-label="About">
         <md-icon class="nav-icon">info</md-icon>
-        <span class="nav-label">About</span>
+        <span class="nav-label">${i18n.t('nav_about')}</span>
       </button>
     </nav>
   </div>
@@ -212,7 +212,6 @@ const navigation = new Navigation(track, dock, titleEl)
 const titleStatus = new TitleStatus(cli, document.querySelector<HTMLElement>('#title-status')!)
 titleStatus.start()
 
-
 // Controls visibility per tab
 const searchButton = document.getElementById('search-button') as MdIconButton
 const mainMenuContainer = document.querySelector<HTMLElement>('.main-menu')!
@@ -266,9 +265,9 @@ async function saveTarget(): Promise<void> {
   try {
     await appList.save()
     await appList.refresh()
-    snackbar.show('Config saved')
+    snackbar.show(i18n.t('prompt_saved_target'))
   } catch {
-    snackbar.show('Failed to save config', false)
+    snackbar.show(i18n.t('prompt_save_error'), false)
   }
 }
 
@@ -278,8 +277,6 @@ mainMenu.appendTo(mainMenuContainer)
 
 const reloadMenu = new ReloadMenu(cli, snackbar)
 reloadMenu.appendTo(document.querySelector<HTMLElement>('.reload-menu')!)
-
-
 
 // PIF Conflict Alert Dialog
 const pifDialogTemplate = document.createElement('template')

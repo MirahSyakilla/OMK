@@ -14,6 +14,7 @@
 import { exec } from 'kernelsu-alt'
 import { shellQuote } from '../shell'
 import { File } from '../file'
+import { i18n } from '../i18n'
 import type { Snackbar } from '../snackbar/snackbar'
 
 /** Where the archive lands, in a directory the user's own storage owns. */
@@ -107,9 +108,7 @@ export class BugReport {
 
     // -C puts the entries at the archive root rather than under the staging name.
     await File.createDirectory(OUT_DIR)
-    const tarred = await this.#exec(
-      `tar -czf ${shellQuote(path)} -C ${shellQuote(staging)} logs device.txt`,
-    )
+    const tarred = await this.#exec(`tar -czf ${shellQuote(path)} -C ${shellQuote(staging)} logs device.txt`)
     await this.#exec(`rm -rf ${shellQuote(staging)}`)
     if (tarred.errno !== 0) {
       throw new Error(tarred.stderr?.trim() || 'failed to create archive')
@@ -126,13 +125,10 @@ export class BugReport {
   async run(): Promise<void> {
     let path: string
     try {
-      this.#snackbar?.show('Collecting logs...')
+      this.#snackbar?.show(i18n.t('bug_report_collecting'))
       path = await this.build()
     } catch (error) {
-      this.#snackbar?.show(
-        `Bug report failed: ${error instanceof Error ? error.message : 'unknown error'}`,
-        false,
-      )
+      this.#snackbar?.show(`Bug report failed: ${error instanceof Error ? error.message : 'unknown error'}`, false)
       return
     }
 

@@ -1,4 +1,5 @@
 import type { MdIconButton, MdMenuItem, MdMenu, MdSubMenu } from '@material/web/all'
+import { i18n } from '../i18n'
 import './main_menu.scss'
 
 const MENU_ITEMS: Array<[string, string]> = [
@@ -32,32 +33,32 @@ export class MainMenu {
         </div>
         <md-divider role="separator" tabindex="-1"></md-divider>
         <md-menu-item id="add-system-app">
-          <div slot="headline">Add System App</div>
+          <div slot="headline">${i18n.t('mainmenu_add_system_app')}</div>
         </md-menu-item>
         <md-divider role="separator" tabindex="-1"></md-divider>
         <md-sub-menu hover-close-delay="0" id="keybox-menu">
           <md-menu-item slot="item" class="sub-menu-entry">
-            <div slot="headline">Keybox</div>
+            <div slot="headline">${i18n.t('nav_keybox')}</div>
             <md-icon slot="end">key</md-icon>
           </md-menu-item>
           <md-menu positioning="popover" slot="menu" x-offset="2">
             <md-menu-item id="keybox-manage">
-              <div slot="headline">Manage Keybox</div>
+              <div slot="headline">${i18n.t('mainmenu_manage_keybox')}</div>
             </md-menu-item>
             <md-menu-item id="keybox-aosp">
               <div slot="headline">AOSP</div>
             </md-menu-item>
             <md-menu-item id="keybox-unknown">
-              <div slot="headline">Self-Signed</div>
+              <div slot="headline">${i18n.t('keybox_source_self_signed')}</div>
             </md-menu-item>
             <md-menu-item id="keybox-alwaysstrong">
               <div slot="headline">AlwaysStrong</div>
             </md-menu-item>
             <md-menu-item id="keybox-local">
-              <div slot="headline">Local File</div>
+              <div slot="headline">${i18n.t('mainmenu_source_local_file')}</div>
             </md-menu-item>
             <md-menu-item id="keybox-repo">
-              <div slot="headline">Repo</div>
+              <div slot="headline">${i18n.t('mainmenu_source_repo')}</div>
               <md-icon slot="end">open_in_new</md-icon>
             </md-menu-item>
             <md-divider role="separator" tabindex="-1"></md-divider>
@@ -69,7 +70,7 @@ export class MainMenu {
           </md-menu>
         </md-sub-menu>
         <md-menu-item id="trust-settings">
-          <div slot="headline">Trust Settings</div>
+          <div slot="headline">${i18n.t('mainmenu_trust_settings')}</div>
         </md-menu-item>
       </md-menu>
     `
