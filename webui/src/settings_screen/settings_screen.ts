@@ -151,13 +151,10 @@ export class SettingsScreen {
           if (!import.meta.env.DEV) {
             await this.#config.write()
           }
-          this.#snackbar?.show(
-            selected ? 'Biometric HAT verification bypass enabled' : 'Biometric HAT verification bypass disabled',
-            true,
-          )
+          this.#snackbar?.show(i18n.t(selected ? 'settings_hat_enabled' : 'settings_hat_disabled'), true)
         } catch {
           coreSwitch.selected = prev
-          this.#snackbar?.show('Failed to save setting', false)
+          this.#snackbar?.show(i18n.t('settings_save_failed'), false)
         }
       }
 
