@@ -1,4 +1,5 @@
 import '@material/web/chips/assist-chip.js'
+import { watchWindowInsets } from './insets'
 import '@material/web/chips/chip-set.js'
 import '@material/web/checkbox/checkbox.js'
 import '@material/web/progress/circular-progress.js'
@@ -473,3 +474,7 @@ document.addEventListener(
   },
   { passive: true },
 )
+
+// Insets have to be published before the first paint, otherwise full-screen
+// dialogs briefly render under the status bar and the navigation bar.
+watchWindowInsets()

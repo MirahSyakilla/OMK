@@ -1,9 +1,19 @@
-@import url('https://mui.kernelsu.org/internal/insets.css');
 @import url('https://mui.kernelsu.org/internal/colors.css');
 
+// Insets are published by webui/src/insets.ts, which measures them locally.
+// They used to come from the remote insets.css above; that sheet was unreachable
+// on some networks, which left every value at 0 and put full-screen dialogs under
+// the status bar and the navigation bar. The defaults here are only what shows
+// for the first frame before the script runs.
 :root {
-  --top-inset: var(--window-inset-top, 0px);
-  --bottom-inset: var(--window-inset-bottom, 0px);
+  --top-inset: 24px;
+  --right-inset: 0px;
+  --bottom-inset: 48px;
+  --left-inset: 0px;
+  --sa-top: var(--top-inset);
+  --sa-right: var(--right-inset);
+  --sa-bottom: var(--bottom-inset);
+  --sa-left: var(--left-inset);
   --header-h: calc(64px + var(--top-inset));
   --dock-space: calc(88px + var(--bottom-inset));
 

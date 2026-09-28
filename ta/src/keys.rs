@@ -35,7 +35,17 @@ use std::{collections::btree_map::Entry, string::String, vec::Vec};
 use x509_cert::ext::pkix::KeyUsages;
 
 /// Maximum size of an attestation challenge value.
-const MAX_ATTESTATION_CHALLENGE_LEN: usize = 128;
+///
+/// The challenge is carried into the attestation extension as a variable-length
+/// ASN.1 OCTET STRING and does not feed any fixed-size buffer, so this bound
+/// exists only to keep the generated certificate from growing without limit.
+///
+/// It must stay comfortably above what real clients send. A 128-byte cap rejects
+/// a 256-byte challenge outright with InvalidInputLength, which is a hard failure
+/// a client cannot recover from, and it left attestation key generation broken
+/// for anything using a longer challenge. Being more permissive than a real TA is
+/// far less visible than rejecting a legitimate request.
+const MAX_ATTESTATION_CHALLENGE_LEN: usize = 1024;
 
 /// Contents of wrapping key data
 ///

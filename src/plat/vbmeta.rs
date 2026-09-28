@@ -414,7 +414,16 @@ fn resolve_patch_levels_from(
         &security_patch,
         latest,
     )?;
-    let vendor_auto = vendor_property.unwrap_or(&os_patchlevel);
+    // When security_patch is pinned rather than read from the device, the vendor
+    // level has to follow it for the same reason boot does below. Preferring the
+    // real device property here is what made the attested levels contradict each
+    // other: os and boot reported the pin while vendor reported the stock date,
+    // so a cross-check saw os/boot at 2026-09-01 against vendor at 2025-11-01.
+    let vendor_auto = if trust.security_patch.trim() == "auto" {
+        vendor_property.unwrap_or(&os_patchlevel)
+    } else {
+        os_patchlevel.as_str()
+    };
     let vendor_patchlevel = resolve_patchlevel_mode(
         "vendor_patchlevel",
         &trust.vendor_patchlevel,
@@ -1700,6 +1709,74 @@ mod tests {
         assert_eq!(resolved.security_patch, "2026-09-05");
         assert_eq!(resolved.os_patchlevel, "2026-09-05");
         assert_eq!(resolved.boot_patchlevel, "2026-09-05");
+    }
+
+    #[test]
+    fn auto_patchlevels_never_contradict_a_pinned_security_patch() {
+        // The three attested patch levels are cross-checked against each other, so
+        // with a pinned security_patch and everything else on auto, all three have
+        // to land on the pin. Reading vendor from the device here is what put
+        // 2025-11-01 in the attestation next to 2026-09-01.
+        let trust = RawTrustConfig {
+            security_patch: "2026-09-01".to_string(),
+            os_patchlevel: "auto".to_string(),
+            vendor_patchlevel: "auto".to_string(),
+            boot_patchlevel: "auto".to_string(),
+            ..Default::default()
+        };
+        let resolved = resolve_patch_levels_from(
+            &trust,
+            Some("2026-09-01"),
+            Some("2025-11-01"),
+            Some(""),
+            Some("2026-09-01"),
+            None,
+        )
+        .unwrap();
+        assert_eq!(resolved.os_patchlevel, "2026-09-01");
+        assert_eq!(resolved.vendor_patchlevel, "2026-09-01");
+        assert_eq!(resolved.boot_patchlevel, "2026-09-01");
+    }
+
+    #[test]
+    fn vendor_auto_still_reads_the_device_when_security_patch_is_auto() {
+        // Guarding on the pin must not change the untouched path: with
+        // security_patch auto, the device's own vendor level is the right source.
+        let trust = RawTrustConfig {
+            security_patch: "auto".to_string(),
+            ..Default::default()
+        };
+        let resolved = resolve_patch_levels_from(
+            &trust,
+            Some("2026-09-01"),
+            Some("2025-11-01"),
+            Some("2026-09-01"),
+            Some("2026-09-01"),
+            None,
+        )
+        .unwrap();
+        assert_eq!(resolved.vendor_patchlevel, "2025-11-01");
+    }
+
+    #[test]
+    fn an_explicit_vendor_patchlevel_still_overrides_everything() {
+        // The pin only supplies the automatic value; a value the user typed
+        // explicitly is still theirs to choose.
+        let trust = RawTrustConfig {
+            security_patch: "2026-09-01".to_string(),
+            vendor_patchlevel: "2026-08-01".to_string(),
+            ..Default::default()
+        };
+        let resolved = resolve_patch_levels_from(
+            &trust,
+            Some("2026-09-01"),
+            Some("2025-11-01"),
+            Some(""),
+            Some("2026-09-01"),
+            None,
+        )
+        .unwrap();
+        assert_eq!(resolved.vendor_patchlevel, "2026-08-01");
     }
 
     #[test]
