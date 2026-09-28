@@ -3,8 +3,6 @@ import { AppList } from '../app_list/app_list'
 import { Config } from '../config'
 import { SectionDialog } from './section'
 import { RuntimeDialog } from './runtime'
-import { AboutDialog } from './about'
-import { HelpDialog } from './help'
 import { SystemAppDialog } from './system_app'
 import { IntegrityDialog } from './integrity'
 import { Snackbar } from '../snackbar/snackbar'
@@ -12,8 +10,6 @@ import { History } from '../history'
 import './dialog.scss'
 
 export class DialogController {
-  readonly about: AboutDialog
-  readonly help: HelpDialog
   readonly systemApp: SystemAppDialog
   readonly integrity: IntegrityDialog
   readonly trust: SectionDialog
@@ -27,8 +23,6 @@ export class DialogController {
   onSaved?: () => void
 
   constructor(cli: Cli, config: Config, appList: AppList, snackbar: Snackbar, history?: History) {
-    this.about = new AboutDialog(cli)
-    this.help = new HelpDialog()
     this.systemApp = new SystemAppDialog(appList)
     this.integrity = new IntegrityDialog(cli, config, snackbar, () => {
       void appList.refresh(false)
@@ -51,8 +45,6 @@ export class DialogController {
 
   appendAll(container: HTMLElement): void {
     const dialogs = [
-      this.about,
-      this.help,
       this.systemApp,
       this.integrity,
       this.trust,
@@ -69,14 +61,6 @@ export class DialogController {
       container.appendChild(dialog.getElement())
       dialog.initAnimation()
     })
-  }
-
-  showAbout(): void {
-    this.about.show()
-  }
-
-  showHelp(): void {
-    this.help.show()
   }
 
   async showSystemApp(): Promise<void> {

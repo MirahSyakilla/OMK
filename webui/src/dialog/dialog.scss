@@ -70,59 +70,6 @@
     width: 100%;
   }
 
-  #about-dialog {
-    .about-headline {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 0;
-      font-size: 16px;
-
-      .about-title-row {
-        display: flex;
-        align-items: baseline;
-        justify-content: space-between;
-        gap: 8px;
-        width: 100%;
-      }
-
-      #module_name_line1 {
-        font-size: 30px;
-        line-height: 1.3;
-      }
-
-      #working-mode-tag {
-        font-weight: 500;
-        font-family: Arial, Helvetica, sans-serif;
-        line-height: 1.3;
-        padding: 4px 8px;
-        border-radius: 12px;
-        background-color: var(--md-sys-color-tertiary-container);
-        color: var(--md-sys-color-on-tertiary-container);
-        user-select: none;
-      }
-    }
-
-    [slot="content"] {
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
-
-    .acknowledgment p {
-      margin: 4px 0;
-    }
-
-    .link {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
-    #channel-selector {
-      width: 100%;
-    }
-  }
-
   #module_name_line1 {
     font-size: 30px;
     line-height: 1.3;
@@ -173,26 +120,6 @@
   #locales {
     --md-sys-color-primary: #4285F4;
     --md-sys-color-on-primary: white;
-  }
-
-  .help-content {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-
-    .instruction {
-      margin-bottom: 8px;
-
-      p {
-        margin: 4px 0;
-        color: var(--md-sys-color-on-surface-variant);
-      }
-
-      ul {
-        margin: 4px 0 0;
-        padding-left: 16px;
-      }
-    }
   }
 
   .switch-item {
@@ -595,30 +522,6 @@
           flex-direction: column;
           gap: 16px;
           padding-top: 6px;
-        }
-
-        .help-card-body {
-          font-size: 0.875rem;
-          line-height: 1.5;
-          color: var(--md-sys-color-on-surface-variant);
-
-          p {
-            margin: 0;
-          }
-
-          code {
-            font-family: monospace;
-            font-size: 0.8125rem;
-            padding: 2px 6px;
-            border-radius: 6px;
-            background: var(--md-sys-color-surface-container);
-            color: var(--md-sys-color-primary);
-          }
-
-          b {
-            color: var(--md-sys-color-on-surface);
-            font-weight: 600;
-          }
         }
 
         md-outlined-text-field {

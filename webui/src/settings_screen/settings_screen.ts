@@ -121,29 +121,6 @@ export class SettingsScreen {
             <md-ripple></md-ripple>
           </div>
         </div>
-
-        <!-- Group 7: About -->
-        <div class="settings-section-title">About</div>
-        <div class="settings-group">
-          <div class="settings-row" id="setting-help" role="button" tabindex="0">
-            <div class="settings-icon"><md-icon>help_outline</md-icon></div>
-            <div class="settings-content">
-              <div class="settings-title">Help</div>
-              <div class="settings-sub" id="sub-help">Documentation & usage guide</div>
-            </div>
-            <div class="settings-arrow"><md-icon>chevron_right</md-icon></div>
-            <md-ripple></md-ripple>
-          </div>
-          <div class="settings-row" id="setting-about" role="button" tabindex="0">
-            <div class="settings-icon"><md-icon>info</md-icon></div>
-            <div class="settings-content">
-              <div class="settings-title">About</div>
-              <div class="settings-sub" id="sub-about">OpenKeyMint WebUI</div>
-            </div>
-            <div class="settings-arrow"><md-icon>chevron_right</md-icon></div>
-            <md-ripple></md-ripple>
-          </div>
-        </div>
       </div>
     `
 
@@ -198,8 +175,6 @@ export class SettingsScreen {
     this.#bindRow('setting-intercept', () => this.#dialogController.showIntercept())
     this.#bindRow('setting-device', () => this.#dialogController.showDevice())
     this.#bindRow('setting-crypto', () => this.#dialogController.showCrypto())
-    this.#bindRow('setting-help', () => this.#dialogController.showHelp())
-    this.#bindRow('setting-about', () => this.#dialogController.showAbout())
   }
 
   updateSummaries(): void {

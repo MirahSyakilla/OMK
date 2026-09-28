@@ -12,7 +12,6 @@ const MENU_ITEMS: Array<[string, string]> = [
   ['keybox-custom', 'menu-keybox-custom'],
   ['trust-settings', 'menu-trust-settings'],
   ['help', 'menu-help'],
-  ['about', 'menu-about'],
 ]
 
 export class MainMenu {
@@ -71,13 +70,6 @@ export class MainMenu {
         </md-sub-menu>
         <md-menu-item id="trust-settings">
           <div slot="headline">Trust Settings</div>
-        </md-menu-item>
-        <md-divider role="separator" tabindex="-1"></md-divider>
-        <md-menu-item id="help">
-          <div slot="headline">Help</div>
-        </md-menu-item>
-        <md-menu-item id="about">
-          <div slot="headline">About</div>
         </md-menu-item>
       </md-menu>
     `

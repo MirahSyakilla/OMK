@@ -1,5 +1,5 @@
 import '@material/web/chips/assist-chip.js'
-import { watchWindowInsets } from './insets'
+import { prepareWindowInsets, watchWindowInsets } from './insets'
 import '@material/web/chips/chip-set.js'
 import '@material/web/checkbox/checkbox.js'
 import '@material/web/progress/circular-progress.js'
@@ -42,7 +42,16 @@ import { Navigation } from './navigation'
 import { IntegrityScreen } from './integrity_screen/integrity_screen'
 import { KeyboxScreen } from './keybox_screen/keybox_screen'
 import { SettingsScreen } from './settings_screen/settings_screen'
+import { AboutScreen } from './about_screen/about_screen'
 import './style.scss'
+
+// Go edge to edge and publish the insets before anything is rendered. The host
+// applies the edge-to-edge relayout asynchronously; doing it here, while #app is
+// still empty, means that resize lands on a blank page. The first real paint is
+// then already laid out for the full viewport, so there is no second pass for the
+// header and dock to jump between. Awaiting it after the markup below would put
+// that resize in the middle of a visible page, which is the flicker this avoids.
+await prepareWindowInsets()
 
 await i18n.init()
 
@@ -104,6 +113,9 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = /* html */ `
 
         <!-- Tab 3: Settings -->
         <section class="page" id="settings-page"></section>
+
+        <!-- Tab 4: About -->
+        <section class="page" id="about-page"></section>
       </div>
     </main>
 
@@ -124,6 +136,10 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = /* html */ `
       <button class="nav-tab" data-tab="3" role="tab" aria-label="Settings">
         <md-icon class="nav-icon">settings</md-icon>
         <span class="nav-label">Settings</span>
+      </button>
+      <button class="nav-tab" data-tab="4" role="tab" aria-label="About">
+        <md-icon class="nav-icon">info</md-icon>
+        <span class="nav-label">About</span>
       </button>
     </nav>
   </div>
@@ -182,6 +198,11 @@ dialogController.onSaved = () => {
   settingsScreen.updateSummaries()
 }
 
+// Tab 4: About Screen
+const aboutPage = document.querySelector<HTMLElement>('#about-page')!
+const aboutScreen = new AboutScreen(cli, snackbar)
+aboutScreen.render(aboutPage)
+
 // Shell Navigation
 const track = document.querySelector<HTMLElement>('#pages')!
 const dock = document.querySelector<HTMLElement>('.dock')!
@@ -220,6 +241,8 @@ navigation.onTabChanged((index) => {
     window.setTimeout(() => void integrityScreen.load(), 360)
   } else if (index === 3) {
     settingsScreen.updateSummaries()
+  } else if (index === 4) {
+    window.setTimeout(() => void aboutScreen.load(), 360)
   }
 })
 
@@ -319,8 +342,6 @@ mainMenu.on('menu-keybox-local', () => {
 })
 mainMenu.on('menu-keybox-repo', () => keyboxRepo.show())
 mainMenu.on('menu-trust-settings', () => dialogController.showTrust())
-mainMenu.on('menu-help', () => dialogController.showHelp())
-mainMenu.on('menu-about', () => dialogController.showAbout())
 if (!Keybox.isKeygenAvailable() && !import.meta.env.DEV) {
   const keyboxUnknown = document.getElementById('keybox-unknown')
   if (keyboxUnknown) keyboxUnknown.style.display = 'none'
@@ -368,24 +389,19 @@ dialogContent.querySelectorAll<MdDialog>('md-dialog').forEach((dialog, index) =>
 // Back from any tab other than the first returns to the first tab instead of
 // leaving the WebUI. The synthetic entry lives on the same stack as dialogs and
 // menus, so dismissing a dialog never drains it.
-const TAB_BACK_KEY = 'tab-back'
-let tabBackTracked = false
-navigation.onTabChanged((index) => {
-  if (index === 0) {
-    // Reached the first tab by tapping the dock: the entry is now stale, and
-    // dropping it lets the next back press leave the WebUI as expected.
-    if (tabBackTracked) {
-      tabBackTracked = false
-      history.consume(TAB_BACK_KEY)
-    }
+// Android Back Navigation Rule:
+// Back exits the WebUI from anywhere. A previous rule sent back to the first tab
+// first, but with page switching now restricted to the floating navbar there is
+// no expectation to be walked backwards through the tabs, and the extra step just
+// looked like the gesture had done nothing.
+keybind.on('keybind-esc', () => {
+  // A dialog, menu, or file selector on the stack still unwinds first; this only
+  // handles the case where nothing is open.
+  if (history.size > 0) {
+    history.back()
     return
   }
-  if (tabBackTracked) return
-  tabBackTracked = true
-  history.push(TAB_BACK_KEY, () => {
-    tabBackTracked = false
-    navigation.switchToTab(0, true)
-  })
+  window.close()
 })
 
 // Header scroll elevation & Floating Dock/FAB hide
@@ -475,6 +491,6 @@ document.addEventListener(
   { passive: true },
 )
 
-// Insets have to be published before the first paint, otherwise full-screen
-// dialogs briefly render under the status bar and the navigation bar.
+// Bars can appear or disappear on their own after startup, so keep the insets
+// current. This does not run on open: prepareWindowInsets above owns that.
 watchWindowInsets()

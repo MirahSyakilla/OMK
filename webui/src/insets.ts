@@ -1,28 +1,20 @@
 /**
- * System bar insets, measured locally.
+ * System bar insets.
  *
- * The WebUI is served edge to edge so the app's own background runs under the
- * status bar and the navigation bar, rather than the host painting its own
- * grey blocks there. That means this module owns the padding, and the values in
- * `--top-inset` and `--bottom-inset` have to be real.
+ * The WebUI draws its own background under the status and navigation bars, which
+ * needs the host to lay out edge to edge. The host applies that asynchronously,
+ * so the viewport is resized after the WebView has already drawn and anything
+ * anchored to a bar reflows on a later frame.
  *
- * They used to come from `https://mui.kernelsu.org/internal/insets.css`, a remote
- * stylesheet. When it could not be fetched, both variables silently fell back to
- * 0 and the layout put headers under the status bar and the last row under the
- * three-button navigation bar. Nothing here depends on that stylesheet, on the
- * manager publishing anything, or on `env(safe-area-inset-*)`, which is 0 in a
- * WebView that does not populate it.
+ * The fix is ordering rather than timing: `prepareWindowInsets()` awaits the
+ * host before the app renders, so the one layout pass already has the full
+ * viewport and there is nothing to animate afterwards. `watchWindowInsets()` only
+ * covers changes that come later.
  *
- * Resolution order:
- *
- * 1. `dumpsys window`, read over the `ksu` bridge. The WebUI already runs as
- *    root, and this is the only source on a manager that publishes no inset
- *    variables, which is the common case.
- * 2. A probe element measuring `env(safe-area-inset-*)`.
- * 3. A conservative default, so a bar is still cleared if everything fails.
- *
- * If the host ends up insetting the viewport anyway, nothing is applied: padding
- * on top of the host's own would offset the layout twice.
+ * The bars still have to be measured, since a bar is a physical size. `dumpsys
+ * window` over the ksu bridge is the source, as a manager commonly publishes no
+ * inset variables. `env(safe-area-inset-*)` is 0 in a WebView that does not
+ * populate it, so it is only a fallback.
  */
 
 const INSET_VARS = ['top', 'right', 'bottom', 'left'] as const
@@ -111,13 +103,6 @@ function readInjected(): Insets {
   }
 }
 
-/** Whether the host is insetting the viewport itself. */
-function hostIsInset(): boolean {
-  const display = window.screen?.height ?? 0
-  if (!display) return false
-  return window.innerHeight < display - 1
-}
-
 async function collect(): Promise<Insets> {
   const injected = readInjected()
   if (!isEmpty(injected)) return injected
@@ -155,51 +140,39 @@ function apply(insets: Insets): void {
   document.documentElement.setAttribute('data-omk-insets', `${insets.top}/${insets.bottom}`)
 }
 
-/** Ask the host to lay out edge to edge so our background reaches the bars. */
-async function requestEdgeToEdge(): Promise<void> {
+/**
+ * Go edge to edge, then publish the insets. Await this before the first paint:
+ * the app is still empty, so the host's resize lands on a blank page and the
+ * first real paint is already correct.
+ */
+export async function prepareWindowInsets(): Promise<Insets> {
   try {
     const { enableEdgeToEdge } = await import('kernelsu-alt')
     // kernelsu-alt falls back to the older enableInsets internally and rejects
     // rather than throwing when the bridge is missing.
     await enableEdgeToEdge(true)
   } catch {
-    // Nothing to do; the host keeps its own padding and hostIsInset() below
-    // makes sure we do not add a second offset.
+    // The host keeps its own padding. Measuring below still clears the bars,
+    // they are just not extended with our background.
   }
+  const insets = await collect()
+  apply(insets)
+  return insets
 }
 
-/** Resolve the insets and publish them. Returns what was applied. */
+/** Publish the insets again. Returns what was applied. */
 export async function applyWindowInsets(): Promise<Insets> {
-  // If the host is still insetting the viewport, it owns the padding already.
-  const insets = hostIsInset() ? { top: 0, right: 0, bottom: 0, left: 0 } : await collect()
+  const insets = await collect()
   apply(insets)
   return insets
 }
 
 /**
- * Start resolving insets, and keep them current.
- *
- * The host applies its layout change asynchronously, so the first reading is
- * taken after it has settled, and again on every viewport change because the
- * bars can appear or disappear on their own.
+ * Keep the insets current for geometry that changes after startup. Republishing
+ * on rotation is safe because the viewport has already changed; opening the WebUI
+ * is {@link prepareWindowInsets}' job, not this one's.
  */
 export function watchWindowInsets(): void {
   if (!document.body) return
-
-  const update = (): void => {
-    void applyWindowInsets()
-  }
-
-  void requestEdgeToEdge().then(() => {
-    update()
-    // The switch to edge to edge and the window manager's own inset update are
-    // both a frame or more behind the request.
-    window.setTimeout(update, 120)
-    window.setTimeout(update, 400)
-    window.setTimeout(update, 900)
-  })
-
-  window.addEventListener('resize', update, { passive: true })
-  window.addEventListener('orientationchange', update, { passive: true })
-  window.visualViewport?.addEventListener('resize', update, { passive: true })
+  window.addEventListener('orientationchange', () => void applyWindowInsets(), { passive: true })
 }

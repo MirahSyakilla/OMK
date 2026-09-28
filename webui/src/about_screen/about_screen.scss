@@ -1,0 +1,218 @@
+/* About page: identity, links, bug report, contributors. */
+
+/*
+ * width: 100% is load-bearing. `.page` centres its children, so one without an
+ * explicit width is sized to its content and can exceed the page. The contributor
+ * row is a horizontal scroller, so it stretched this block past the viewport and
+ * shifted the whole track left, clipping the title and headings off-screen.
+ */
+.about-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 800px;
+  box-sizing: border-box;
+  padding: 0 16px var(--dock-space);
+}
+
+.about-card {
+  background: var(--md-sys-color-surface-container);
+  border-radius: 28px;
+  padding: 20px;
+}
+
+.about-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.about-identity__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.about-identity__name {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.about-identity__tag {
+  padding: 3px 10px;
+  border-radius: 9999px;
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.about-identity__sub {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.875rem;
+}
+
+.about-identity__version {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.8125rem;
+}
+
+.about-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.about-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.about-section__title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--md-sys-color-on-surface-variant);
+  padding-left: 4px;
+}
+
+.about-section__body {
+  font-size: 0.9375rem;
+  color: var(--md-sys-color-on-surface);
+  padding: 0 4px;
+}
+
+/*
+ * Contributor carousel.
+ *
+ * The stage is a horizontal scroller and scrolling is the animation, matching
+ * BRENE: autoplay and a fling are the same `scrollTo`, so every movement looks
+ * identical. A transform driven from script needed its transition suppressed for
+ * long jumps, which is what made some taps animate and some snap.
+ */
+.contrib {
+  width: 100%;
+  /* Bound the row, so the cards scroll instead of stretching the page. */
+  max-width: 100%;
+  min-width: 0;
+  margin-top: 4px;
+}
+
+.contrib__stage {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  /* Room for the card's own focus ring, which an overflow container clips. */
+  padding: 2px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  /* Horizontal intent belongs to the carousel, not the page. */
+  touch-action: pan-x;
+  -webkit-overflow-scrolling: touch;
+}
+
+.contrib__stage::-webkit-scrollbar {
+  display: none;
+}
+
+.contrib__card {
+  flex: 0 0 calc((100% - 2 * 10px) / 3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 16px 4px;
+  border-radius: 20px;
+  background: var(--md-sys-color-surface-container-low);
+  /*
+   * start, not center. Snap points must be the card boundaries, since that is
+   * what the script aims at: centered, the browser's snap positions sit half a
+   * viewport off the computed ones and mandatory snapping overrides every
+   * programmatic scroll.
+   */
+  scroll-snap-align: start;
+}
+
+.contrib__avatar {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 9999px;
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+  overflow: hidden;
+  flex: none;
+}
+
+.contrib__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/*
+ * Fallback for an avatar that will not decode. Promoted on the error event only,
+ * so a successful load never leaves text sitting over the image.
+ */
+.contrib__avatar::after {
+  content: attr(data-initials);
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 1.25rem;
+  font-weight: 600;
+  opacity: 0;
+}
+
+.contrib__avatar.is-fallback::after {
+  opacity: 1;
+}
+
+.contrib__name {
+  max-width: 100%;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-decoration: none;
+  /* A handle like helloworld2540 is far too long for a third of a phone, so it
+   * shrinks rather than overflowing the card. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contrib__name:active,
+.contrib__name:focus-visible {
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .contrib__stage {
+    scroll-behavior: auto;
+  }
+}
+
+/*
+ * Clones exist only so the wrap is seamless. Hidden from assistive tech and not
+ * focusable; the real cards carry the same links. Not display:none, since a
+ * hidden element has no layout and the scroll offsets would collapse.
+ */
+.contrib__card--clone {
+  pointer-events: none;
+  user-select: none;
+}
