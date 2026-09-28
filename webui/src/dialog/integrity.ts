@@ -87,11 +87,25 @@ const BUILD_LETTER_MAJOR: Record<string, number> = {
 }
 
 export function buildMajor(build: FlashBuild): number | null {
+  // The branch letter is checked first because it is the only field that is
+  // always right. Flash reports a QPR build's apiLevel as the base release its
+  // branch was cut from, so an AP2A row arrives with apiLevel 34 and
+  // versionName "Android 14" despite being an Android 15 branch.
+  // versionName and the release track inherit the same base name.
+  //
+  // releaseCandidateName holds the AOSP build ID, e.g. `AP2A.240605.024`;
+  // buildId is the numeric build number, so its first character is a digit and
+  // never names a branch.
+  for (const field of [build.releaseCandidateName, build.buildId]) {
+    const branch = BUILD_LETTER_MAJOR[(field?.[0] ?? '').toUpperCase()]
+    if (branch !== undefined) return branch
+  }
   const track = build.previewMetadata?.releaseTrackName ?? ''
   const fromTrack = track.match(/^Android (\d+)/)
   if (fromTrack) return Number.parseInt(fromTrack[1], 10)
-  const letter = build.releaseCandidateName?.[0]?.toUpperCase() ?? ''
-  return BUILD_LETTER_MAJOR[letter] ?? null
+  const apiLevel = build.apiLevel
+  if (typeof apiLevel === 'number' && apiLevel > 20) return apiLevel - 20
+  return null
 }
 
 export function buildCandidates(target: number): string[] {
@@ -101,9 +115,7 @@ export function buildCandidates(target: number): string[] {
 
 export function pickBuild(builds: FlashBuild[], target: number | null): FlashBuild | null {
   const usable = builds.filter((build) => build.target === `${build.product}-user`)
-  const matching = target === null
-    ? usable
-    : usable.filter((build) => buildMajor(build) === target)
+  const matching = target === null ? usable : usable.filter((build) => buildMajor(build) === target)
   if (matching.length === 0) return null
   return matching.reduce((best, build) => (buildTotal(build) > buildTotal(best) ? build : best))
 }
@@ -269,9 +281,12 @@ export class IntegrityDialog {
       return 'Disabled: Zygisk not found. Install ReZygisk (preferred), ZygiskNext, NeoZygisk, or Magisk Zygisk.'
     }
     const label =
-      status.provider === 'rezygisk' ? 'ReZygisk'
-        : status.provider === 'zygisk_next' ? 'ZygiskNext'
-          : status.provider === 'neozygisk' ? 'NeoZygisk'
+      status.provider === 'rezygisk'
+        ? 'ReZygisk'
+        : status.provider === 'zygisk_next'
+          ? 'ZygiskNext'
+          : status.provider === 'neozygisk'
+            ? 'NeoZygisk'
             : 'Magisk Zygisk'
     return `Zygisk: ${label}`
   }
@@ -342,12 +357,12 @@ export class IntegrityDialog {
         return propAndroidMajor(content) === romMajor
       }
 
-      const candidates = target === null
-        ? shuffle(PIXEL_DEVICES).map((device) => device.product)
-        : buildCandidates(target)
-      const ordered = product && candidates.includes(product)
-        ? [product, ...candidates.filter((entry) => entry !== product)]
-        : candidates
+      const candidates =
+        target === null ? shuffle(PIXEL_DEVICES).map((device) => device.product) : buildCandidates(target)
+      const ordered =
+        product && candidates.includes(product)
+          ? [product, ...candidates.filter((entry) => entry !== product)]
+          : candidates
 
       for (const candidate of ordered) {
         try {

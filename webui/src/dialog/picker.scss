@@ -1,0 +1,32 @@
+/*
+ * Shared styling for the app's select-based pickers, so they all read as the
+ * same dialog: the fingerprint picker and the language picker.
+ *
+ * These dialogs are built by creating an `md-dialog` in script rather than from
+ * markup, so nothing in the shared dialog stylesheet reaches them and they
+ * render with square-cornered selects and an option list that escapes the dialog
+ * and runs off the bottom of the screen. `.picker-dialog` is applied to the
+ * element to opt into these rules.
+ */
+.picker-dialog {
+  --md-dialog-container-min-inline-size: min(92vw, 420px);
+  --md-dialog-container-max-inline-size: min(94vw, 480px);
+
+  [slot='content'] {
+    // The option list is positioned against the field, so the content box must
+    // not clip it.
+    overflow: visible;
+  }
+
+  md-outlined-select {
+    --md-outlined-select-text-field-container-shape: 28px !important;
+    --md-outlined-select-container-shape: 28px !important;
+    --md-outlined-field-container-shape: 28px !important;
+    width: 100%;
+  }
+
+  md-outlined-text-field {
+    --md-outlined-text-field-container-shape: 28px !important;
+    --md-outlined-field-container-shape: 28px !important;
+  }
+}

@@ -110,7 +110,24 @@ def is_safe_build_field(value: str) -> bool:
 
 
 def build_major(build: dict) -> int | None:
-    """Resolve the Android major, mirroring the WebUI's buildMajor()."""
+    """Resolve the Android major, mirroring the WebUI's buildMajor().
+
+    The branch letter is consulted first because it is the only field that is
+    always right. Flash reports `apiLevel` for a QPR build as the base release
+    the branch was cut from, so deriving the major from it filed every QPR row
+    under the previous Android version: AP2A builds landed on 14 instead of 15,
+    BP1A on 15 instead of 16, CP1A on 16 instead of 17. versionName and the
+    release track have the same problem, since a QPR inherits the base release's
+    name.
+    """
+    # releaseCandidateName holds the AOSP build ID, e.g. `AP2A.240605.024`.
+    # buildId is the numeric build number, so its first character is a digit and
+    # never names a branch.
+    for field in ("releaseCandidateName", "buildId"):
+        letter = (build.get(field) or "")[:1].upper()
+        branch = BUILD_LETTER_MAJOR.get(letter)
+        if branch is not None:
+            return branch
     version_name = build.get("versionName")
     if isinstance(version_name, str):
         match = re.search(r"(\d+)\s*$", version_name)
@@ -123,8 +140,7 @@ def build_major(build: dict) -> int | None:
     api_level = build.get("apiLevel")
     if isinstance(api_level, int) and api_level > 0:
         return api_level - 20
-    letter = (build.get("releaseCandidateName") or "")[:1].upper()
-    return BUILD_LETTER_MAJOR.get(letter)
+    return None
 
 
 def extract_rows(device: dict, builds: list[dict]) -> list[list]:

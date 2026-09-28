@@ -39,9 +39,10 @@ export function buildProp(
   initialSdk?: number,
 ): string {
   const id = releaseId(build)
-  // Read the date from the build ID rather than the release name: the name is
-  // the fallback path and can be absent, while the ID is always present.
-  const patch = securityPatch(build.buildId)
+  // The date lives in releaseCandidateName, which reads `CP3A.260905.009`.
+  // buildId is the numeric build number and carries no date at all, so reading it
+  // here matched nothing and silently dropped SECURITY_PATCH from every build.
+  const patch = securityPatch(build.releaseCandidateName || build.buildId)
   const lines = [
     `FINGERPRINT=google/${product}/${product}:${major}/${id}/${build.buildId}:user/release-keys`,
     'MANUFACTURER=Google',

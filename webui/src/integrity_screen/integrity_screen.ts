@@ -1,5 +1,5 @@
 import '@material/web/progress/circular-progress.js'
-import type { MdSwitch, MdTextButton } from '@material/web/all'
+import type { MdOutlinedSelect, MdSwitch, MdTextButton } from '@material/web/all'
 import { Cli, type FlashBuild } from '../cli'
 import { Config } from '../config'
 import { PIXEL_DEVICES } from '../constant'
@@ -7,7 +7,15 @@ import { File } from '../file'
 import { escapeHtml } from '../html'
 import { buildProp } from '../integrity_prop'
 import type { TemplateRow } from '../fingerprint_template'
-import { activeTemplate, isValidTemplate, loadTemplate, saveTemplate, templatesEquivalent, type Template } from '../fingerprint_template'
+import {
+  activeTemplate,
+  isValidTemplate,
+  loadTemplate,
+  saveTemplate,
+  templatesEquivalent,
+  type Template,
+} from '../fingerprint_template'
+import { boundOptionLists } from '../dialog/option_list'
 import { Snackbar } from '../snackbar/snackbar'
 import './integrity_screen.scss'
 
@@ -17,7 +25,6 @@ const TOML_PATH = `${ADB_DIR}/integrity.toml`
 const PROP_PATH = `${ADB_DIR}/integrity.prop`
 const TOML_PATH_DATA = `${DATA_DIR}/integrity.toml`
 const PROP_PATH_DATA = `${DATA_DIR}/integrity.prop`
-
 
 interface IntegrityState {
   enabled: boolean
@@ -126,7 +133,10 @@ async function mapWithConcurrency<T, R>(
       const index = next++
       if (index >= items.length) return
       try {
-        results[index] = { status: 'fulfilled', value: await worker(items[index] as T) }
+        results[index] = {
+          status: 'fulfilled',
+          value: await worker(items[index] as T),
+        }
       } catch (reason) {
         results[index] = { status: 'rejected', reason }
       }
@@ -430,7 +440,8 @@ export class IntegrityScreen {
     if (status.conflict) {
       statusEl.className = 'integrity-status-banner integrity-status-banner--conflict'
       if (iconEl) iconEl.textContent = 'warning'
-      if (textEl) textEl.textContent = `Disabled: ${status.conflict} is loaded. Remove it before enabling OMK Integrity.`
+      if (textEl)
+        textEl.textContent = `Disabled: ${status.conflict} is loaded. Remove it before enabling OMK Integrity.`
       this.#zygiskInfo = {
         provider: status.provider,
         conflict: status.conflict,
@@ -439,18 +450,24 @@ export class IntegrityScreen {
     } else if (!status.provider) {
       statusEl.className = 'integrity-status-banner integrity-status-banner--error'
       if (iconEl) iconEl.textContent = 'error'
-      if (textEl) textEl.textContent = 'Disabled: Zygisk not found. Install ReZygisk (preferred), ZygiskNext, NeoZygisk, or Magisk Zygisk.'
+      if (textEl)
+        textEl.textContent =
+          'Disabled: Zygisk not found. Install ReZygisk (preferred), ZygiskNext, NeoZygisk, or Magisk Zygisk.'
       this.#zygiskInfo = {
         provider: null,
         conflict: null,
-        description: 'Disabled: Zygisk not found. Install ReZygisk (preferred), ZygiskNext, NeoZygisk, or Magisk Zygisk.',
+        description:
+          'Disabled: Zygisk not found. Install ReZygisk (preferred), ZygiskNext, NeoZygisk, or Magisk Zygisk.',
       }
     } else {
       const label =
-        status.provider === 'rezygisk' ? 'ReZygisk'
-        : status.provider === 'zygisk_next' ? 'ZygiskNext'
-        : status.provider === 'neozygisk' ? 'NeoZygisk'
-        : 'Magisk Zygisk'
+        status.provider === 'rezygisk'
+          ? 'ReZygisk'
+          : status.provider === 'zygisk_next'
+            ? 'ZygiskNext'
+            : status.provider === 'neozygisk'
+              ? 'NeoZygisk'
+              : 'Magisk Zygisk'
       statusEl.className = 'integrity-status-banner integrity-status-banner--ok'
       if (iconEl) iconEl.textContent = 'check_circle'
       if (textEl) textEl.textContent = `Zygisk: ${label}`
@@ -461,7 +478,6 @@ export class IntegrityScreen {
       }
     }
   }
-
 
   #handleToggle(switchId: string, value: boolean): void {
     if (switchId === 'pif-soter' && value && !this.#hasZygisk) {
@@ -598,7 +614,6 @@ export class IntegrityScreen {
     }
   }
 
-
   /**
    * Build the picker choices from data shipped in the bundle.
    *
@@ -642,7 +657,11 @@ export class IntegrityScreen {
    * left as it was rather than emptied, so a partial network failure cannot make
    * the picker worse than it already is.
    */
-  async #refreshChoices(): Promise<{ changed: boolean; added: number; failed: string[] }> {
+  async #refreshChoices(): Promise<{
+    changed: boolean
+    added: number
+    failed: string[]
+  }> {
     const results = await mapWithConcurrency(PIXEL_DEVICES, FETCH_CONCURRENCY, async (device) => {
       const builds = await this.#cli.fetchFlashstationBuilds(device.product)
       return { device, builds }
@@ -671,15 +690,13 @@ export class IntegrityScreen {
       // Upstream can retire builds, so anything the previous template knew about
       // is carried over. A dropped build should not silently vanish from the UI.
       const seen = new Set(rows.map((row) => `${row[0]}|${row[1]}`))
-      const carried = (previous[device.product]?.builds ?? []).filter(
-        (row) => !seen.has(`${row[0]}|${row[1]}`),
-      )
+      const carried = (previous[device.product]?.builds ?? []).filter((row) => !seen.has(`${row[0]}|${row[1]}`))
       added += carried.length
       next[device.product] = {
         model: device.model,
         min: device.min,
         max: device.max,
-        builds: [...rows, ...carried].sort((a, b) => (b[2] - a[2]) || a[0].localeCompare(b[0])),
+        builds: [...rows, ...carried].sort((a, b) => b[2] - a[2] || a[0].localeCompare(b[0])),
       }
     }
     // A device that failed keeps its old entry, so a flaky network degrades to
@@ -720,9 +737,10 @@ export class IntegrityScreen {
     let major = majors.includes(romMajor) ? romMajor : (majors[0] as number)
 
     const dialog = document.createElement('md-dialog')
-    // The id is what the pill-shape and sizing rules in the stylesheet key on.
-    // Without it the selects render as square-cornered fields at their default
-    // width, and the option list escapes the dialog instead of scrolling.
+    // The class is what the pill-shape and sizing rules key on. Without it the
+    // selects render as square-cornered fields at their default width, and the
+    // option list escapes the dialog instead of scrolling.
+    dialog.className = 'picker-dialog'
     dialog.id = 'fp-picker-dialog'
     // Scrim clicks and Escape close the dialog, and neither path runs the
     // Cancel or Apply handler, so removal is bound to the closed event instead
@@ -750,9 +768,7 @@ export class IntegrityScreen {
         })
         .join('')
 
-      const builds = choices
-        .filter((c) => c.major === major)
-        .sort(latestFirst)
+      const builds = choices.filter((c) => c.major === major).sort(latestFirst)
       const byProduct = new Map<string, FingerprintChoice[]>()
       for (const choice of builds) {
         const list = byProduct.get(choice.product) ?? []
@@ -773,13 +789,10 @@ export class IntegrityScreen {
       const preview = activeBuilds[0]
       const body = dialog.querySelector('#fp-body')
       if (!body) return
-      const renderedProduct = body.querySelector('md-outlined-select[data-role="device"]')
-        ?.getAttribute('value') ?? ''
+      const renderedProduct = selectValue(body, 'device')
       // The build index is only meaningful within one Android version, so it is
       // not carried across a version change.
-      const keepBuild = bodyMajor === major
-        ? (body.querySelector('md-outlined-select[data-role="build"]')?.getAttribute('value') ?? '')
-        : ''
+      const keepBuild = bodyMajor === major ? selectValue(body, 'build') : ''
       body.innerHTML = /* html */ `
         <div style="display: flex; flex-direction: column; gap: 12px; min-width: 320px;">
           <md-outlined-select data-role="version" label="Android version" menu-positioning="popover" value="${major}">
@@ -801,24 +814,56 @@ export class IntegrityScreen {
           </md-outlined-text-field>
         </div>
       `
+      boundOptionLists(body)
       bodyMajor = major
       bodyProduct = activeProduct
+      // The rendered build index, so the preview matches the fields on open.
+      // keepBuild is already empty across a version change, which resets this to
+      // 0 because the index is not comparable between versions.
+      currentBuild = Number.parseInt(keepBuild, 10) || 0
+      currentProduct = activeProduct
       syncPreview()
     }
 
-    const current = (): { product: string; build: number } => {
-      const body = dialog.querySelector('#fp-body')
-      const product = body?.querySelector('md-outlined-select[data-role="device"]')?.getAttribute('value') ?? ''
-      const raw = body?.querySelector('md-outlined-select[data-role="build"]')?.getAttribute('value') ?? '0'
-      return { product, build: Number.parseInt(raw, 10) || 0 }
+    // md-outlined-select keeps its selection in a JS property; the `value`
+    // attribute is only the server-rendered initial value. Reading the attribute
+    // therefore always returned the value from the last render, so a selection
+    // appeared to do nothing.
+    const selectValue = (body: ParentNode, role: string): string => {
+      const el = body.querySelector<MdOutlinedSelect>(`md-outlined-select[data-role="${role}"]`)
+      return el?.value ?? ''
     }
 
+    /*
+     * Bounds the option list to four items, then scrolls.
+     *
+     * The menu is built inside the select's own shadow root, so a rule in the
+     * stylesheet cannot reach it at any scope: `md-menu` never appears in the
+     * light DOM, which is why every `md-menu { max-height }` written so far did
+     * nothing and the list opened past the top of the screen.
+     *
+     * Sizing it from the outside fails too. Within that shadow root the menu
+     * surface and its item list both use `max-height: inherit` rather than a
+     * custom property, and `max-height` is not an inherited property, so a
+     * max-height on the host never reaches them. The menu exposes only an
+     * `elevation` part, not the list, so `::part` cannot size it either.
+     *
+     * The rule is therefore injected into the select's shadow root, where it
+     * matches the nested `md-menu` and its `max-height: inherit` resolves to
+     * it. 192px is four options at the 48px menu-item height, and the list
+     * already declares `overflow: auto`, so it scrolls past that.
+     */
+    // The selection is mirrored here rather than read back out of the DOM.
+    // Reading the select does not work on the render that creates it: the element
+    // has not upgraded yet, so `.value` is undefined, the product comes back
+    // empty, and no build matches, which left the preview blank on open. The
+    // change handler still reads the DOM, since the element is live by then.
+    let currentProduct = ''
+    let currentBuild = 0
+
     const syncPreview = (): void => {
-      const { product, build } = current()
-      const list = choices
-        .filter((c) => c.major === major && c.product === product)
-        .sort(latestFirst)
-      const choice = list[build] ?? list[0]
+      const list = choices.filter((c) => c.major === major && c.product === currentProduct).sort(latestFirst)
+      const choice = list[currentBuild] ?? list[0]
       const field = dialog.querySelector('#fp-preview')
       const support = field?.querySelector('[slot="supporting-text"]')
       if (support) support.textContent = choice?.prop ?? ''
@@ -844,17 +889,20 @@ export class IntegrityScreen {
     dialog.querySelector('#fp-body')?.addEventListener('change', (event) => {
       const role = (event.target as HTMLElement)?.getAttribute?.('data-role')
       if (role === 'version') {
-        major = Number.parseInt((event.target as HTMLElement).getAttribute('value') ?? '', 10) || major
+        major = Number.parseInt((event.target as MdOutlinedSelect).value ?? '', 10) || major
         // A new Android version invalidates both the device choice and the
         // build index, so the next render re-derives them.
         bodyMajor = major
         bodyProduct = ''
+        currentProduct = ''
+        currentBuild = 0
         render()
       } else if (role === 'device') {
-        bodyProduct = current().product
+        bodyProduct = selectValue(dialog.querySelector('#fp-body') as ParentNode, 'device')
         render()
-      } else {
-        bodyProduct = current().product
+      } else if (role === 'build') {
+        currentBuild = Number.parseInt(selectValue(dialog.querySelector('#fp-body') as ParentNode, 'build'), 10) || 0
+        // Changing the build alone must update the preview without a re-render.
         syncPreview()
       }
     })
@@ -879,15 +927,9 @@ export class IntegrityScreen {
             // there is no reason to rewrite it.
             this.#snackbar.show('Already up to date', true)
           } else if (failed.length > 0) {
-            this.#snackbar.show(
-              `Template updated, ${failed.length} device(s) kept previous data`,
-              true,
-            )
+            this.#snackbar.show(`Template updated, ${failed.length} device(s) kept previous data`, true)
           } else {
-            this.#snackbar.show(
-              added > 0 ? `Template updated with ${added} build(s)` : 'Template updated',
-              true,
-            )
+            this.#snackbar.show(added > 0 ? `Template updated with ${added} build(s)` : 'Template updated', true)
           }
           // Rebuild the choice list from the merged data and re-render, keeping
           // the current selection where it is still valid.
@@ -904,9 +946,9 @@ export class IntegrityScreen {
     })
 
     dialog.querySelector('#fp-apply')?.addEventListener('click', async () => {
-      const { product, build } = current()
-      const list = choices.filter((c) => c.major === major && c.product === product).sort(latestFirst)
-      const chosen = list[build] ?? list[0]
+      // The mirrored selection, so Apply writes exactly what the preview showed.
+      const list = choices.filter((c) => c.major === major && c.product === currentProduct).sort(latestFirst)
+      const chosen = list[currentBuild] ?? list[0]
       dialog.close()
       if (!chosen) return
       await File.createDirectory(DATA_DIR)

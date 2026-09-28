@@ -147,7 +147,9 @@
   outline: none !important;
   box-shadow: none !important;
   -webkit-tap-highlight-color: transparent !important;
-  transition: background-color 0.15s ease, opacity 0.25s cubic-bezier(0.2, 0, 0, 1);
+  transition:
+    background-color 0.15s ease,
+    opacity 0.25s cubic-bezier(0.2, 0, 0, 1);
 
   &--muted {
     opacity: 0.38;
@@ -225,37 +227,6 @@
   &.badge-tertiary {
     background: var(--md-sys-color-tertiary-container);
     color: var(--md-sys-color-on-tertiary-container);
-  }
-}
-
-// The fingerprint picker. It is built by creating an md-dialog in script rather
-// than from markup, so nothing in the shared dialog stylesheet reaches it and
-// it rendered with square-cornered selects and an option list that overflowed
-// the dialog and ran off the bottom of the screen.
-#fp-picker-dialog {
-  --md-dialog-container-min-inline-size: min(92vw, 420px);
-  --md-dialog-container-max-inline-size: min(94vw, 480px);
-
-  [slot='content'] {
-    overflow: visible;
-  }
-
-  md-outlined-select {
-    --md-outlined-select-text-field-container-shape: 28px !important;
-    --md-outlined-select-container-shape: 28px !important;
-    --md-outlined-field-container-shape: 28px !important;
-    width: 100%;
-  }
-
-  md-outlined-text-field {
-    --md-outlined-text-field-container-shape: 28px !important;
-    --md-outlined-field-container-shape: 28px !important;
-  }
-
-  // md-menu takes its max-height by inheritance, so bounding it here makes the
-  // list scroll inside the dialog instead of expanding past it.
-  md-menu {
-    max-height: min(46vh, 320px);
   }
 }
 
