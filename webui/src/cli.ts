@@ -1,6 +1,7 @@
 import { exec } from 'kernelsu-alt'
 import { File } from './file'
 import { GITHUB_REPO, KEYBOX_ALWAYSSTRONG_URL, MOD_ID } from './constant'
+import { shellQuote } from './shell'
 
 const FLASH_REFERER = 'https://flash.android.com'
 
@@ -53,11 +54,6 @@ export class Cli {
 
   async getBasePath(): Promise<string> {
     return Cli.#basePathPromise!
-  }
-
-  async grepProp(key: string, filePath: string): Promise<string | null> {
-    const result = await exec(`grep '^${key}=' '${filePath}' | cut -d'=' -f2-`)
-    return result.errno === 0 ? result.stdout.trim() : null
   }
 
   async getModuleInfo(): Promise<Record<string, string>> {
@@ -157,7 +153,7 @@ export class Cli {
 
   async getFileMtime(path: string): Promise<number | null> {
     if (import.meta.env.DEV) return Date.now()
-    const result = await exec(`stat -c %Y "${path}"`)
+    const result = await exec(`stat -c %Y ${shellQuote(path)}`)
     if (result.errno !== 0) return null
     const value = Number.parseInt(result.stdout.trim(), 10)
     return Number.isFinite(value) ? value * 1000 : null
@@ -224,7 +220,7 @@ export class Cli {
     // API requires survives. None of these are on PATH, hence absolute paths.
     const busybox = (
       await Promise.all(
-        BUSYBOX_PATHS.map(async (path) => ((await exec(`[ -x "${path}" ]`)).errno === 0 ? path : null)),
+        BUSYBOX_PATHS.map(async (path) => ((await exec(`[ -x ${shellQuote(path)} ]`)).errno === 0 ? path : null)),
       )
     ).filter((path): path is string => path !== null)
 

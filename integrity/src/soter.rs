@@ -286,12 +286,17 @@ fn valid_pointer_range(pointer: u64, size: u64) -> bool {
 fn candidate(transaction: &Transaction) -> bool {
     // Code 11 is getDeviceId. The published simulator id is a known marker, so
     // the real service answers that call.
-    (1..=10).contains(&transaction.code)
-        || transaction.code == 12
-        || transaction.code == 13
-            && transaction.target != 0
-            && transaction.data_size <= MAX_REQUEST_BYTES as u64
-            && valid_pointer_range(transaction.buffer, transaction.data_size)
+    // The parentheses matter: && binds tighter than ||, so without them the
+    // pointer and length checks applied only to code 13 and codes 1-10 and 12
+    // short-circuited to true. inspect_read then built a slice from an
+    // unvalidated pointer and length, which is undefined behaviour on a null
+    // or out-of-range address. Every code here has to pass the same checks.
+    let code_matches =
+        (1..=10).contains(&transaction.code) || transaction.code == 12 || transaction.code == 13;
+    code_matches
+        && transaction.target != 0
+        && transaction.data_size <= MAX_REQUEST_BYTES as u64
+        && valid_pointer_range(transaction.buffer, transaction.data_size)
 }
 
 fn retarget(transaction: &mut Transaction, data: &[u8], target: Target) -> bool {

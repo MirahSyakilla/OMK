@@ -1,6 +1,7 @@
 import { exec } from 'kernelsu-alt'
 import type { MdDialog, MdIconButton, MdTextButton } from '@material/web/all'
 import { escapeHtml } from '../html'
+import { isSafeFilename, shellQuote } from '../shell'
 import { i18n } from '../i18n'
 import { applyDialogAnimation } from '../dialog/animation'
 import './file_selector.scss'
@@ -159,8 +160,10 @@ export class FileSelector {
       await new Promise(resolve => setTimeout(resolve, 150))
     }
 
+    // The path is quoted so a directory name cannot inject shell syntax, and
+    // names are rejected below before any of them is used to build a child path.
     const result = await exec(`
-      cd "${path}"
+      cd ${shellQuote(path)}
       for f in *; do
         [ -d "$f" ] && echo "d|$f" || { [[ "$f" == *.${this.#fileType} ]] && echo "f|$f"; }
       done | sort
@@ -187,8 +190,14 @@ export class FileSelector {
         .filter(Boolean)
         .map(line => {
           const [type, name] = [line.slice(0, 1), line.slice(2)]
+          // A name carrying a quote or a separator is dropped rather than
+          // escaped. These come from a directory the user does not control, and
+          // every one of them is on its way back into a root shell, so refusing
+          // them outright is simpler to reason about than sanitising.
+          if (!isSafeFilename(name)) return null
           return { name, path: path + '/' + name, isDirectory: type === 'd' }
         })
+        .filter((item): item is FileItem => item !== null)
 
       for (const item of processedItems) {
         const itemElement = document.createElement('div')
@@ -224,7 +233,7 @@ export class FileSelector {
 
   async #resolveFile(path: string): Promise<void> {
     if (this.#fileSelectorMode === 'content') {
-      const execResult = await exec(`cat "${path}"`)
+      const execResult = await exec(`cat ${shellQuote(path)}`)
       if (execResult.errno === 0) {
         this.#resolve(execResult.stdout)
       } else {

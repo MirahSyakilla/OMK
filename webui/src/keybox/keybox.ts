@@ -307,7 +307,29 @@ export class Keybox {
     return fragment
   }
 
+  /**
+   * Decode pipelines a keybox may be piped through.
+   *
+   * `cmd` reaches a subshell as root, so it is an allowlist at the sink rather
+   * than only at the UI. Every current caller passes one of these, and a new
+   * caller that passes anything else is rejected here instead of becoming an
+   * execution primitive.
+   */
+  static readonly ALLOWED_DECODE_PIPELINES = [
+    'cat',
+    'base64 -d',
+    'base64 --decode',
+    'gzip -dc',
+    'gunzip -c',
+    'openssl enc -d -a',
+    'openssl enc -d -aes-256-cbc -a',
+    'openssl enc -d -aes-128-cbc -a',
+  ]
+
   async setKeybox(content: string, cmd: string = 'cat', slot?: number): Promise<KeyboxSaveResult> {
+    if (!Keybox.ALLOWED_DECODE_PIPELINES.includes(cmd.trim().replace(/\s+/g, ' '))) {
+      return 'error'
+    }
     const selectedSlot = slot ?? await this.#chooseSlot()
     if (selectedSlot === null) return 'cancelled'
     if (!Number.isInteger(selectedSlot) || selectedSlot < 0 || selectedSlot > MAX_KEYBOX_SLOT) {

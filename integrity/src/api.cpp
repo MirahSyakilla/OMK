@@ -35,7 +35,13 @@ JNIEnv *gEnv = nullptr;
 
 using T_Callback = void (*)(void *, const char *, const char *, uint32_t);
 void (*o_system_property_read_callback)(const prop_info *, T_Callback, void *) = nullptr;
-T_Callback o_callback = nullptr;
+// Thread-local, because __system_property_read_callback takes a callback and a
+// cookie as a pair for each call. Storing the callback in a process-global meant
+// that two threads reading properties concurrently could pair thread A's cookie
+// with thread B's callback: a callback/cookie type confusion inside GMS. The
+// callback is invoked synchronously during the read that registered it, so
+// thread-local storage keeps the pair together.
+thread_local T_Callback o_callback = nullptr;
 
 bool product_field(std::string_view prop, std::string_view field) {
     const std::string_view prefix("ro.product.");

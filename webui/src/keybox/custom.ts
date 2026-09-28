@@ -14,7 +14,35 @@ export interface CustomKeyboxEntry {
 
 const STORAGE_KEY = `${LOCAL_STORAGE_PREFIX}Customkb`
 const CONFIG_METADATA = 'ohmykeymint_custom_keybox_config'
-const BLOCKED_PATTERNS = /\b(dd|rm|rmdir|eval|chmod|chown|mv|cp|ln|passwd|shutdown|reboot|poweroff)\b/i
+/**
+ * The only pipelines a custom keybox source may use.
+ *
+ * This string is spliced into a subshell that runs as root, so it cannot be
+ * validated by a denylist. The previous one listed twelve words and let through
+ * `sh`, `bash`, `tee`, `awk`, `perl`, `xargs`, `python3`, `sh -c id`, and
+ * anything else, which is the whole attack. An allowlist makes the only
+ * reachable behaviour "decode this payload", which is the actual feature.
+ *
+ * Each entry is matched whole, so `cat foo; rm -rf /` is rejected rather than
+ * being read as `cat` plus a suffix.
+ */
+const ALLOWED_SCRIPTS = [
+  'cat',
+  'base64 -d',
+  'base64 --decode',
+  'gzip -dc',
+  'gunzip -c',
+  'openssl enc -d -a',
+  'openssl enc -d -aes-256-cbc -a',
+  'openssl enc -d -aes-128-cbc -a',
+]
+
+/** Whether a custom source's decode pipeline is one of the allowed ones. */
+export function isAllowedScript(script: string): boolean {
+  const trimmed = script.trim().replace(/\s+/g, ' ')
+  if (!trimmed) return true
+  return ALLOWED_SCRIPTS.includes(trimmed)
+}
 const DEFAULT_ENTRIES: CustomKeyboxEntry[] = []
 
 export class CustomKeyboxProvider {
@@ -148,7 +176,7 @@ export class CustomKeyboxProvider {
   }
 
   #validateScript(script: string): boolean {
-    return !(script && BLOCKED_PATTERNS.test(script))
+    return isAllowedScript(script)
   }
 
   async #fetchKeybox(link: string, script: string): Promise<void> {
@@ -337,9 +365,22 @@ export class CustomKeyboxProvider {
         return
       }
 
+      // A config file is just another way to supply a `script`, and this path
+      // used to persist it unvalidated while the editor validated on entry, so a
+      // shared config could carry a pipeline the editor would have rejected.
+      // Validate here, where the data enters, and drop the whole import if any
+      // entry is unacceptable rather than silently keeping part of it.
+      const incoming = config.entries as CustomKeyboxEntry[]
+      for (const entry of incoming) {
+        if (typeof entry?.name !== 'string' || !this.#validateScript(entry?.script ?? '')) {
+          this.#snackbar.show(i18n.t('customkb_import_error'), false)
+          return
+        }
+      }
+
       const updatedEntries: CustomKeyboxEntry[] = Array.from(new Map<string, CustomKeyboxEntry>([
         ...this.#getEntries().map(e => [e.name, e] as [string, CustomKeyboxEntry]),
-        ...config.entries.map((e: CustomKeyboxEntry) => [e.name, e] as [string, CustomKeyboxEntry])
+        ...incoming.map((e: CustomKeyboxEntry) => [e.name, e] as [string, CustomKeyboxEntry])
       ]).values())
 
       this.#saveEntries(updatedEntries)

@@ -3,7 +3,10 @@ export const LOCAL_STORAGE_PREFIX = 'OhMyKeymintWebUI'
 export const GITHUB_REPO = 'MirahSyakilla/OMK'
 export const TELEGRAM_CHANNEL = 'https://t.me/meowcomfylair'
 export const KEYBOX_REPO_URL = 'https://keybox.kowx712.cc'
-export const KEYBOX_ALWAYSSTRONG_URL = 'http://evoker.qzz.io/key'
+// HTTPS, not http. This response is installed as the device keybox, so anyone
+// on the path would otherwise be choosing the device's attestation identity and
+// certificates. The host serves TLS; there was no reason for the cleartext URL.
+export const KEYBOX_ALWAYSSTRONG_URL = 'https://evoker.qzz.io/key'
 
 export interface PixelDevice {
   product: string
