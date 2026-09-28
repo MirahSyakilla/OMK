@@ -1,4 +1,3 @@
-import { exec } from 'kernelsu-alt'
 import '@material/web/progress/circular-progress.js'
 import type { MdSwitch, MdTextButton } from '@material/web/all'
 import { Cli, type FlashBuild } from '../cli'
@@ -523,9 +522,14 @@ export class IntegrityScreen {
         `auto_fetch_fingerprint = ${state.auto_fetch_fingerprint}`,
       ].join('\n')
 
-      await exec(
-        `mkdir -p "${DATA_DIR}" "${ADB_DIR}" 2>/dev/null; cat << 'FileEOF' > "${TOML_PATH}"\n${toml}\nFileEOF\ncp -f "${TOML_PATH}" "${TOML_PATH_DATA}" 2>/dev/null; true`,
-      )
+      // Routed through File.write rather than an inline heredoc. The inline form
+      // used a fixed 'FileEOF' delimiter, so a value containing that line would
+      // close the heredoc and run the rest as root. Nothing here is a string
+      // today, but that is exactly the kind of thing a future field would break.
+      await File.createDirectory(DATA_DIR)
+      await File.createDirectory(ADB_DIR)
+      await File.write(TOML_PATH, toml)
+      await File.copy(TOML_PATH, TOML_PATH_DATA).catch(() => undefined)
 
       const prop = this.#cachedProp
 

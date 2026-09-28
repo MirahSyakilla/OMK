@@ -17,10 +17,31 @@ export class File {
     return result.stdout
   }
 
+  /**
+   * Write `data` to `path` by piping it through `cmd`.
+   *
+   * The payload is base64-encoded and decoded on the far side rather than
+   * dropped into a heredoc. A heredoc has to be delimited by a literal that the
+   * data might itself contain, and when it does the heredoc closes early and the
+   * remainder of the data is executed as shell, as root. That is not
+   * hypothetical here: this function writes a keybox fetched from a remote
+   * repository, and pasted keyboxes, and a fingerprint template assembled from
+   * network data.
+   *
+   * base64's alphabet is [A-Za-z0-9+/=], which contains nothing the shell treats
+   * specially, so the encoded form is inert no matter what the input was. It also
+   * means newlines and NULs survive, which a heredoc would mangle.
+   *
+   * `path` and `cmd` are still interpolated, so callers must pass literal values
+   * for both; every call site in this codebase does.
+   */
   static async write(path: string, data: string, cmd: string = 'cat'): Promise<void> {
-    const result = await exec(`(${cmd}) << 'FileEOF' > "${path}"
-${data.trim()}
-FileEOF`)
+    // Encode without padding: Android's base64 rejects '=' in some invocations
+    // and -d tolerates its absence.
+    const encoded = btoa(String.fromCharCode(...new TextEncoder().encode(data)))
+      .replace(/=+$/, '')
+      .replace(/(.{76})/g, '$1\n')
+    const result = await exec(`printf '%s' '${encoded}' | base64 -d | (${cmd}) > "${path}"`)
     if (result.errno !== 0) throw new Error(`File.write failed (${result.errno}): ${result.stderr}`)
   }
 
