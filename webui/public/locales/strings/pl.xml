@@ -1,98 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="system_default">Systemowy</string>
-    <string name="more_language">Więcej</string>
-    <!-- Header -->
-    <string name="header_title">Tricky Addon</string>
-    <!-- Help Menu-->
-    <string name="help_help_instructions">Instrukcje</string>
-    <string name="help_save_and_update_description">Zapisz bieżącą konfigurację.</string>
-    <string name="help_select_denylist">Wybierz z listy odrzuconych</string>
-    <string name="help_select_denylist_description">Dostępne tylko w Magisk, wybrane aplikacje, które są na liście odrzuconych. Zalecane.</string>
-    <string name="help_deselect_unnecessary">Odznacz niepotrzebne</string>
-    <string name="help_deselect_unnecessary_description">**Kategoria zbędne** – moduł Xposed, menedżer root, aplikacje związane z rootem i aplikacje ogólne, które nigdy nie sprawdzają stanu bootloadera. Ta opcja wymaga połączenia z internetem.</string>
-    <string name="help_add_system_app">Dodaj aplikację systemową</string>
-    <string name="help_add_system_app_description">Dodaj konkretną aplikację systemową do listy aplikacji.</string>
-    <string name="help_set_keybox">Ustaw zestaw kluczy</string>
-    <string name="help_set_keybox_description">Zastąp zestaw kluczy TrickyStore z:</string>
-    <string name="help_set_keybox_aosp">**AOSP** - domyślny zestaw kluczy jest dostarczany z TrickyStore.</string>
-    <string name="help_set_keybox_unknown">**Nieznany** - podpisane przez użytkownika i nieważne dla werdyktu w sprawie integralności Google Play.</string>
-    <string name="help_set_keybox_local">**Lokalny** - wybierz zestaw kluczy ze swojego urządzenia.</string>
-    <string name="help_set_keybox_custom">**Niestandardowy** — dostawca niestandardowego zestawu kluczy pobierany online.</string>
-    <string name="help_set_default_policy">Ustaw domyślną regułę</string>
-    <string name="help_set_default_policy_description">Wcześniej „Ustaw poprawkę zabezpieczeń”. Skonfiguruj domyślne zasady dla wszystkich docelowych aplikacji. Pozostaw puste pole lub „nie”, aby wyłączyć, „prop”, aby zachować zgodność z właściwością systemową.</string>
-    <string name="help_prop_settings">Ustawienia właściwości</string>
-    <string name="help_prop_settings_description">Różne ustawienia związane z właściwościami:</string>
-    <string name="help_prop_settings_handler">**Obsługa właściwości** – przełącznik skryptu resetprop Shamiko.</string>
-    <string name="help_prop_settings_boot_hash">**Skrót rozruchu** – pobierz wartość `verifiedBootHash` z [KeyAttestation](https://github.com/vvb2060/KeyAttestation/releases). Napraw nieprawidłowy stan rozruchu, resetując `ro.boot.vbmeta.digest`.</string>
-    <!-- Update -->
-    <string name="update_update_available">Dostępna jest nowa wersja</string>
-    <string name="update_redirect_to_release">naciśnij, aby pobrać najnowszą wersję</string>
-    <string name="update_changelog">Dziennik zmian</string>
-    <string name="update_install">Zainstaluj</string>
-    <string name="update_reboot">Zrestartuj</string>
-    <string name="update_channel">Zaktualizuj kanał</string>
-    <string name="update_channel_stable">Stabilny</string>
-    <string name="update_channel_canary">Canary</string>
-    <string name="update_channel_disable">Wyłącz</string>
     <!-- Search -->
     <string name="search_bar_search_placeholder">Wyszukaj</string>
     <!-- Functional Button -->
     <string name="functional_button_save">Zapisz</string>
-    <string name="functional_button_uninstall_webui">Odinstaluj WebUI</string>
     <string name="functional_button_close">Zamknij</string>
     <string name="functional_button_cancel">Anuluj</string>
     <string name="functional_button_confirm">Potwierdź</string>
     <string name="functional_button_reset">Zresetuj</string>
     <string name="functional_button_remove">Usuń</string>
-    <string name="functional_button_today">Dziś</string>
-    <!-- Menu -->
-    <string name="menu_select_denylist">Wybierz z listy odrzuconych</string>
-    <string name="menu_deselect_unnecessary">Odznacz niepotrzebne</string>
-    <string name="menu_add_system_app">Dodaj aplikację systemową</string>
-    <string name="menu_keybox">Zestaw kluczy</string>
-    <string name="menu_keybox_aosp">AOSP</string>
-    <string name="menu_keybox_unknown">Nieznany</string>
-    <string name="menu_keybox_local">Lokalny</string>
-    <string name="menu_keybox_repo">Repozytorium</string>
-    <string name="menu_prop_setting">Ustawienia właściwości</string>
-    <string name="menu_set_default_policy">Ustaw domyślną regułę</string>
-    <string name="menu_help">Pomoc</string>
-    <string name="menu_language">Język</string>
-    <string name="menu_about">O Tricky Addon</string>
-    <!-- Prop Dialog -->
-    <string name="prop_handler">Obsługa właściwości</string>
-    <string name="boot_hash_title">Skrót rozruchowy</string>
-    <!-- About -->
-    <string name="about_module_name_line1">Tricky Addon</string>
-    <string name="about_module_name_line2">Zaktualizuj listę docelową</string>
-    <string name="about_by">wydany przez:</string>
-    <string name="about_telegram_channel">Kanał Telegram</string>
-    <string name="about_canary_update">Zaktualizuj do najnowszej wersji Canary</string>
-    <string name="about_translation_update">Zaktualizuj pakiet tłumaczenia</string>
-    <string name="about_disclaimer">Ten moduł nie jest częścią modułu Tricky Store. Nie zgłaszaj żadnych problemów do Tricky Store, jeśli je napotkasz.</string>
-    <string name="about_acknowledgment">Podziękowania dla:</string>
     <!-- Prompt -->
     <string name="prompt_aosp_key_set">Zestaw kluczy AOSP ustawiony pomyślnie</string>
     <string name="prompt_key_set_error">Nie udało się zaktualizować zestawu kluczy</string>
     <string name="prompt_unknown_key_set">Nieznany zestaw kluczy ustawiony pomyślnie</string>
-    <string name="prompt_boot_hash_set">Zweryfikowany skrót rozruchowy zapisany pomyślnie</string>
-    <string name="prompt_boot_hash_set_error">Nie udało się zaktualizować zweryfikowanego skrótu rozruchowego</string>
     <string name="prompt_saved_target">Konfiguracja zapisana</string>
-    <string name="prompt_save_error">Nie udało się zapisać konfiguracji</string>
-    <string name="prompt_uninstall_prompt">WebUI zostanie odinstalowany po ponownym uruchomieniu</string>
-    <string name="prompt_uninstall_failed">Nie udało się odinstalować WebUI</string>
-    <string name="prompt_checking_update">Sprawdzanie aktualizacji...</string>
-    <string name="prompt_new_update">Dostępna jest nowa aktualizacja!</string>
-    <string name="prompt_no_update">Obecnie nie ma dostępnych aktualizacji</string>
-    <string name="prompt_downloading">Pobieranie nowej aktualizacji...</string>
-    <string name="prompt_download_fail">Nie udało się pobrać aktualizacji</string>
-    <string name="prompt_installed">Zainstalowano pomyślnie, uruchom ponownie.</string>
-    <string name="prompt_install_fail">Nie udało się zainstalować, proszę zaktualizować ręcznie</string>
-    <string name="prompt_rebooting">Restartowanie...</string>
-    <string name="prompt_reboot_fail">Nie udało się zrestartować, proszę zrestartować ręcznie</string>
-    <string name="prompt_translation_updated">Pakiet tłumaczenia zaktualizowany pomyślnie</string>
-    <string name="prompt_translation_update_failed">Nie udało się zaktualizować pakietu tłumaczenia</string>
     <string name="prompt_custom_key_set">Niestandardowy zestaw kluczy ustawiony pomyślnie</string>
     <string name="prompt_custom_key_set_error">Nie udało się ustawić niestandardowego zestawu kluczy</string>
     <string name="prompt_custom_saved">Zapisano niestandardowy wpis zestawu kluczy </string>
@@ -103,9 +24,6 @@
     <string name="prompt_keybox_repo_set">Zestaw kluczy z repozytorium ustawiony pomyślnie</string>
     <string name="prompt_keybox_repo_set_error">Nie udało się ustawić zestawu kluczy z repozytorium</string>
     <string name="prompt_keybox_repo_download_error">Pobieranie nie powiodło się dla %s</string>
-    <!-- Security Patch -->
-    <string name="default_policy_title">Domyślna reguła</string>
-    <string name="security_patch_invalid_all">Nieprawidłowy format</string>
     <!-- Add System App -->
     <string name="add_system_app_title">Dodaj aplikację systemową</string>
     <!-- CustomKB Dialog -->
@@ -120,14 +38,5 @@
     <string name="customkb_remove_title">Potwierdzasz usunięcie?</string>
     <string name="customkb_remove_message">Usunąć tego dostawcę niestandardowych zestawów kluczy?</string>
     <string name="customkb_reset_message">Usunąć wszystkich dostawców niestandardowych zestawów kluczy?</string>
-    <!-- Uninstall confirmation -->
-    <string name="confirmation_uninstall_title">Potwierdzasz odinstalowanie?</string>
-    <string name="confirmation_uninstall_message">Czy na pewno chcesz odinstalować Tricky Addon?</string>
     <!-- Mode dialog -->
-    <string name="mode_dialog_title">Tryb</string>
-    <string name="mode_auto">Automatyczny</string>
-    <string name="mode_certificate_generating">Generowanie certyfikatu</string>
-    <string name="mode_leaf_hack">Podmiana certyfikatu</string>
-    <string name="mode_set_custom_policy">Ustaw niestandardową regułę</string>
-    <string name="mode_use_default_policy">Użyj domyślnej reguły</string>
 </resources>

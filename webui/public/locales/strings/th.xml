@@ -1,78 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Header -->
-    <!-- Help Menu-->
-    <string name="help_help_instructions">คำแนะนำการใช้งาน</string>
-    <string name="help_select_denylist">เลือกจาก DenyList</string>
-    <string name="help_select_denylist_description">ใช้งานได้เฉพาะใน Magisk เท่านั้น โดยเลือกแอปที่อยู่ใน DenyList (แนะนำ)</string>
-    <string name="help_deselect_unnecessary">ยกเลิกการเลือกที่ไม่จำเป็น</string>
-    <string name="help_add_system_app">เพิ่มแอประบบ (System App)</string>
-    <string name="help_add_system_app_description">เพิ่มแอปพลิเคชันระบบที่ระบุลงในรายการแอป</string>
-    <!-- Update -->
-    <string name="update_update_available">มีเวอร์ชันใหม่พร้อมใช้งาน</string>
-    <string name="update_redirect_to_release">แตะเพื่อดาวน์โหลดเวอร์ชันล่าสุด</string>
-    <string name="update_changelog">บันทึกการเปลี่ยนแปลง</string>
-    <string name="update_install">ติดตั้ง</string>
-    <string name="update_reboot">รีบูต</string>
     <!-- Search -->
     <string name="search_bar_search_placeholder">ค้นหา</string>
     <!-- Functional Button -->
     <string name="functional_button_save">บันทึก</string>
-    <string name="functional_button_uninstall_webui">ถอนการติดตั้ง WebUI</string>
     <string name="functional_button_close">ปิด</string>
     <string name="functional_button_cancel">ยกเลิก</string>
     <string name="functional_button_confirm">ยืนยัน</string>
     <string name="functional_button_reset">รีเซ็ต</string>
-    <!-- Menu -->
-    <string name="menu_select_denylist">เลือกจาก DenyList</string>
-    <string name="menu_deselect_unnecessary">ยกเลิกการเลือกที่ไม่จำเป็น</string>
-    <string name="menu_add_system_app">เพิ่มแอประบบ (System App)</string>
-    <string name="menu_keybox_unknown">ไม่รู้จัก (Unknown)</string>
-    <string name="menu_keybox_local">ในเครื่อง</string>
-    <string name="menu_help">ช่วยเหลือ</string>
-    <string name="menu_language">ภาษา</string>
-    <string name="menu_about">เกี่ยวกับ</string>
-    <!-- Prop Dialog -->
-    <!-- About -->
-    <string name="about_module_name_line2">อัปเดตรายการเป้าหมาย</string>
-    <string name="about_by">โดย</string>
-    <string name="about_telegram_channel">ช่อง Telegram</string>
-    <string name="about_canary_update">อัปเดตเป็นเวอร์ชัน Canary ล่าสุด</string>
-    <string name="about_translation_update">อัปเดตชุดคำแปลภาษา</string>
-    <string name="about_disclaimer">โมดูลนี้ไม่ได้เป็นส่วนหนึ่งของโมดูล Tricky Store กรุณาอย่ารายงานปัญหาใดๆ ไปยัง Tricky Store หากพบข้อผิดพลาด</string>
-    <string name="about_acknowledgment">กิตติกรรมประกาศ</string>
     <!-- Prompt -->
     <string name="prompt_aosp_key_set">ตั้งค่า AOSP keybox สำเร็จแล้ว</string>
     <string name="prompt_key_set_error">อัปเดต keybox ไม่สำเร็จ</string>
     <string name="prompt_unknown_key_set">ตั้งค่า Unknown keybox สำเร็จแล้ว</string>
-    <string name="prompt_boot_hash_set">บันทึก Verified Boot Hash สำเร็จแล้ว</string>
-    <string name="prompt_boot_hash_set_error">อัปเดต Verified Boot Hash ไม่สำเร็จ</string>
-    <string name="prompt_save_error">บันทึกการตั้งค่าไม่สำเร็จ</string>
-    <string name="prompt_uninstall_prompt">WebUI จะถูกลบออกหลังจากรีบูต</string>
-    <string name="prompt_uninstall_failed">ถอนการติดตั้ง WebUI ไม่สำเร็จ</string>
-    <string name="prompt_checking_update">กำลังตรวจสอบการอัปเดต...</string>
-    <string name="prompt_new_update">มีการอัปเดตใหม่พร้อมใช้งาน!</string>
-    <string name="prompt_no_update">ขณะนี้ไม่มีการอัปเดตใหม่</string>
-    <string name="prompt_downloading">กำลังดาวน์โหลดอัปเดตใหม่...</string>
-    <string name="prompt_download_fail">ดาวน์โหลดอัปเดตไม่สำเร็จ</string>
-    <string name="prompt_installed">ติดตั้งสำเร็จแล้ว กรุณารีบูตระบบ</string>
-    <string name="prompt_install_fail">ติดตั้งไม่สำเร็จ โปรดอัปเดตด้วยตนเอง</string>
-    <string name="prompt_rebooting">กำลังรีบูต...</string>
-    <string name="prompt_reboot_fail">รีบูตไม่สำเร็จ โปรดรีบูตด้วยตนเอง</string>
-    <string name="prompt_translation_updated">อัปเดตชุดคำแปลสำเร็จแล้ว</string>
-    <string name="prompt_translation_update_failed">อัปเดตชุดคำแปลไม่สำเร็จ</string>
     <string name="prompt_custom_key_set">ตั้งค่า Custom keybox สำเร็จแล้ว</string>
     <string name="prompt_custom_key_set_error">ตั้งค่า Custom keybox ไม่สำเร็จ</string>
-    <!-- Security Patch -->
-    <string name="security_patch_invalid_all">รูปแบบไม่ถูกต้อง</string>
     <!-- Add System App -->
     <string name="add_system_app_title">เพิ่มแอประบบ</string>
     <!-- CustomKB Dialog -->
     <string name="customkb_remove_title">ยืนยันการลบ</string>
-    <!-- Uninstall confirmation -->
-    <string name="confirmation_uninstall_title">ยืนยันการถอนการติดตั้ง?</string>
-    <string name="confirmation_uninstall_message">คุณแน่ใจหรือไม่ว่าต้องการถอนการติดตั้ง Tricky Addon</string>
     <!-- Mode dialog -->
-    <string name="mode_dialog_title">โหมด</string>
-    <string name="mode_auto">อัตโนมัติ</string>
 </resources>

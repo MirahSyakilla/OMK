@@ -1,70 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="system_default">সিস্টেম পূর্ব-নির্ধারিত</string>
-    <string name="more_language">আরো</string>
-    <!-- Header -->
-    <!-- Help Menu-->
-    <string name="help_help_instructions">নির্দেশনা</string>
-    <string name="help_select_denylist">DenyList থেকে নির্বাচন করুন</string>
-    <string name="help_select_denylist_description">শুধুমাত্র Magisk এ উপলব্ধ, DenyList এ থাকা অ্যাপগুলি নির্বাচন করুন। সুপারিশকৃত।</string>
-    <string name="help_deselect_unnecessary">অপ্রয়োজনীয় নির্বাচন প্রত্যাহার করুন</string>
-    <string name="help_add_system_app">সিস্টেম অ্যাপ যোগ করুন</string>
-    <string name="help_add_system_app_description">অ্যাপ তালিকায় নির্দিষ্ট সিস্টেম অ্যাপ যোগ করুন।</string>
-    <!-- Update -->
-    <string name="update_update_available">একটি নতুন সংস্করণ প্রস্তুত</string>
-    <string name="update_redirect_to_release">সর্বশেষ সংস্করণ ডাউনলোড করতে ট্যাপ করুন</string>
-    <string name="update_changelog">পরিবর্তন তালিকা</string>
-    <string name="update_install">ইনস্টল করুন</string>
-    <string name="update_reboot">রিবুট</string>
     <!-- Search -->
     <string name="search_bar_search_placeholder">খুঁজুন</string>
     <!-- Functional Button -->
     <string name="functional_button_save">সেভ করুন</string>
-    <string name="functional_button_uninstall_webui">WebUI আনইনস্টল করুন</string>
     <string name="functional_button_cancel">ক্যানসেল করুন</string>
     <string name="functional_button_confirm">নিশ্চিত করুন</string>
     <string name="functional_button_reset">রিসেট</string>
-    <!-- Menu -->
-    <string name="menu_select_denylist">DenyList থেকে নির্বাচন করুন</string>
-    <string name="menu_deselect_unnecessary">অপ্রয়োজনীয় নির্বাচন প্রত্যাহার করুন</string>
-    <string name="menu_add_system_app">সিস্টেম অ্যাপ যোগ করুন</string>
-    <string name="menu_keybox_local">স্থানীয়</string>
-    <string name="menu_about">সম্পর্কে</string>
-    <!-- Prop Dialog -->
-    <!-- About -->
-    <string name="about_by">দ্বারা</string>
-    <string name="about_telegram_channel">টেলিগ্রাম চ্যানেল</string>
-    <string name="about_canary_update">সর্বশেষ canary সংস্করণে আপডেট করুন</string>
-    <string name="about_disclaimer">এই মডিউলটি Tricky Store মডিউলের অংশ নয়। সমস্যা হলে Tricky Store এ রিপোর্ট করবেন না।</string>
-    <string name="about_acknowledgment">কৃতজ্ঞতা স্বীকার</string>
     <!-- Prompt -->
     <string name="prompt_aosp_key_set">AOSP keybox সফলভাবে সেট হয়েছে</string>
     <string name="prompt_key_set_error">Keybox আপডেট করতে ব্যর্থ</string>
     <string name="prompt_unknown_key_set">Unknown keybox সফলভাবে সেট হয়েছে</string>
-    <string name="prompt_boot_hash_set">Verified Boot Hash সফলভাবে সেভ হয়েছে</string>
-    <string name="prompt_boot_hash_set_error">Verified Boot Hash আপডেট করতে ব্যর্থ</string>
-    <string name="prompt_save_error">কনফিগ সেভ করতে ব্যর্থ</string>
-    <string name="prompt_uninstall_prompt">রিবুটের পর WebUI সরানো হবে</string>
-    <string name="prompt_uninstall_failed">WebUI আনইনস্টল করতে ব্যর্থ</string>
-    <string name="prompt_checking_update">হালনাগাদের জন্য পরীক্ষা করা হচ্ছে...</string>
-    <string name="prompt_new_update">একটি নতুন আপডেট উপলব্ধ</string>
-    <string name="prompt_no_update">বর্তমানে কোন আপডেট উপলব্ধ নেই</string>
-    <string name="prompt_downloading">নতুন আপডেট ডাউনলোড হচ্ছে...</string>
-    <string name="prompt_download_fail">আপডেট ডাউনলোড করতে ব্যর্থ</string>
-    <string name="prompt_installed">সফলভাবে ইন্সটল হয়েছে, এখন রিবুট করুন।</string>
-    <string name="prompt_install_fail">ইন্সটল করতে ব্যর্থ, অনুগ্রহ করে ম্যানুয়ালি আপডেট করুন</string>
-    <string name="prompt_rebooting">রিবুট হচ্ছে...</string>
-    <string name="prompt_reboot_fail">রিবুট করতে ব্যর্থ, অনুগ্রহ করে ম্যানুয়ালি রিবুট করুন</string>
     <string name="prompt_custom_key_set">Custom keybox সফলভাবে সেট হয়েছে</string>
     <string name="prompt_custom_key_set_error">Custom keybox সেট করতে ব্যর্থ</string>
-    <!-- Security Patch -->
-    <string name="security_patch_invalid_all">অবৈধ ফর্ম্যাট</string>
     <!-- Add System App -->
     <string name="add_system_app_title">সিস্টেম অ্যাপ যোগ করুন</string>
     <!-- CustomKB Dialog -->
     <string name="customkb_remove_title">টেমপ্লেট সংরক্ষণ করো</string>
-    <!-- Uninstall confirmation -->
-    <string name="confirmation_uninstall_title">আনইনস্টল নিশ্চিত করুন?</string>
-    <string name="confirmation_uninstall_message">আপনি কি নিশ্চিত যে আপনি Tricky Addon আনইনস্টল করতে চান</string>
     <!-- Mode dialog -->
 </resources>

@@ -1,85 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="system_default">System Default</string>
-    <string name="more_language">Mais</string>
-    <!-- Header -->
-    <string name="header_title">Tricky Addon</string>
-    <!-- Help Menu-->
-    <string name="help_help_instructions">Instruções</string>
-    <string name="help_save_and_update_description">Salvar configuração atual.</string>
-    <string name="help_select_denylist">Selecione no DenyList</string>
-    <string name="help_select_denylist_description">Disponível apenas no Magisk, selecione aplicativos que estão no DenyList. Recomendado.</string>
-    <string name="help_deselect_unnecessary">Desmarque desnecessário</string>
-    <string name="help_add_system_app">Adicionar app do sistema</string>
-    <string name="help_add_system_app_description">Adicionar app do sistema específico à lista de aplicativos.</string>
-    <string name="help_set_keybox">Definir Keybox</string>
-    <string name="help_set_keybox_description">Substitua a keybox TrickyStore por:</string>
-    <!-- Update -->
-    <string name="update_update_available">Uma nova versão está Disponível</string>
-    <string name="update_redirect_to_release">Toque para baixar a versão mais recente</string>
-    <string name="update_changelog">Changelog</string>
-    <string name="update_install">Instalar</string>
-    <string name="update_reboot">Reiniciar</string>
-    <string name="update_channel">Canal de atualização</string>
-    <string name="update_channel_stable">Estável</string>
-    <string name="update_channel_canary">Canary</string>
-    <string name="update_channel_disable">Desativar</string>
     <!-- Search -->
     <string name="search_bar_search_placeholder">Buscar</string>
     <!-- Functional Button -->
     <string name="functional_button_save">Salvar</string>
-    <string name="functional_button_uninstall_webui">Desinstalar WebUI</string>
     <string name="functional_button_close">Fechar</string>
     <string name="functional_button_cancel">Cancelar</string>
     <string name="functional_button_confirm">Confirmar</string>
     <string name="functional_button_reset">Redefinir</string>
     <string name="functional_button_remove">Remover</string>
-    <string name="functional_button_today">Hoje</string>
-    <!-- Menu -->
-    <string name="menu_select_denylist">Selecione de denylist</string>
-    <string name="menu_deselect_unnecessary">Desmarcar desnecessário</string>
-    <string name="menu_add_system_app">Adicionar app do sistema</string>
-    <string name="menu_keybox">Keybox</string>
-    <string name="menu_keybox_aosp">AOSP</string>
-    <string name="menu_keybox_unknown">Desconhecido</string>
-    <string name="menu_keybox_local">Local</string>
-    <string name="menu_prop_setting">Configurações de Prop</string>
-    <string name="menu_help">Ajuda</string>
-    <string name="menu_language">Linguagem</string>
-    <string name="menu_about">Sobre</string>
-    <!-- Prop Dialog -->
-    <string name="prop_handler">Gerenciador de Prop</string>
-    <string name="boot_hash_title">Boot Hash</string>
-    <!-- About -->
-    <string name="about_module_name_line1">Tricky Addon</string>
-    <string name="about_module_name_line2">Atualizar lista de destino</string>
-    <string name="about_by">por</string>
-    <string name="about_telegram_channel">Canal do Telegram</string>
-    <string name="about_canary_update">Atualizado para última versão canária</string>
-    <string name="about_translation_update">Atualizar pacote de tradução</string>
-    <string name="about_disclaimer">Este módulo não faz parte do módulo Tricky Store. Não relate nenhum problema à Tricky Store, se encontrada.</string>
-    <string name="about_acknowledgment">Reconhecimento</string>
     <!-- Prompt -->
     <string name="prompt_aosp_key_set">AOSP keybox definida com sucesso</string>
     <string name="prompt_key_set_error">Falha ao atualizar o Keybox</string>
     <string name="prompt_unknown_key_set">Keybox desconhecido definido com sucesso</string>
-    <string name="prompt_boot_hash_set">Hash de Boot Verificado salvo com sucesso</string>
-    <string name="prompt_boot_hash_set_error">Falha ao atualizar Hash de Boot Verificado</string>
     <string name="prompt_saved_target">Configuração salva</string>
-    <string name="prompt_save_error">Falha ao salvar a configuração</string>
-    <string name="prompt_uninstall_prompt">WebUI será removido após a reinicialização</string>
-    <string name="prompt_uninstall_failed">Falhou em desinstalar WebUI</string>
-    <string name="prompt_checking_update">Procurando atualizações...</string>
-    <string name="prompt_new_update">Nova atualização está disponível!</string>
-    <string name="prompt_no_update">No momento não há atualizações disponíveis</string>
-    <string name="prompt_downloading">Baixando uma nova atualização ...</string>
-    <string name="prompt_download_fail">Falha ao baixar atualização</string>
-    <string name="prompt_installed">Instalado com sucesso, reinicie agora.</string>
-    <string name="prompt_install_fail">Falha ao instalar, atualize manualmente</string>
-    <string name="prompt_rebooting">Reiniciando...</string>
-    <string name="prompt_reboot_fail">Falha ao reiniciar, reinicie manualmente</string>
-    <string name="prompt_translation_updated">Pacote de tradução atualizado com sucesso</string>
-    <string name="prompt_translation_update_failed">Falha ao atualizar o pacote de tradução</string>
     <string name="prompt_custom_key_set">keybox custom definida com sucesso</string>
     <string name="prompt_custom_key_set_error">Falha ao definir keybox customizada</string>
     <string name="prompt_custom_saved">Entrada de custom keybox salva</string>
@@ -87,9 +21,6 @@
     <string name="prompt_custom_not_found">Nenhuma keybox personalizada encontrada</string>
     <string name="prompt_custom_invalid_script">Script não permitido</string>
     <string name="prompt_custom_removed">Entrada de custom keybox removido</string>
-    <!-- Security Patch -->
-    <string name="default_policy_title">Política Padrão</string>
-    <string name="security_patch_invalid_all">Formato inválido</string>
     <!-- Add System App -->
     <string name="add_system_app_title">Adicionar app do sistema</string>
     <!-- CustomKB Dialog -->
@@ -104,14 +35,5 @@
     <string name="customkb_remove_title">Confirmar Remoção?</string>
     <string name="customkb_remove_message">Remover este provedor de custom keybox?</string>
     <string name="customkb_reset_message">Redefinir provedores keybox personalizados?</string>
-    <!-- Uninstall confirmation -->
-    <string name="confirmation_uninstall_title">Confirmar desinstalar?</string>
-    <string name="confirmation_uninstall_message">Tem certeza que deseja desinstalar Tricky Addon</string>
     <!-- Mode dialog -->
-    <string name="mode_dialog_title">Modo</string>
-    <string name="mode_auto">Auto</string>
-    <string name="mode_certificate_generating">Geração de Certificados</string>
-    <string name="mode_leaf_hack">Hack Leaf</string>
-    <string name="mode_set_custom_policy">Definir Política Personalizada</string>
-    <string name="mode_use_default_policy">Usar Política Padrão</string>
 </resources>

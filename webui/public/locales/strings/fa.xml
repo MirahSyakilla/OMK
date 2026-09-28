@@ -1,70 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="system_default">پیش فرض سیستم</string>
-    <string name="more_language">بیشتر</string>
-    <!-- Header -->
-    <!-- Help Menu-->
-    <string name="help_help_instructions">راهنما</string>
-    <string name="help_select_denylist">انتخاب از DenyList</string>
-    <string name="help_select_denylist_description">فقط در Magisk موجود است، برنامه‌هایی که در DenyList هستند را انتخاب کنید. توصیه شده.</string>
-    <string name="help_deselect_unnecessary">لغو انتخاب غیرضروری</string>
-    <string name="help_add_system_app">افزودن برنامه سیستمی</string>
-    <string name="help_add_system_app_description">برنامه سیستمی خاص را به لیست برنامه‌ها اضافه کنید.</string>
-    <!-- Update -->
-    <string name="update_update_available">نسخه جدید آماده است</string>
-    <string name="update_redirect_to_release">برای دانلود آخرین نسخه ضربه بزنید</string>
-    <string name="update_changelog">تاریخچه تغییرات</string>
-    <string name="update_install">نصب</string>
-    <string name="update_reboot">راه‌اندازی مجدد</string>
     <!-- Search -->
     <string name="search_bar_search_placeholder">جُستجو</string>
     <!-- Functional Button -->
     <string name="functional_button_save">ذخیره</string>
-    <string name="functional_button_uninstall_webui">حذف WebUI</string>
     <string name="functional_button_cancel">لغو</string>
     <string name="functional_button_confirm">تایید</string>
     <string name="functional_button_reset">بازنشانی</string>
-    <!-- Menu -->
-    <string name="menu_select_denylist">انتخاب از DenyList</string>
-    <string name="menu_deselect_unnecessary">لغو انتخاب غیرضروری</string>
-    <string name="menu_add_system_app">افزودن برنامه سیستمی</string>
-    <string name="menu_keybox_local">محلی</string>
-    <string name="menu_about">درباره</string>
-    <!-- Prop Dialog -->
-    <!-- About -->
-    <string name="about_by">از</string>
-    <string name="about_telegram_channel">کانال تلگرام</string>
-    <string name="about_canary_update">به‌روزرسانی به آخرین نسخه canary</string>
-    <string name="about_disclaimer">این ماژول بخشی از ماژول Tricky Store نیست. در صورت بروز مشکل، به Tricky Store گزارش ندهید.</string>
-    <string name="about_acknowledgment">تقدیر و تشکر</string>
     <!-- Prompt -->
     <string name="prompt_aosp_key_set">AOSP keybox با موفقیت تنظیم شد</string>
     <string name="prompt_key_set_error">به‌روزرسانی keybox ناموفق بود</string>
     <string name="prompt_unknown_key_set">Unknown keybox با موفقیت تنظیم شد</string>
-    <string name="prompt_boot_hash_set">Verified Boot Hash با موفقیت ذخیره شد</string>
-    <string name="prompt_boot_hash_set_error">به‌روزرسانی Verified Boot Hash ناموفق بود</string>
-    <string name="prompt_save_error">ذخیره پیکربندی ناموفق بود</string>
-    <string name="prompt_uninstall_prompt">WebUI پس از راه‌اندازی مجدد حذف خواهد شد</string>
-    <string name="prompt_uninstall_failed">حذف WebUI ناموفق بود</string>
-    <string name="prompt_checking_update">بررسی به روز رسانی...</string>
-    <string name="prompt_new_update">یک بروزرسانی جدید دردسترس می‌باشد!</string>
-    <string name="prompt_no_update">در حال حاضر هیچ به‌روزرسانی موجود نیست</string>
-    <string name="prompt_downloading">دانلود به‌روزرسانی جدید...</string>
-    <string name="prompt_download_fail">به روزرسانی بارگیری نشد</string>
-    <string name="prompt_installed">با موفقیت نصب شد، اکنون راه‌اندازی مجدد کنید.</string>
-    <string name="prompt_install_fail">نصب ناموفق بود، لطفاً به صورت دستی به‌روزرسانی کنید</string>
-    <string name="prompt_rebooting">در حال راه اندازی مجدد…</string>
-    <string name="prompt_reboot_fail">راه‌اندازی مجدد ناموفق بود، لطفاً به صورت دستی راه‌اندازی مجدد کنید</string>
     <string name="prompt_custom_key_set">Custom keybox با موفقیت تنظیم شد</string>
     <string name="prompt_custom_key_set_error">تنظیم Custom keybox ناموفق بود</string>
-    <!-- Security Patch -->
-    <string name="security_patch_invalid_all">قالب نامعتبر</string>
     <!-- Add System App -->
     <string name="add_system_app_title">افزودن برنامه سیستمی</string>
     <!-- CustomKB Dialog -->
     <string name="customkb_remove_title">تایید حذف</string>
-    <!-- Uninstall confirmation -->
-    <string name="confirmation_uninstall_title">تأیید حذف؟</string>
-    <string name="confirmation_uninstall_message">آیا مطمئن هستید که می‌خواهید Tricky Addon را حذف کنید</string>
     <!-- Mode dialog -->
 </resources>

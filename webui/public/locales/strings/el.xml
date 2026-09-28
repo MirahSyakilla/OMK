@@ -1,70 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="system_default">Προεπιλογή Συστήματος</string>
-    <!-- Header -->
-    <string name="header_title">Tricky Addon</string>
-    <!-- Help Menu-->
-    <string name="help_help_instructions">Οδηγίες</string>
-    <string name="help_select_denylist">Επίλεξε από DenyList</string>
-    <string name="help_select_denylist_description">Διαθέσιμο μόνο στο Magisk, επίλεξε εφαρμογές που είναι στη DenyList. Συνιστάται.</string>
-    <string name="help_deselect_unnecessary">Αποεπίλεξε άχρηστα</string>
-    <string name="help_add_system_app">Πρόσθεσε Εφαρμογή Συστήματος</string>
-    <string name="help_add_system_app_description">Πρόσθεσε συγκεκριμένη εφαρμογή συστήματος στη λίστα εφαρμογών.</string>
-    <!-- Update -->
-    <string name="update_update_available">Μια νέα έκδοση είναι έτοιμη</string>
-    <string name="update_redirect_to_release">πάτησε για να κατεβάσεις την τελευταία έκδοση</string>
-    <string name="update_changelog">Αλλαγές</string>
-    <string name="update_install">Εγκατάσταση</string>
-    <string name="update_reboot">Επανεκκίνηση</string>
     <!-- Search -->
     <string name="search_bar_search_placeholder">Αναζήτηση</string>
     <!-- Functional Button -->
     <string name="functional_button_save">Αποθήκευση</string>
-    <string name="functional_button_uninstall_webui">Απεγκατάσταση WebUI</string>
     <string name="functional_button_cancel">Άκυρο</string>
     <string name="functional_button_confirm">Επιβεβαίωση</string>
     <string name="functional_button_reset">Επαναφορά</string>
-    <!-- Menu -->
-    <string name="menu_select_denylist">Επίλεξε από DenyList</string>
-    <string name="menu_deselect_unnecessary">Αποεπίλεξε Άχρηστα</string>
-    <string name="menu_add_system_app">Πρόσθεσε Εφαρμογή Συστήματος</string>
-    <string name="menu_keybox_local">Τοπικά</string>
-    <string name="menu_about">Σχετικά</string>
-    <!-- Prop Dialog -->
-    <string name="boot_hash_title">Boot Hash</string>
-    <!-- About -->
-    <string name="about_module_name_line1">Tricky Addon</string>
-    <string name="about_module_name_line2">Ενημέρωση Λίστας Στόχων</string>
-    <string name="about_by">από</string>
-    <string name="about_telegram_channel">Κανάλι Telegram</string>
-    <string name="about_disclaimer">Αυτό το module δεν είναι μέρος του Tricky Store module. ΜΗΝ αναφέρετε προβλήματα στο Tricky Store αν προκύψουν.</string>
-    <string name="about_acknowledgment">Ευχαριστίες</string>
     <!-- Prompt -->
     <string name="prompt_aosp_key_set">Το AOSP keybox ορίστηκε με επιτυχία</string>
     <string name="prompt_key_set_error">Αποτυχία ενημέρωσης keybox</string>
     <string name="prompt_unknown_key_set">Το Unknown keybox ορίστηκε με επιτυχία</string>
-    <string name="prompt_boot_hash_set">Το Verified Boot Hash αποθηκεύτηκε με επιτυχία</string>
-    <string name="prompt_boot_hash_set_error">Αποτυχία ενημέρωσης Verified Boot Hash</string>
-    <string name="prompt_save_error">Αποτυχία αποθήκευσης ρύθμισης</string>
-    <string name="prompt_uninstall_prompt">Το WebUI θα αφαιρεθεί μετά την επανεκκίνηση</string>
-    <string name="prompt_uninstall_failed">Αποτυχία απεγκατάστασης WebUI</string>
-    <string name="prompt_new_update">Υπάρχει νέα ενημέρωση!</string>
-    <string name="prompt_downloading">Κατεβάζω νέα ενημέρωση...</string>
-    <string name="prompt_download_fail">Αποτυχία λήψης ενημέρωσης</string>
-    <string name="prompt_installed">Εγκαταστάθηκε με επιτυχία, επανεκκίνηση τώρα.</string>
-    <string name="prompt_install_fail">Αποτυχία εγκατάστασης, κάνε ενημέρωση χειροκίνητα</string>
-    <string name="prompt_rebooting">Επανεκκίνηση...</string>
-    <string name="prompt_reboot_fail">Αποτυχία επανεκκίνησης, κάνε επανεκκίνηση χειροκίνητα</string>
     <string name="prompt_custom_key_set">Το Custom keybox ορίστηκε με επιτυχία</string>
     <string name="prompt_custom_key_set_error">Αποτυχία ορισμού custom keybox</string>
-    <!-- Security Patch -->
-    <string name="security_patch_invalid_all">Μη έγκυρη μορφή</string>
     <!-- Add System App -->
     <string name="add_system_app_title">Πρόσθεσε Εφαρμογή Συστήματος</string>
     <!-- CustomKB Dialog -->
     <string name="customkb_remove_title">Επιβεβαίωση Αφαίρεσης?</string>
-    <!-- Uninstall confirmation -->
-    <string name="confirmation_uninstall_title">Επιβεβαίωση Απεγκατάστασης;</string>
-    <string name="confirmation_uninstall_message">Είσαι σίγουρος ότι θέλεις να απεγκαταστήσεις το Tricky Addon;</string>
     <!-- Mode dialog -->
 </resources>
