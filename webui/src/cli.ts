@@ -3,6 +3,18 @@ import { File } from './file'
 import { GITHUB_REPO, KEYBOX_ALWAYSSTRONG_URL, MOD_ID } from './constant'
 
 const FLASH_REFERER = 'https://flash.android.com'
+
+/// Busybox binaries shipped by root solutions, in the order they are tried.
+///
+/// KernelSU and Magisk do not put busybox on `PATH`, so the applet has to be
+/// invoked by absolute path. Kept in sync with `BUSYBOX_PATHS` in
+/// `src/fingerprint_template.rs`.
+const BUSYBOX_PATHS = [
+  '/data/adb/ksu/bin/busybox',
+  '/data/adb/magisk/busybox',
+  '/data/adb/magisk/.busybox',
+  '/apex/com.android.externaltools/bin/busybox',
+]
 const FLASHSTATION_KEY_FALLBACK = 'AIzaSyD-bwHpMvFCN3PfRN4Txsw_ECg_iptNfMQ'
 
 export interface FlashBuild {
@@ -207,6 +219,15 @@ export class Cli {
     const wgetHeaders = headers
       ? Object.entries(headers).map(([key, value]) => `--header='${key}: ${value}'`).join(' ')
       : ''
+    // busybox wget is the dependable fallback: root solutions always ship it,
+    // and it takes the same --header syntax, so the Referer the Flash Station
+    // API requires survives. None of these are on PATH, hence absolute paths.
+    const busybox = (
+      await Promise.all(
+        BUSYBOX_PATHS.map(async (path) => ((await exec(`[ -x "${path}" ]`)).errno === 0 ? path : null)),
+      )
+    ).filter((path): path is string => path !== null)
+
     for (const url of urls) {
       try {
         const response = await fetch(url, headers ? { headers } : undefined)
@@ -218,10 +239,19 @@ export class Cli {
         // try curl next, then remaining URLs
       }
       const quoted = url.replace(/'/g, `'\\''`)
-      const result = await exec(
-        `curl -fsSL ${curlHeaders} --connect-timeout 10 --max-time 30 '${quoted}' 2>/dev/null || wget -q -T 20 ${wgetHeaders} -O - '${quoted}'`,
-      )
-      if (result.errno === 0 && result.stdout.trim()) return result.stdout
+      const attempts = [
+        `curl -fsSL ${curlHeaders} --connect-timeout 10 --max-time 30 '${quoted}' 2>/dev/null`,
+        `wget -q -T 20 ${wgetHeaders} -O - '${quoted}'`,
+        // Skip the applet when the binary is absent rather than letting the
+        // shell report a confusing "not found" for each one.
+        ...busybox.map(
+          (path) => `${path} wget -q -T 20 ${wgetHeaders} -O - '${quoted}' 2>/dev/null`,
+        ),
+      ]
+      for (const attempt of attempts) {
+        const result = await exec(attempt)
+        if (result.errno === 0 && result.stdout.trim()) return result.stdout
+      }
     }
     throw new Error('fingerprint fetch failed')
   }

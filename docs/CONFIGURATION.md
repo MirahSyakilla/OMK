@@ -913,8 +913,21 @@ matches what is already on disk, nothing is written at all. Any failure is
 logged and retried on the next poll, and is otherwise harmless: this maintains a
 convenience list and nothing depends on it being current.
 
-It requires `curl` or `wget` on the device, the same requirement as the manual
-`Fetch Latest` button. Without either, the refresh logs a warning and the
+It needs an HTTP client that can send a `Referer` header, which the Flash
+Station API requires and answers 403 without. Three clients are tried in order,
+and the manual `Fetch Latest` button uses the same three:
+
+| Client | Path |
+|---|---|
+| curl | `PATH` |
+| wget | `PATH` |
+| busybox wget | `/data/adb/ksu/bin/busybox`, `/data/adb/magisk/busybox`, `/data/adb/magisk/.busybox`, `/apex/com.android.externaltools/bin/busybox` |
+
+The busybox paths are the practical fallback on a rooted device, since neither
+KernelSU nor Magisk puts busybox on `PATH` and the applet has to be called by
+absolute path. busybox wget accepts the same `--header` syntax, so the fetch is
+equivalent rather than a degraded path that would only work for the API key
+lookup. If none of the three is usable, the refresh logs a warning and the
 bundled template keeps serving the picker.
 
 Upstream sometimes stops advertising a build that a previous fetch recorded.

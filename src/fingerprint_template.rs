@@ -506,12 +506,32 @@ fn leading_android_number(track: &str) -> Option<u8> {
     digits.parse().ok()
 }
 
-/// GET a URL, preferring curl and falling back to wget.
+/// Busybox binaries that ship with root solutions.
 ///
-/// Matches what the WebUI does, so the refresh fails the same way the manual
-/// Fetch Latest button fails rather than introducing a second kind of failure.
+/// Neither root manager puts busybox on `PATH`, so the applet has to be invoked
+/// by absolute path. KernelSU keeps it under `/data/adb/ksu/bin`, Magisk under
+/// `/data/adb/magisk`, and stock Android has one in an APEX mount.
+const BUSYBOX_PATHS: &[&str] = &[
+    "/data/adb/ksu/bin/busybox",
+    "/data/adb/magisk/busybox",
+    "/data/adb/magisk/.busybox",
+    "/apex/com.android.externaltools/bin/busybox",
+];
+
+/// GET a URL, trying every client likely to exist on a rooted device.
+///
+/// The order is cheapest-and-most-likely first, and the WebUI uses the same one,
+/// so an automatic refresh fails in the same circumstances as the manual
+/// Fetch Latest button rather than introducing a second kind of failure.
+///
+/// The `Referer` header is not optional for the Flash Station API; it answers 403
+/// without one. Every client here can set it, busybox included, via
+/// `--header`/`-H`, so the fallback is genuinely equivalent rather than a
+/// degraded path that would only work for the API key lookup.
 fn http_get(url: &str, referer: Option<&str>) -> Result<String> {
     let referer = referer.unwrap_or_default();
+    let mut attempts: Vec<Command> = Vec::new();
+
     let mut curl = Command::new("curl");
     curl.args([
         "-fsSL",
@@ -524,10 +544,7 @@ fn http_get(url: &str, referer: Option<&str>) -> Result<String> {
         curl.args(["-H", &format!("Referer: {referer}")]);
     }
     curl.arg(url);
-
-    if let Some(body) = run_capture(&mut curl) {
-        return Ok(body);
-    }
+    attempts.push(curl);
 
     let mut wget = Command::new("wget");
     wget.args(["-q", "-T", HTTP_TIMEOUT_SECS, "-O", "-"]);
@@ -535,13 +552,33 @@ fn http_get(url: &str, referer: Option<&str>) -> Result<String> {
         wget.arg(format!("--header=Referer: {referer}"));
     }
     wget.arg(url);
+    attempts.push(wget);
 
-    match run_capture(&mut wget) {
-        Some(body) => Ok(body),
-        None => Err(anyhow!(
-            "neither curl nor wget could fetch {url}; is one installed?"
-        )),
+    // busybox wget is the reliable fallback: root solutions always ship it, and
+    // it accepts the same header syntax. Missing paths are simply skipped.
+    for busybox in BUSYBOX_PATHS {
+        if !Path::new(busybox).exists() {
+            continue;
+        }
+        let mut applet = Command::new(busybox);
+        applet.arg("wget");
+        applet.args(["-q", "-T", HTTP_TIMEOUT_SECS, "-O", "-"]);
+        if !referer.is_empty() {
+            applet.arg(format!("--header=Referer: {referer}"));
+        }
+        applet.arg(url);
+        attempts.push(applet);
     }
+
+    for mut attempt in attempts {
+        if let Some(body) = run_capture(&mut attempt) {
+            return Ok(body);
+        }
+    }
+
+    Err(anyhow!(
+        "no usable HTTP client for {url}; tried curl, wget, and busybox wget"
+    ))
 }
 
 fn run_capture(command: &mut Command) -> Option<String> {
