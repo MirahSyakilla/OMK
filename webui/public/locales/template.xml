@@ -117,7 +117,7 @@
     <string name="settings_intercept_title">Intercept Matrix</string>
     <string name="settings_device_title">Device Properties</string>
     <string name="settings_crypto_title">Crypto Seeds</string>
-    <string name="settings_crypto_sub">Root KEK, KAK & HMAC seeds</string>
+    <string name="settings_crypto_sub">Root KEK, KAK &amp; HMAC seeds</string>
     <string name="settings_hat_enabled">Biometric HAT verification bypass enabled</string>
     <string name="settings_hat_disabled">Biometric HAT verification bypass disabled</string>
     <string name="settings_save_failed">Failed to save setting</string>
@@ -170,7 +170,7 @@
     <string name="integrity_spoof_vending_desc">Provide fingerprint to com.android.vending</string>
     <string name="integrity_unify_props_desc">Apply resetprop -n across ro.product.*</string>
     <string name="integrity_sync_patch_desc">Synchronize security patch date with KeyMint trust</string>
-    <string name="integrity_master_switch">Master switch for property overrides & spoofing</string>
+    <string name="integrity_master_switch">Master switch for property overrides &amp; spoofing</string>
     <string name="integrity_detecting_zygisk">Detecting Zygisk...</string>
     <string name="integrity_soter_desc">Enable WeChat/Tencent biometric key attestation spoof</string>
     <string name="integrity_apply_toml">Apply brand, model, product to config.toml</string>
@@ -191,7 +191,7 @@
     <string name="keybox_no_slots">No keybox slots found.</string>
     <string name="keybox_no_certs">No certificates found</string>
     <string name="keybox_import_generate">Import from file, generate, or choose presets</string>
-    <string name="keybox_source_aosp_remote">AOSP & Remote</string>
+    <string name="keybox_source_aosp_remote">AOSP &amp; Remote</string>
     <string name="keybox_source_aosp_test">AOSP Test Key</string>
     <string name="keybox_source_custom">Custom</string>
     <string name="keybox_source_remote">Remote</string>
