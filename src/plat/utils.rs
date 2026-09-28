@@ -1,5 +1,7 @@
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Instant;
 
 use der::asn1::SetOfVec;
 use der::Encode;
@@ -22,6 +24,22 @@ use crate::keymaster::utils::get_interface_once;
 
 thread_local! {
     static PM: Mutex<Option<rsbinder::Strong<dyn IKeyAttestationApplicationIdProvider>>> = Mutex::new(None);
+}
+
+/// How long a resolved application id is reused for the same uid.
+///
+/// The uid to application identity mapping only changes when the app is
+/// updated, but a permanent cache would keep serving the old signing
+/// certificate afterwards, so entries expire. The window is short because the
+/// only thing this needs to do is collapse a burst: an attestation run issues
+/// hundreds of keystore calls for one uid in a few seconds, and each one
+/// otherwise costs a binder round trip to the attestation provider.
+const AAID_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(30);
+
+static AAID_CACHE: OnceLock<Mutex<BTreeMap<u32, (Instant, Vec<u8>)>>> = OnceLock::new();
+
+fn aaid_cache() -> &'static Mutex<BTreeMap<u32, (Instant, Vec<u8>)>> {
+    AAID_CACHE.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
 const KEYSTORE_SERVICE: &str = "android.system.keystore2.IKeystoreService/default";
@@ -140,6 +158,13 @@ pub fn get_keystore_service() -> anyhow::Result<rsbinder::Strong<dyn IKeystoreSe
 }
 
 pub fn get_aaid(uid: u32) -> anyhow::Result<Vec<u8>> {
+    // Cached first. This is on the path of every key operation that attests, and
+    // an attestation run makes enough of them that resolving each one separately
+    // was enough latency to push a caller's own timeouts.
+    if let Some(cached) = cached_aaid(uid) {
+        debug!("resolved AAID uid={uid} from cache");
+        return Ok(cached);
+    }
     debug!("resolving AAID uid={}", uid);
     let application_id = if (uid == 0) || (uid == 1000) {
         let info = KeyAttestationPackageInfo {
@@ -156,7 +181,28 @@ pub fn get_aaid(uid: u32) -> anyhow::Result<Vec<u8>> {
 
     debug!("resolved application_id={:?}", application_id);
 
-    encode_application_id(application_id)
+    let encoded = encode_application_id(application_id)?;
+    store_aaid(uid, &encoded);
+    Ok(encoded)
+}
+
+fn cached_aaid(uid: u32) -> Option<Vec<u8>> {
+    let mut cache = aaid_cache().lock().ok()?;
+    let (at, value) = cache.get(&uid)?;
+    if at.elapsed() >= AAID_CACHE_TTL {
+        cache.remove(&uid);
+        return None;
+    }
+    Some(value.clone())
+}
+
+fn store_aaid(uid: u32, value: &[u8]) {
+    if let Ok(mut cache) = aaid_cache().lock() {
+        // Drop expired entries on write so the map cannot grow without bound for
+        // a device that churns through many uids.
+        cache.retain(|_, (at, _)| at.elapsed() < AAID_CACHE_TTL);
+        cache.insert(uid, (Instant::now(), value.to_vec()));
+    }
 }
 
 fn get_application_id_from_provider(uid: u32) -> anyhow::Result<KeyAttestationApplicationId> {
