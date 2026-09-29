@@ -239,6 +239,29 @@ fn brene_owns_os_security_patch() -> bool {
         .any(|dir| brene_module_owns_os_security_patch(Path::new(dir)))
 }
 
+/// BRENE's persistent configuration directory.
+///
+/// Every BRENE script sources `${PERSISTENT_DIR}/config.sh`, and that is where its
+/// UI writes changes. The module directory's `config.sh` is only the shipped
+/// default.
+const BRENE_PERSISTENT_DIR: &str = "/data/adb/brene";
+const BRENE_MODULE_DIRS: &[&str] = &["/data/adb/modules/brene", "/data/adb/modules/BRENE"];
+
+/// BRENE's real toggle names, all of which are `config_`-prefixed. Matching a bare
+/// `spoof_date_properties` can never succeed: BRENE writes
+/// `config_spoof_date_properties`.
+const BRENE_BUILD_IDENTITY_FLAGS: &[&str] = &[
+    "config_build_identity_spoof",
+    "config_spoof_date_properties",
+    "config_spoof_utc_properties",
+];
+
+/// The date half of [`BRENE_BUILD_IDENTITY_FLAGS`].
+const BRENE_DATE_FLAGS: &[&str] = &[
+    "config_spoof_date_properties",
+    "config_spoof_utc_properties",
+];
+
 /// Whether BRENE already rewrites the build identity properties this module
 /// would otherwise clean up under `trust.attempt_prop_fix`.
 ///
@@ -247,19 +270,60 @@ fn brene_owns_os_security_patch() -> bool {
 /// out of those properties entirely: two writers would race at boot and the
 /// surviving value would depend on ordering.
 fn brene_owns_build_identity() -> bool {
-    const BRENE_FLAGS: &[&str] = &["config_build_identity_spoof", "spoof_date_properties"];
-    ["/data/adb/modules/brene", "/data/adb/modules/BRENE"]
-        .into_iter()
-        .any(|dir| {
-            let dir = Path::new(dir);
-            if dir.join("disable").exists() || dir.join("remove").exists() {
-                return false;
-            }
-            let Ok(text) = std::fs::read_to_string(dir.join("config.sh")) else {
-                return false;
-            };
-            brene_config_enables_any(&text, BRENE_FLAGS)
-        })
+    BRENE_MODULE_DIRS.iter().any(|dir| {
+        let dir = Path::new(dir);
+        if !brene_module_active(dir) {
+            return false;
+        }
+        brene_config_enables_any_at(dir, &brene_persistent_config(), BRENE_BUILD_IDENTITY_FLAGS)
+    })
+}
+
+/// Whether BRENE rewrites the build date and incremental properties.
+///
+/// `config_build_identity_spoof` rewrites the fingerprints and the build
+/// description but leaves the dates to the toggles below, so it is deliberately
+/// not part of this set: it is not a collision on the date properties.
+fn brene_owns_build_dates() -> bool {
+    BRENE_MODULE_DIRS.iter().any(|dir| {
+        let dir = Path::new(dir);
+        if !brene_module_active(dir) {
+            return false;
+        }
+        brene_config_enables_any_at(dir, &brene_persistent_config(), BRENE_DATE_FLAGS)
+    })
+}
+
+fn brene_persistent_config() -> PathBuf {
+    Path::new(BRENE_PERSISTENT_DIR).join("config.sh")
+}
+
+fn brene_module_active(module_dir: &Path) -> bool {
+    !module_dir.join("disable").exists() && !module_dir.join("remove").exists()
+}
+
+/// Whether BRENE enables any of `flags`, reading the persistent config as well as
+/// the module default.
+///
+/// The two can disagree, and the persistent one is the live one: a user who flips a
+/// toggle in BRENE's own UI leaves the shipped default untouched, so a gate
+/// reading only the default sees an off switch and writes properties BRENE is
+/// already writing.
+fn brene_config_enables_any_at(
+    module_dir: &Path,
+    persistent_config: &Path,
+    flags: &[&str],
+) -> bool {
+    [
+        module_dir.join("config.sh"),
+        persistent_config.to_path_buf(),
+    ]
+    .iter()
+    .any(|config| {
+        std::fs::read_to_string(config)
+            .map(|text| brene_config_enables_any(&text, flags))
+            .unwrap_or(false)
+    })
 }
 
 /// Whether `text` sets any of `keys` to `1`, ignoring comments and quoting.
@@ -753,6 +817,14 @@ fn incremental_from_build_date(build_date: &BuildDate) -> String {
 }
 
 fn sync_build_date_props(security_patch: &str) -> Result<()> {
+    // BRENE derives the incremental from the same patch level and rewrites the
+    // fingerprints from the incremental afterwards, so writing the dates here
+    // changes which epoch it stamps in. Two writers on one value means the boot
+    // order decides what survives.
+    if brene_owns_build_dates() {
+        log::info!("leaving build dates unchanged because BRENE owns the build date properties");
+        return Ok(());
+    }
     let Some(build_date) = build_date_from_patch(security_patch) else {
         log::warn!(
             "leaving build dates unchanged because {security_patch} is not a YYYY-MM-DD patch level"
@@ -1467,7 +1539,11 @@ mod tests {
 
     #[test]
     fn brene_build_identity_flags_are_detected_without_false_positives() {
-        for key in ["config_build_identity_spoof", "spoof_date_properties"] {
+        for key in [
+            "config_build_identity_spoof",
+            "config_spoof_date_properties",
+            "config_spoof_utc_properties",
+        ] {
             assert!(brene_config_enables_any(&format!("{key}=1\n"), &[key]));
             assert!(brene_config_enables_any(
                 &format!("  {key} = \"1\"  # spoof\n"),
@@ -1486,8 +1562,92 @@ mod tests {
         ));
         assert!(!brene_config_enables_any(
             "no_equals_sign\n",
-            &["spoof_date_properties"]
+            &["config_spoof_date_properties"]
         ));
+    }
+
+    /// Builds a throwaway module dir and a throwaway persistent config path.
+    fn brene_test_dirs(tag: &str) -> (PathBuf, PathBuf) {
+        let root = std::env::temp_dir().join(format!(
+            "omk-brene-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let module = root.join("modules/brene");
+        std::fs::create_dir_all(&module).unwrap();
+        let persistent = root.join("brene/config.sh");
+        std::fs::create_dir_all(persistent.parent().unwrap()).unwrap();
+        (module, persistent)
+    }
+
+    /// The gate has to see the persistent config, because that is the file BRENE
+    /// sources at runtime. A gate reading only the module default sees the shipped
+    /// `=0` toggles and concludes BRENE is idle while it is rewriting the date and
+    /// incremental properties, which is how two writers ended up on one value.
+    #[test]
+    fn brene_gate_sees_a_persistent_config_the_module_default_disagrees_with() {
+        let (module, persistent) = brene_test_dirs("persistent");
+        std::fs::write(
+            module.join("config.sh"),
+            "config_build_identity_spoof=0\nconfig_spoof_date_properties=0\nconfig_spoof_utc_properties=0\n",
+        )
+        .unwrap();
+        assert!(
+            !brene_config_enables_any_at(&module, &persistent, BRENE_BUILD_IDENTITY_FLAGS),
+            "the shipped default alone must not claim ownership"
+        );
+
+        // The user turns date spoofing on in BRENE's own UI, which writes only the
+        // persistent config and leaves the default at 0.
+        std::fs::write(&persistent, "config_spoof_date_properties=1\n").unwrap();
+        assert!(
+            brene_config_enables_any_at(&module, &persistent, BRENE_BUILD_IDENTITY_FLAGS),
+            "a persistent config must be enough to claim ownership"
+        );
+        assert!(brene_config_enables_any_at(
+            &module,
+            &persistent,
+            BRENE_DATE_FLAGS
+        ));
+
+        // Identity spoofing on its own is not a collision on the date properties.
+        std::fs::write(&persistent, "config_build_identity_spoof=1\n").unwrap();
+        assert!(brene_config_enables_any_at(
+            &module,
+            &persistent,
+            BRENE_BUILD_IDENTITY_FLAGS
+        ));
+        assert!(
+            !brene_config_enables_any_at(&module, &persistent, BRENE_DATE_FLAGS),
+            "fingerprint spoofing alone must not stand this module down on dates"
+        );
+
+        let _ = std::fs::remove_dir_all(module.parent().unwrap().parent().unwrap());
+    }
+
+    /// A disabled or removed module must not keep a stale persistent config in play.
+    #[test]
+    fn brene_gate_ignores_a_persistent_config_for_a_disabled_module() {
+        for marker in ["disable", "remove"] {
+            let (module, persistent) = brene_test_dirs(marker);
+            std::fs::write(&persistent, "config_spoof_date_properties=1\n").unwrap();
+            std::fs::write(module.join("config.sh"), "config_spoof_date_properties=1\n").unwrap();
+            assert!(brene_module_active(&module));
+            assert!(
+                brene_config_enables_any_at(&module, &persistent, BRENE_DATE_FLAGS),
+                "an active module with the toggle on is owned"
+            );
+
+            std::fs::write(module.join(marker), "").unwrap();
+            assert!(
+                !brene_module_active(&module),
+                "{marker} must take the module out of play"
+            );
+            let _ = std::fs::remove_dir_all(module.parent().unwrap().parent().unwrap());
+        }
     }
 
     #[test]
